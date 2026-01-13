@@ -1,0 +1,25 @@
+.DS_Store
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+.venv/
+venv/
+
+# Node / TS
+node_modules/
+pnpm-lock.yaml
+yarn.lock
+npm-debug.log*
+
+# Editors
+.vscode/
+.idea/
+

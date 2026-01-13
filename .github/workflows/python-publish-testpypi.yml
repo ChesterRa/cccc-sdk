@@ -1,0 +1,65 @@
+name: python-publish-testpypi
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*rc*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate version (pre-release)
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("python/pyproject.toml").read_text("utf-8"))["project"]["version"]
+          if "rc" not in version:
+            print("error: TestPyPI publish is for pre-releases only (version must contain 'rc')", file=sys.stderr)
+            sys.exit(2)
+
+          ref = os.environ.get("GITHUB_REF", "")
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
+          if ref.startswith("refs/tags/"):
+            tag = ref_name
+            expected = tag[1:] if tag.startswith("v") else tag
+            if version != expected:
+              print(f"error: python/pyproject.toml version {version} != tag {expected}", file=sys.stderr)
+              sys.exit(2)
+          PY
+
+      - name: Install (editable) + build tooling
+        run: |
+          python -m pip install -U pip build
+          python -m pip install -e python
+
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s python/tests -p "test_*.py" -v
+
+      - name: Build (sdist/wheel)
+        working-directory: python
+        run: |
+          python -m build
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: python/dist
+          skip-existing: true

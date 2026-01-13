@@ -1,0 +1,42 @@
+name: python-integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      cccc_ref:
+        description: "CCCC repo ref (branch/tag/sha) to test against"
+        required: true
+        default: "main"
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout cccc-sdk
+        uses: actions/checkout@v4
+
+      - name: Checkout cccc (daemon)
+        uses: actions/checkout@v4
+        with:
+          repository: ChesterRa/cccc
+          ref: ${{ inputs.cccc_ref }}
+          path: cccc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cccc + cccc-sdk (editable)
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e cccc
+          python -m pip install -e python
+
+      - name: Smoke (daemon + sdk)
+        run: |
+          export CCCC_HOME="$PWD/.tmp_cccc_home"
+          cccc daemon start
+          python python/examples/compat_check.py
+          cccc daemon stop
+
