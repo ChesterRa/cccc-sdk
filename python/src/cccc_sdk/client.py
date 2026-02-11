@@ -126,6 +126,61 @@ class CCCCClient:
     def group_settings_update(self, *, group_id: str, patch: Dict[str, Any], by: str = "user") -> Dict[str, Any]:
         return self.call("group_settings_update", {"group_id": str(group_id), "by": str(by), "patch": dict(patch)})
 
+    def group_automation_state(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call("group_automation_state", {"group_id": str(group_id), "by": str(by)})
+
+    def group_automation_update(
+        self,
+        *,
+        group_id: str,
+        ruleset: Dict[str, Any],
+        by: str = "user",
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "ruleset": dict(ruleset), "by": str(by)}
+        if expected_version is not None:
+            args["expected_version"] = int(expected_version)
+        return self.call("group_automation_update", args)
+
+    def group_automation_manage(
+        self,
+        *,
+        group_id: str,
+        by: str = "user",
+        actions: Optional[List[Dict[str, Any]]] = None,
+        expected_version: Optional[int] = None,
+        op: str = "",
+        rule: Optional[Dict[str, Any]] = None,
+        rule_id: str = "",
+        ruleset: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if actions is not None:
+            args["actions"] = [dict(x) for x in actions]
+        if expected_version is not None:
+            args["expected_version"] = int(expected_version)
+        if op:
+            args["op"] = str(op)
+        if rule is not None:
+            args["rule"] = dict(rule)
+        if rule_id:
+            args["rule_id"] = str(rule_id)
+        if ruleset is not None:
+            args["ruleset"] = dict(ruleset)
+        return self.call("group_automation_manage", args)
+
+    def group_automation_reset_baseline(
+        self,
+        *,
+        group_id: str,
+        by: str = "user",
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if expected_version is not None:
+            args["expected_version"] = int(expected_version)
+        return self.call("group_automation_reset_baseline", args)
+
     def group_start(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("group_start", {"group_id": str(group_id), "by": str(by)})
 
@@ -145,6 +200,7 @@ class CCCCClient:
         runner: str = "pty",
         command: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
+        env_private: Optional[Dict[str, str]] = None,
         default_scope_key: str = "",
         submit: str = "",
         by: str = "user",
@@ -162,6 +218,8 @@ class CCCCClient:
             args["command"] = [str(x) for x in command]
         if env is not None:
             args["env"] = {str(k): str(v) for k, v in env.items()}
+        if env_private is not None:
+            args["env_private"] = {str(k): str(v) for k, v in env_private.items()}
         if default_scope_key:
             args["default_scope_key"] = str(default_scope_key)
         if submit:
@@ -184,6 +242,31 @@ class CCCCClient:
 
     def actor_restart(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_restart", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)})
+
+    def actor_env_private_keys(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
+        """List configured private env keys for an actor (keys only; never returns values)."""
+        return self.call(
+            "actor_env_private_keys",
+            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
+        )
+
+    def actor_env_private_update(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        set: Optional[Dict[str, str]] = None,  # noqa: A002 - match IPC field name
+        unset: Optional[List[str]] = None,
+        clear: bool = False,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        """Update an actor's private env map (runtime-only). Values are never returned."""
+        args: Dict[str, Any] = {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by), "clear": bool(clear)}
+        if set is not None:
+            args["set"] = {str(k): str(v) for k, v in set.items()}
+        if unset is not None:
+            args["unset"] = [str(x) for x in unset]
+        return self.call("actor_env_private_update", args)
 
     def send_cross_group(
         self,

@@ -132,6 +132,7 @@ export interface ActorAddOptions {
   runner?: string;
   command?: string[];
   env?: Record<string, string>;
+  envPrivate?: Record<string, string>;
   defaultScopeKey?: string;
   submit?: string;
   by?: string;
@@ -143,6 +144,16 @@ export interface ActorUpdateOptions {
   actorId: string;
   patch: Record<string, unknown>;
   by?: string;
+}
+
+/** Actor 私有环境变量（secrets，runtime-only） */
+export interface ActorEnvPrivateUpdateOptions {
+  groupId: string;
+  actorId: string;
+  by?: string;
+  set?: Record<string, string>;
+  unset?: string[];
+  clear?: boolean;
 }
 
 /** 创建组选项 */
@@ -157,6 +168,146 @@ export interface GroupUpdateOptions {
   groupId: string;
   patch: Record<string, unknown>;
   by?: string;
+}
+
+/** Automation 通知优先级 */
+export type AutomationNotifyPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+/** Automation 触发器（间隔） */
+export interface AutomationTriggerInterval {
+  kind: 'interval';
+  every_seconds: number;
+}
+
+/** Automation 触发器（日程） */
+export interface AutomationTriggerCron {
+  kind: 'cron';
+  cron: string;
+  timezone?: string;
+}
+
+/** Automation 触发器（一次性） */
+export interface AutomationTriggerAt {
+  kind: 'at';
+  at: string;
+}
+
+/** Automation 触发器 */
+export type AutomationTrigger =
+  | AutomationTriggerInterval
+  | AutomationTriggerCron
+  | AutomationTriggerAt;
+
+/** Automation 动作（通知） */
+export interface AutomationActionNotify {
+  kind: 'notify';
+  title?: string;
+  snippet_ref?: string | null;
+  message?: string;
+  priority?: AutomationNotifyPriority;
+  requires_ack?: boolean;
+}
+
+/** Automation 动作（组状态） */
+export interface AutomationActionGroupState {
+  kind: 'group_state';
+  state: 'active' | 'idle' | 'paused' | 'stopped';
+}
+
+/** Automation 动作（Actor 控制） */
+export interface AutomationActionActorControl {
+  kind: 'actor_control';
+  operation: 'start' | 'stop' | 'restart';
+  targets?: string[];
+}
+
+/** Automation 动作 */
+export type AutomationAction =
+  | AutomationActionNotify
+  | AutomationActionGroupState
+  | AutomationActionActorControl;
+
+/** Automation 规则 */
+export interface AutomationRule {
+  id: string;
+  enabled?: boolean;
+  scope?: 'group' | 'personal';
+  owner_actor_id?: string | null;
+  to?: string[];
+  trigger?: AutomationTrigger;
+  action?: AutomationAction;
+}
+
+/** Automation 规则集 */
+export interface AutomationRuleSet {
+  rules: AutomationRule[];
+  snippets: Record<string, string>;
+}
+
+/** Automation 管理动作：创建规则 */
+export interface AutomationManageCreateRule {
+  type: 'create_rule';
+  rule: AutomationRule;
+}
+
+/** Automation 管理动作：更新规则 */
+export interface AutomationManageUpdateRule {
+  type: 'update_rule';
+  rule: AutomationRule;
+}
+
+/** Automation 管理动作：启停规则 */
+export interface AutomationManageSetRuleEnabled {
+  type: 'set_rule_enabled';
+  rule_id: string;
+  enabled: boolean;
+}
+
+/** Automation 管理动作：删除规则 */
+export interface AutomationManageDeleteRule {
+  type: 'delete_rule';
+  rule_id: string;
+}
+
+/** Automation 管理动作：全量替换 */
+export interface AutomationManageReplaceAllRules {
+  type: 'replace_all_rules';
+  ruleset: AutomationRuleSet;
+}
+
+/** Automation 管理动作 */
+export type AutomationManageAction =
+  | AutomationManageCreateRule
+  | AutomationManageUpdateRule
+  | AutomationManageSetRuleEnabled
+  | AutomationManageDeleteRule
+  | AutomationManageReplaceAllRules;
+
+/** Automation 更新组选项 */
+export interface GroupAutomationUpdateOptions {
+  groupId: string;
+  ruleset: AutomationRuleSet;
+  by?: string;
+  expectedVersion?: number;
+}
+
+/** Automation 增量管理组选项 */
+export interface GroupAutomationManageOptions {
+  groupId: string;
+  by?: string;
+  expectedVersion?: number;
+  op?: 'create' | 'update' | 'enable' | 'disable' | 'delete' | 'replace_all';
+  rule?: AutomationRule;
+  ruleId?: string;
+  ruleset?: AutomationRuleSet;
+  actions?: AutomationManageAction[];
+}
+
+/** Automation 重置组选项 */
+export interface GroupAutomationResetBaselineOptions {
+  groupId: string;
+  by?: string;
+  expectedVersion?: number;
 }
 
 /** 收件箱列表选项 */

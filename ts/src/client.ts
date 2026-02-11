@@ -13,8 +13,12 @@ import type {
   ReplyOptions,
   ActorAddOptions,
   ActorUpdateOptions,
+  ActorEnvPrivateUpdateOptions,
   GroupCreateOptions,
   GroupUpdateOptions,
+  GroupAutomationUpdateOptions,
+  GroupAutomationManageOptions,
+  GroupAutomationResetBaselineOptions,
   InboxListOptions,
   ContextSyncOptions,
   EventsStreamOptions,
@@ -217,6 +221,59 @@ export class CCCCClient {
   }
 
   /**
+   * 读取组级 Automation 状态（规则、片段、下次触发等）
+   */
+  async groupAutomationState(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('group_automation_state', { group_id: groupId, by });
+  }
+
+  /**
+   * 全量更新组级 Automation（rules + snippets）
+   */
+  async groupAutomationUpdate(options: GroupAutomationUpdateOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+      ruleset: options.ruleset,
+    };
+    if (options.expectedVersion !== undefined) {
+      args['expected_version'] = options.expectedVersion;
+    }
+    return this.call('group_automation_update', args);
+  }
+
+  /**
+   * 增量管理组级 Automation（支持 simple op 或 actions[]）
+   */
+  async groupAutomationManage(options: GroupAutomationManageOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+    };
+    if (options.expectedVersion !== undefined) args['expected_version'] = options.expectedVersion;
+    if (options.op) args['op'] = options.op;
+    if (options.rule) args['rule'] = options.rule;
+    if (options.ruleId) args['rule_id'] = options.ruleId;
+    if (options.ruleset) args['ruleset'] = options.ruleset;
+    if (options.actions) args['actions'] = options.actions;
+    return this.call('group_automation_manage', args);
+  }
+
+  /**
+   * 将组级 Automation 重置为默认基线
+   */
+  async groupAutomationResetBaseline(options: GroupAutomationResetBaselineOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+    };
+    if (options.expectedVersion !== undefined) {
+      args['expected_version'] = options.expectedVersion;
+    }
+    return this.call('group_automation_reset_baseline', args);
+  }
+
+  /**
    * 启动组
    */
   async groupStart(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
@@ -265,6 +322,7 @@ export class CCCCClient {
     if (options.runner) args['runner'] = options.runner;
     if (options.command) args['command'] = options.command;
     if (options.env) args['env'] = options.env;
+    if (options.envPrivate) args['env_private'] = options.envPrivate;
     if (options.defaultScopeKey) args['default_scope_key'] = options.defaultScopeKey;
     if (options.submit) args['submit'] = options.submit;
 
@@ -309,6 +367,27 @@ export class CCCCClient {
    */
   async actorRestart(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_restart', { group_id: groupId, actor_id: actorId, by });
+  }
+
+  /**
+   * 列出 actor 私有环境变量 keys（不返回 values）
+   */
+  async actorEnvPrivateKeys(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_env_private_keys', { group_id: groupId, actor_id: actorId, by });
+  }
+
+  /**
+   * 更新 actor 私有环境变量（runtime-only；values 永不回显）
+   */
+  async actorEnvPrivateUpdate(options: ActorEnvPrivateUpdateOptions): Promise<Record<string, unknown>> {
+    return this.call('actor_env_private_update', {
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      by: options.by ?? 'user',
+      set: options.set ?? undefined,
+      unset: options.unset ?? undefined,
+      clear: options.clear ?? false,
+    });
   }
 
   // ============================================================
