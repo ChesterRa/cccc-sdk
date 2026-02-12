@@ -147,26 +147,15 @@ class CCCCClient:
         *,
         group_id: str,
         by: str = "user",
-        actions: Optional[List[Dict[str, Any]]] = None,
+        actions: List[Dict[str, Any]],
         expected_version: Optional[int] = None,
-        op: str = "",
-        rule: Optional[Dict[str, Any]] = None,
-        rule_id: str = "",
-        ruleset: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
-        if actions is not None:
-            args["actions"] = [dict(x) for x in actions]
+        items = [dict(x) for x in actions]
+        if not items:
+            raise ValueError("group_automation_manage requires a non-empty actions list")
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by), "actions": items}
         if expected_version is not None:
             args["expected_version"] = int(expected_version)
-        if op:
-            args["op"] = str(op)
-        if rule is not None:
-            args["rule"] = dict(rule)
-        if rule_id:
-            args["rule_id"] = str(rule_id)
-        if ruleset is not None:
-            args["ruleset"] = dict(ruleset)
         return self.call("group_automation_manage", args)
 
     def group_automation_reset_baseline(
@@ -277,6 +266,7 @@ class CCCCClient:
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
+        reply_required: bool = False,
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
             "group_id": str(group_id),
@@ -284,6 +274,7 @@ class CCCCClient:
             "text": str(text),
             "by": str(by),
             "priority": str(priority),
+            "reply_required": bool(reply_required),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
@@ -297,6 +288,7 @@ class CCCCClient:
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
+        reply_required: bool = False,
         path: str = "",
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
@@ -304,6 +296,7 @@ class CCCCClient:
             "text": str(text),
             "by": str(by),
             "priority": str(priority),
+            "reply_required": bool(reply_required),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
@@ -320,6 +313,7 @@ class CCCCClient:
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
+        reply_required: bool = False,
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
             "group_id": str(group_id),
@@ -327,6 +321,7 @@ class CCCCClient:
             "text": str(text),
             "by": str(by),
             "priority": str(priority),
+            "reply_required": bool(reply_required),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]

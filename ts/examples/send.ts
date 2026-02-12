@@ -42,7 +42,7 @@ async function main() {
     console.log('消息已发送:', sendResult);
 
     // 回复消息
-    const eventId = sendResult['event_id'] as string;
+    const eventId = ((sendResult['event'] as { id?: string } | undefined)?.id ?? '') as string;
     if (eventId) {
       console.log('\n正在回复消息...');
       const replyResult = await client.reply({

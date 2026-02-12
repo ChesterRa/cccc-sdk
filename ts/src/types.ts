@@ -99,7 +99,8 @@ export interface SendOptions {
   text: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'high';
+  priority?: 'normal' | 'attention';
+  replyRequired?: boolean;
   path?: string;
 }
 
@@ -110,7 +111,8 @@ export interface SendCrossGroupOptions {
   text: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'high';
+  priority?: 'normal' | 'attention';
+  replyRequired?: boolean;
 }
 
 /** 回复消息选项 */
@@ -120,7 +122,8 @@ export interface ReplyOptions {
   text: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'high';
+  priority?: 'normal' | 'attention';
+  replyRequired?: boolean;
 }
 
 /** 添加 Actor 选项 */
@@ -296,11 +299,7 @@ export interface GroupAutomationManageOptions {
   groupId: string;
   by?: string;
   expectedVersion?: number;
-  op?: 'create' | 'update' | 'enable' | 'disable' | 'delete' | 'replace_all';
-  rule?: AutomationRule;
-  ruleId?: string;
-  ruleset?: AutomationRuleSet;
-  actions?: AutomationManageAction[];
+  actions: AutomationManageAction[];
 }
 
 /** Automation 重置组选项 */

@@ -1,0 +1,36 @@
+name: ts-ci
+
+on:
+  push:
+    paths:
+      - "ts/**"
+      - ".github/workflows/ts-ci.yml"
+  pull_request:
+    paths:
+      - "ts/**"
+      - ".github/workflows/ts-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Install
+        working-directory: ts
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: ts
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: ts
+        run: npm run build

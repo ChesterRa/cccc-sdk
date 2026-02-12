@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
-> ステータス：**0.4.0rc1**（Release Candidate）。契約（contracts）と SDK の使い勝手を硬化中です。
+> ステータス：**0.4.x RC**（Release Candidate）。契約（contracts）と SDK の使い勝手を硬化中です。
 
 CCCC SDK は、**CCCC daemon**（単一 writer の協調カーネル）の上に、より高度なアプリケーションを作るための **クライアント SDK** です。
 
@@ -32,7 +32,7 @@ cccc
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rc1
+  cccc-sdk==0.4.0rcN
 ```
 
 3) 互換性チェック（推奨）：
@@ -69,7 +69,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ## バージョニング（RC 番号が CCCC と一致しない理由）
 
 SDK は **CCCC 0.4.0** に major/minor を合わせますが、**RC の連番は SDK 側で管理**します：
-- 例：`cccc-sdk==0.4.0rc1` が `cccc==0.4.0rc16` と互換な場合があります。
+- 例：`cccc-sdk==0.4.0rcN` が `cccc==0.4.x` と互換な場合があります。
 
 互換性は “契約/能力” で保証します（RC 連番の厳密一致には依存しません）：
 - IPC バージョン（`ipc_v`）
@@ -84,7 +84,7 @@ SDK は **CCCC 0.4.0** に major/minor を合わせますが、**RC の連番は
 
 - `spec/` — SDK 開発用の契約文書ミラー
 - `python/` — Python パッケージ（PyPI 名：`cccc-sdk`、import：`cccc_sdk`）
-- `ts/` — TypeScript SDK（予定）
+- `ts/` — TypeScript SDK（Node.js）
 
 ---
 

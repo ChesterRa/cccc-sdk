@@ -205,7 +205,7 @@ export class CCCCClient {
   /**
    * 设置组状态
    */
-  async groupSetState(groupId: string, state: string, by = 'user'): Promise<Record<string, unknown>> {
+  async groupSetState(groupId: string, state: 'active' | 'idle' | 'paused', by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_set_state', { group_id: groupId, state, by });
   }
 
@@ -243,19 +243,19 @@ export class CCCCClient {
   }
 
   /**
-   * 增量管理组级 Automation（支持 simple op 或 actions[]）
+   * 增量管理组级 Automation（actions[]）
    */
   async groupAutomationManage(options: GroupAutomationManageOptions): Promise<Record<string, unknown>> {
+    const actions = options.actions;
+    if (actions.length === 0) {
+      throw new Error('groupAutomationManage requires a non-empty actions array');
+    }
     const args: Record<string, unknown> = {
       group_id: options.groupId,
       by: options.by ?? 'user',
+      actions,
     };
     if (options.expectedVersion !== undefined) args['expected_version'] = options.expectedVersion;
-    if (options.op) args['op'] = options.op;
-    if (options.rule) args['rule'] = options.rule;
-    if (options.ruleId) args['rule_id'] = options.ruleId;
-    if (options.ruleset) args['ruleset'] = options.ruleset;
-    if (options.actions) args['actions'] = options.actions;
     return this.call('group_automation_manage', args);
   }
 
@@ -403,6 +403,7 @@ export class CCCCClient {
       text: options.text,
       by: options.by ?? 'user',
       priority: options.priority ?? 'normal',
+      reply_required: options.replyRequired ?? false,
     };
 
     if (options.to) args['to'] = options.to;
@@ -421,6 +422,7 @@ export class CCCCClient {
       text: options.text,
       by: options.by ?? 'user',
       priority: options.priority ?? 'normal',
+      reply_required: options.replyRequired ?? false,
     };
 
     if (options.to) args['to'] = options.to;
@@ -438,6 +440,7 @@ export class CCCCClient {
       text: options.text,
       by: options.by ?? 'user',
       priority: options.priority ?? 'normal',
+      reply_required: options.replyRequired ?? false,
     };
 
     if (options.to) args['to'] = options.to;

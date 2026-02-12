@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **0.4.0rc1** (Release Candidate). Contracts and SDK ergonomics are still being hardened.
+> Status: **0.4.x RC** (Release Candidate). Contracts and SDK ergonomics are still being hardened.
 
 CCCC SDK is a set of **client SDKs** for building higher-level applications on top of the
 **CCCC daemon** (the single-writer collaboration kernel).
@@ -34,7 +34,7 @@ cccc
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rc1
+  cccc-sdk==0.4.0rcN
 ```
 
 3) Compatibility check (recommended):
@@ -71,7 +71,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ## Versioning (why RC numbers may not match CCCC)
 
 SDK versions match **CCCC major/minor** (`0.4.0`), but the **RC sequence is SDK-owned**:
-- Example: `cccc-sdk==0.4.0rc1` can be compatible with `cccc==0.4.0rc16`.
+- Example: `cccc-sdk==0.4.0rcN` can be compatible with `cccc==0.4.x`.
 
 Compatibility is enforced by **contracts**, not by strict RC number matching:
 - IPC version (`ipc_v`)
@@ -86,7 +86,7 @@ See `python/examples/compat_check.py`.
 
 - `spec/` — contract documents mirrored for SDK development
 - `python/` — Python package (`cccc-sdk`, import `cccc_sdk`)
-- `ts/` — TypeScript SDK (planned)
+- `ts/` — TypeScript SDK (Node.js)
 
 ---
 

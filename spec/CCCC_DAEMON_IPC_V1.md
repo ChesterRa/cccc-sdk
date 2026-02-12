@@ -62,7 +62,7 @@ The daemon writes a JSON object with the following fields:
   "host": "",
   "port": 0,
   "pid": 12345,
-  "version": "0.4.0rc14",
+  "version": "0.4.x",
   "ts": "2026-01-13T12:34:56Z"
 }
 ```
@@ -302,6 +302,31 @@ Result:
 { observability: Record<string, unknown> }
 ```
 
+#### `debug_snapshot`
+
+Developer-mode diagnostic snapshot (global + optional group context).
+
+Args:
+```ts
+{ group_id?: string; by?: string }
+```
+
+Result:
+```ts
+{
+  developer_mode: true
+  observability: Record<string, unknown>
+  daemon: { pid: number; version: string; ts: string }
+  group?: { group_id: string; state: string; active_scope_key: string; title: string }
+  actors?: Array<{ id: string; role: string; runtime: string; runner: string; runner_effective: string; enabled: boolean; running: boolean; unread_count: number }>
+  delivery?: Record<string, unknown>
+}
+```
+
+Notes:
+- Requires developer mode.
+- Permission is `user`, or `foreman` when `group_id` is provided.
+
 ### 8.3 Groups and Scopes
 
 #### `attach`
@@ -327,6 +352,27 @@ Args: none
 Result:
 ```ts
 { groups: Array<Record<string, unknown>> } // includes at least group_id/title/created_at/updated_at + running/state
+```
+
+#### `registry_reconcile`
+
+Scan registry entries for missing/corrupt groups, and optionally remove missing entries.
+
+Args:
+```ts
+{ remove_missing?: boolean }
+```
+
+Result:
+```ts
+{
+  dry_run: boolean
+  scanned_groups: number
+  missing_group_ids: string[]
+  corrupt_group_ids: string[]
+  removed_group_ids: string[]
+  removed_default_scope_keys: string[]
+}
 ```
 
 #### `group_show`
@@ -400,7 +446,7 @@ Args:
 
 Result:
 ```ts
-{ group_id: string; event: CCCSEventV1 }
+{ group_id: string; ruleset: { rules: Array<unknown>; snippets: Record<string, string> }; event: CCCSEventV1 }
 ```
 
 #### `group_set_state`
@@ -409,6 +455,10 @@ Args:
 ```ts
 { group_id: string; state: "active" | "idle" | "paused"; by?: string }
 ```
+
+Notes:
+- `stopped` is not a valid `group_set_state` value in daemon IPC v1.
+- Higher-level surfaces (CLI/MCP) MAY expose `stopped` as a convenience alias that maps to `group_stop`.
 
 Result:
 ```ts
@@ -457,7 +507,7 @@ Args:
         | { kind: "cron"; cron: string; timezone?: string }
         | { kind: "at"; at: string } // RFC3339
       action?: {
-        kind?: "notify" | "group_state" | "actor_control"
+        kind?: "notify"
         title?: string
         snippet_ref?: string | null
         message?: string
@@ -543,6 +593,29 @@ Result:
 }
 ```
 
+#### `group_automation_reset_baseline`
+
+Reset automation ruleset to built-in baseline defaults.
+
+Args:
+```ts
+{ group_id: string; by?: string; expected_version?: number }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  ruleset: { rules: Array<Record<string, unknown>>; snippets: Record<string, string> }
+  status: Record<string, Record<string, unknown>>
+  supported_vars: string[]
+  version: number
+  server_now: string
+  config_path: string
+  event: CCCSEventV1
+}
+```
+
 #### `group_start`
 
 Start (enable + run) all actors in the group.
@@ -597,11 +670,16 @@ Args:
   runner?: "pty" | "headless"
   command?: string[]
   env?: Record<string, string>
+  env_private?: Record<string, string> // write-only secrets (stored under CCCC_HOME/state; never persisted into ledger)
   default_scope_key?: string
   submit?: "enter" | "newline" | "none"
   by?: string
 }
 ```
+
+Notes:
+- `env_private` is restricted to `by="user"` and values are never returned.
+- If `env_private` is provided (even empty), it is treated as authoritative for this create: it clears any existing private keys for that actor_id, then sets the provided keys.
 
 Result:
 ```ts
@@ -649,6 +727,47 @@ Args:
 Result:
 ```ts
 { actor: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+#### `actor_env_private_keys`
+
+List configured **private** env keys for an actor (keys only; never returns values).
+
+Notes:
+- Private env is **runtime-only** and MUST NOT be persisted into the append-only group ledger.
+- Intended for secrets like API keys/tokens that may vary per actor.
+- Effective env at process start is: `daemon_env` (inherited) → `actor.env` → `private_env` → injected `CCCC_GROUP_ID`/`CCCC_ACTOR_ID`.
+- This operation is restricted to `by="user"` (agents should not be able to read/inspect secrets metadata).
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string }
+```
+
+Result:
+```ts
+{ group_id: string; actor_id: string; keys: string[] }
+```
+
+#### `actor_env_private_update`
+
+Update an actor's private env map (set/unset/clear). Values are **never** returned.
+
+Args:
+```ts
+{
+  group_id: string
+  actor_id: string
+  by?: string
+  set?: Record<string, string>  // set/overwrite keys
+  unset?: string[]              // remove keys
+  clear?: boolean               // remove all keys (wins)
+}
+```
+
+Result:
+```ts
+{ group_id: string; actor_id: string; keys: string[] }
 ```
 
 ### 8.5 Chat Messaging
@@ -934,6 +1053,34 @@ Result:
 { group_id: string; actor_id: string; cleared: true }
 ```
 
+#### `debug_tail_logs`
+
+Tail daemon/web/im-bridge log files (developer mode).
+
+Args:
+```ts
+{ component: "daemon" | "ccccd" | "web" | "im" | "im_bridge"; group_id?: string; by?: string; lines?: number }
+```
+
+Result:
+```ts
+{ component: string; group_id: string; path: string; lines: string[] }
+```
+
+#### `debug_clear_logs`
+
+Truncate daemon/web/im-bridge log files (developer mode).
+
+Args:
+```ts
+{ component: "daemon" | "ccccd" | "web" | "im" | "im_bridge"; group_id?: string; by?: string }
+```
+
+Result:
+```ts
+{ component: string; group_id: string; path: string; cleared: true }
+```
+
 #### `term_resize`
 
 Args:
@@ -1028,16 +1175,7 @@ Rules:
 
 Result:
 ```ts
-{
-  group_id: string
-  applied: true
-  removed: string[]
-  added: string[]
-  updated: string[]
-  settings_patch: Record<string, unknown>
-  prompt_paths: string[]
-  automation: { rule_ids: string[]; snippet_ids: string[] }
-}
+{ group_id: string; applied: true; removed: string[]; added: string[]; updated: string[]; settings_patch: Record<string, unknown>; prompt_paths: string[] }
 ```
 
 #### `group_create_from_template`
@@ -1097,7 +1235,7 @@ Request line:
 
 Response line:
 ```json
-{"v":1,"ok":true,"result":{"version":"0.4.0rc14","pid":12345,"ts":"2026-01-13T12:34:56Z","ipc_v":1,"capabilities":{"events_stream":true}},"error":null}
+{"v":1,"ok":true,"result":{"version":"0.4.x","pid":12345,"ts":"2026-01-13T12:34:56Z","ipc_v":1,"capabilities":{"events_stream":true}},"error":null}
 ```
 
 ### 9.2 Error

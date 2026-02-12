@@ -8,147 +8,89 @@ TypeScript/Node.js client for the CCCC daemon (IPC v1).
 npm install cccc-sdk
 ```
 
-## Quick Start
+## Quick start
 
 ```typescript
 import { CCCCClient } from 'cccc-sdk';
 
 async function main() {
-  // Create client (auto-discovers daemon endpoint)
   const client = await CCCCClient.create();
 
-  // Check compatibility
-  await client.assertCompatible({ requireIpcV: 1 });
+  await client.assertCompatible({
+    requireIpcV: 1,
+    requireCapabilities: { events_stream: true },
+    requireOps: ['groups', 'send', 'reply', 'group_automation_manage'],
+  });
 
-  // Ping daemon
-  const info = await client.ping();
-  console.log('Daemon info:', info);
+  const group = await client.groupCreate({ title: 'TS demo' });
+  const groupId = String(group.group_id || '');
 
-  // Create a group
-  const group = await client.groupCreate({ title: 'My Group' });
-  console.log('Created group:', group);
-
-  // Send a message
   await client.send({
-    groupId: group.group_id as string,
-    text: 'Hello from TypeScript!',
+    groupId,
+    text: 'Please check this and reply.',
+    priority: 'attention',
+    replyRequired: true,
   });
 }
 
 main().catch(console.error);
 ```
 
-## Events Stream
+## Message semantics
+
+- `priority`: `'normal' | 'attention'`
+- `replyRequired`: `boolean` (maps to daemon `reply_required`)
+
+Supported in:
+- `send(options)`
+- `reply(options)`
+- `sendCrossGroup(options)`
+
+## Automation semantics
+
+`groupAutomationManage` is action-list based (canonical daemon shape):
 
 ```typescript
-import { CCCCClient } from 'cccc-sdk';
+await client.groupAutomationManage({
+  groupId,
+  actions: [
+    {
+      type: 'create_rule',
+      rule: {
+        id: 'standup',
+        enabled: true,
+        scope: 'group',
+        to: ['@foreman'],
+        trigger: { kind: 'interval', every_seconds: 900 },
+        action: { kind: 'notify', snippet_ref: 'standup' },
+      },
+    },
+  ],
+});
+```
 
-async function main() {
-  const client = await CCCCClient.create();
+## Events stream
 
-  // Subscribe to events
-  for await (const item of client.eventsStream({ groupId: 'my-group' })) {
-    if (item.t === 'event') {
-      console.log('Event:', item.event);
-    } else if (item.t === 'heartbeat') {
-      console.log('Heartbeat:', item.ts);
-    }
+```typescript
+for await (const item of client.eventsStream({ groupId })) {
+  if (item.t === 'event') {
+    console.log(item.event.kind, item.event.event_id);
   }
 }
-
-main().catch(console.error);
 ```
 
-## API Reference
-
-### CCCCClient
-
-#### Factory Method
-
-```typescript
-static async create(options?: CCCCClientOptions): Promise<CCCCClient>
-```
-
-Options:
-- `ccccHome?: string` - Custom CCCC home directory
-- `endpoint?: DaemonEndpoint` - Manual endpoint configuration
-- `timeoutMs?: number` - Request timeout (default: 30000)
-
-#### Low-Level Methods
-
-```typescript
-async callRaw(op: string, args?: Record<string, unknown>): Promise<DaemonResponse>
-async call(op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>
-async assertCompatible(options?: CompatibilityOptions): Promise<Record<string, unknown>>
-```
-
-#### Group Methods
-
-```typescript
-async groups(): Promise<Record<string, unknown>>
-async groupShow(groupId: string): Promise<Record<string, unknown>>
-async groupCreate(options?: GroupCreateOptions): Promise<Record<string, unknown>>
-async groupDelete(groupId: string, by?: string): Promise<Record<string, unknown>>
-async groupStart(groupId: string, by?: string): Promise<Record<string, unknown>>
-async groupStop(groupId: string, by?: string): Promise<Record<string, unknown>>
-```
-
-#### Actor Methods
-
-```typescript
-async actorList(groupId: string): Promise<Record<string, unknown>>
-async actorAdd(options: ActorAddOptions): Promise<Record<string, unknown>>
-async actorStart(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>
-async actorStop(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>
-async actorRemove(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>
-```
-
-#### Messaging Methods
-
-```typescript
-async send(options: SendOptions): Promise<Record<string, unknown>>
-async reply(options: ReplyOptions): Promise<Record<string, unknown>>
-async chatAck(groupId: string, actorId: string, eventId: string, by?: string): Promise<Record<string, unknown>>
-```
-
-#### Events Stream
-
-```typescript
-async *eventsStream(options: EventsStreamOptions): AsyncGenerator<EventStreamItem>
-```
-
-### Error Classes
-
-```typescript
-class CCCCSDKError extends Error
-class DaemonUnavailableError extends CCCCSDKError
-class DaemonAPIError extends CCCCSDKError {
-  code: string
-  details: Record<string, unknown>
-  raw?: DaemonResponse
-}
-class IncompatibleDaemonError extends CCCCSDKError
-```
-
-## Examples
-
-See the `examples/` directory for runnable examples:
+## Build and checks
 
 ```bash
-# Ping the daemon
-npx tsx examples/ping.ts
-
-# Create group and send messages
-npx tsx examples/send.ts
-
-# Subscribe to event stream
-npx tsx examples/stream.ts <group-id>
+npm ci
+npm run typecheck
+npm run build
 ```
 
 ## Requirements
 
 - Node.js 16+
-- CCCC daemon running (`ccccd`)
+- Running CCCC daemon
 
 ## License
 

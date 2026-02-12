@@ -2,6 +2,11 @@
  * CCCC SDK - TypeScript Client for CCCC Daemon (IPC v1)
  */
 
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json') as { version?: string };
+
 // 导出客户端类
 export { CCCCClient } from './client.js';
 
@@ -68,4 +73,4 @@ export type {
 } from './types.js';
 
 /** SDK 版本 */
-export const version = '0.4.0-rc.1';
+export const version = String(pkg.version || '0.0.0');

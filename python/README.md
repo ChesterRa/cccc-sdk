@@ -7,7 +7,7 @@ It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 ## Versioning
 
 This SDK matches **CCCC major/minor** (`0.4.0`), but the **RC sequence is SDK-owned**:
-- Example: `cccc-sdk==0.4.0rc1` can be compatible with `cccc==0.4.0rc16`.
+- Example: `cccc-sdk==0.4.0rcN` can be compatible with `cccc==0.4.x`.
 
 ## Daemon endpoint discovery
 
@@ -23,7 +23,7 @@ The SDK connects to the daemon endpoint described by:
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rc1
+  cccc-sdk==0.4.0rcN
 ```
 
 ### From source (development)

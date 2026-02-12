@@ -27,7 +27,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/cccc-sdk"
+    "url": "https://github.com/ChesterRa/cccc-sdk"
   },
   "engines": {
     "node": ">=16.0.0"

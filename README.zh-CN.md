@@ -2,7 +2,7 @@
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**0.4.0rc1**（Release Candidate）。我们仍在打磨契约与 SDK 易用性，RC 期间可能有行为变化。
+> 状态：**0.4.x RC**（Release Candidate）。我们仍在打磨契约与 SDK 易用性，RC 期间可能有行为变化。
 
 CCCC SDK 是一套**客户端 SDK**，用于在 **CCCC daemon**（单写入者协作内核）之上构建更上层的应用。
 
@@ -32,7 +32,7 @@ cccc
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rc1
+  cccc-sdk==0.4.0rcN
 ```
 
 3) 兼容性检查（推荐先跑一次）：
@@ -69,7 +69,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ## 版本策略（为什么 RC 编号不一定和 CCCC 一致）
 
 SDK 的 major/minor 会对齐 **CCCC 0.4.0**，但 **RC 序号由 SDK 自己维护**：
-- 例如：`cccc-sdk==0.4.0rc1` 也可以兼容 `cccc==0.4.0rc16`。
+- 例如：`cccc-sdk==0.4.0rcN` 也可以兼容 `cccc==0.4.x`。
 
 我们保证兼容性的手段是“契约/能力”，而不是强行对齐 RC 序号：
 - IPC 版本（`ipc_v`）
@@ -84,7 +84,7 @@ SDK 的 major/minor 会对齐 **CCCC 0.4.0**，但 **RC 序号由 SDK 自己维�
 
 - `spec/` — 合约文档镜像（用于 SDK 开发）
 - `python/` — Python 包（PyPI 名称 `cccc-sdk`，import 名称 `cccc_sdk`）
-- `ts/` — TypeScript SDK（规划中）
+- `ts/` — TypeScript SDK（Node.js）
 
 ---
 

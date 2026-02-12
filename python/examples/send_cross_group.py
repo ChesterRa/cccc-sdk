@@ -14,12 +14,13 @@ def main() -> int:
     ap.add_argument("--by", default="user", help="principal id (default: user)")
     ap.add_argument("--to", default="", help="comma-separated destination recipient tokens (optional)")
     ap.add_argument("--priority", default="normal", choices=["normal", "attention"], help="message priority")
+    ap.add_argument("--reply-required", action="store_true", help="mark this message as requiring a reply")
     args = ap.parse_args()
 
     to = [t.strip() for t in args.to.split(",") if t.strip()] if args.to else None
 
     c = CCCCClient()
-    res = c.send_cross_group(group_id=args.src, dst_group_id=args.dst, text=args.text, by=args.by, to=to, priority=args.priority)
+    res = c.send_cross_group(group_id=args.src, dst_group_id=args.dst, text=args.text, by=args.by, to=to, priority=args.priority, reply_required=args.reply_required)
     print(json.dumps(res, ensure_ascii=False))
     return 0
 
