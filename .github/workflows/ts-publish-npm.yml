@@ -1,0 +1,58 @@
+name: ts-publish-npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Validate version
+        working-directory: ts
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+
+          if [ "$PACKAGE_VERSION" != "$TAG" ]; then
+            echo "error: ts/package.json version ($PACKAGE_VERSION) != tag ($TAG)" >&2
+            exit 2
+          fi
+
+      - name: Install dependencies
+        working-directory: ts
+        run: npm install
+
+      - name: Type check
+        working-directory: ts
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: ts
+        run: npm run build
+
+      - name: Determine npm tag
+        id: npm-tag
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *rc* ]] || [[ "$GITHUB_REF_NAME" == *beta* ]] || [[ "$GITHUB_REF_NAME" == *alpha* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        working-directory: ts
+        run: npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
