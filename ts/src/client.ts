@@ -1,5 +1,5 @@
 /**
- * CCCC SDK 客户端
+ * CCCC SDK client
  */
 
 import type {
@@ -36,7 +36,7 @@ import {
 } from './transport.js';
 
 /**
- * CCCC 客户端
+ * CCCC client
  */
 export class CCCCClient {
   private readonly _endpoint: DaemonEndpoint;
@@ -48,7 +48,7 @@ export class CCCCClient {
   }
 
   /**
-   * 异步工厂方法 - 创建客户端
+   * Async factory method: create a client instance
    */
   static async create(options: CCCCClientOptions = {}): Promise<CCCCClient> {
     const endpoint = options.endpoint ?? await discoverEndpoint(options.ccccHome);
@@ -57,18 +57,18 @@ export class CCCCClient {
   }
 
   /**
-   * 获取当前端点
+   * Get the current endpoint
    */
   get endpoint(): DaemonEndpoint {
     return this._endpoint;
   }
 
   // ============================================================
-  // 低级 API
+  // Low-level API
   // ============================================================
 
   /**
-   * 发送原始 IPC 请求，返回完整响应
+   * Send raw IPC request and return the full response
    */
   async callRaw(op: string, args?: Record<string, unknown>): Promise<DaemonResponse> {
     const request: DaemonRequest = {
@@ -92,7 +92,7 @@ export class CCCCClient {
   }
 
   /**
-   * 发送 IPC 请求，仅返回结果
+   * Send IPC request and return only result payload
    */
   async call(op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await this.callRaw(op, args);
@@ -100,27 +100,27 @@ export class CCCCClient {
   }
 
   /**
-   * 兼容性检查
+   * Compatibility check
    */
   async assertCompatible(options: CompatibilityOptions = {}): Promise<Record<string, unknown>> {
     const pingResult = await this.ping();
     const ipcV = (pingResult['ipc_v'] as number) ?? 0;
     const capabilities = (pingResult['capabilities'] as Record<string, boolean>) ?? {};
 
-    // 检查 IPC 版本
+    // Check IPC version
     const requiredV = options.requireIpcV ?? 1;
     if (ipcV < requiredV) {
       throw new IncompatibleDaemonError(`IPC version ${ipcV} < required ${requiredV}`);
     }
 
-    // 检查能力
+    // Check capabilities
     for (const [cap, required] of Object.entries(options.requireCapabilities ?? {})) {
       if (required && !capabilities[cap]) {
         throw new IncompatibleDaemonError(`Missing capability: ${cap}`);
       }
     }
 
-    // 检查操作支持（通过探测）
+    // Check operation support by probing
     const reservedOps = new Set(['ping', 'shutdown', 'events_stream', 'term_attach']);
     for (const op of options.requireOps ?? []) {
       if (reservedOps.has(op)) continue;
@@ -130,7 +130,7 @@ export class CCCCClient {
         if (e instanceof DaemonAPIError && e.code === 'unknown_op') {
           throw new IncompatibleDaemonError(`Operation not supported: ${op}`);
         }
-        // 其他错误（如 missing_group_id）说明操作是支持的
+        // Other errors (e.g. missing_group_id) imply the operation exists.
       }
     }
 
@@ -138,36 +138,36 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：诊断
+  // Convenience methods: diagnostics
   // ============================================================
 
   /**
-   * Ping 守护进程
+   * Ping daemon
    */
   async ping(): Promise<Record<string, unknown>> {
     return this.call('ping');
   }
 
   // ============================================================
-  // 便利方法：Group 操作
+  // Convenience methods: group operations
   // ============================================================
 
   /**
-   * 列出所有组
+   * List all groups
    */
   async groups(): Promise<Record<string, unknown>> {
     return this.call('groups');
   }
 
   /**
-   * 查看组详情
+   * Show group details
    */
   async groupShow(groupId: string): Promise<Record<string, unknown>> {
     return this.call('group_show', { group_id: groupId });
   }
 
   /**
-   * 创建组
+   * Create group
    */
   async groupCreate(options: GroupCreateOptions = {}): Promise<Record<string, unknown>> {
     return this.call('group_create', {
@@ -178,7 +178,7 @@ export class CCCCClient {
   }
 
   /**
-   * 更新组
+   * Update group
    */
   async groupUpdate(options: GroupUpdateOptions): Promise<Record<string, unknown>> {
     return this.call('group_update', {
@@ -189,28 +189,28 @@ export class CCCCClient {
   }
 
   /**
-   * 删除组
+   * Delete group
    */
   async groupDelete(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_delete', { group_id: groupId, by });
   }
 
   /**
-   * 使用组（设置活动作用域）
+   * Use group (set active scope)
    */
   async groupUse(groupId: string, path: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_use', { group_id: groupId, path, by });
   }
 
   /**
-   * 设置组状态
+   * Set group state
    */
   async groupSetState(groupId: string, state: 'active' | 'idle' | 'paused', by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_set_state', { group_id: groupId, state, by });
   }
 
   /**
-   * 更新组设置
+   * Update group settings
    */
   async groupSettingsUpdate(
     groupId: string,
@@ -221,14 +221,14 @@ export class CCCCClient {
   }
 
   /**
-   * 读取组级 Automation 状态（规则、片段、下次触发等）
+   * Read group-level automation state (rules, snippets, next run, ...)
    */
   async groupAutomationState(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_automation_state', { group_id: groupId, by });
   }
 
   /**
-   * 全量更新组级 Automation（rules + snippets）
+   * Replace group-level automation (rules + snippets)
    */
   async groupAutomationUpdate(options: GroupAutomationUpdateOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -243,7 +243,7 @@ export class CCCCClient {
   }
 
   /**
-   * 增量管理组级 Automation（actions[]）
+   * Incrementally manage group-level automation (actions[])
    */
   async groupAutomationManage(options: GroupAutomationManageOptions): Promise<Record<string, unknown>> {
     const actions = options.actions;
@@ -260,7 +260,7 @@ export class CCCCClient {
   }
 
   /**
-   * 将组级 Automation 重置为默认基线
+   * Reset group-level automation to baseline
    */
   async groupAutomationResetBaseline(options: GroupAutomationResetBaselineOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -274,21 +274,21 @@ export class CCCCClient {
   }
 
   /**
-   * 启动组
+   * Start group
    */
   async groupStart(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_start', { group_id: groupId, by });
   }
 
   /**
-   * 停止组
+   * Stop group
    */
   async groupStop(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_stop', { group_id: groupId, by });
   }
 
   /**
-   * 附加路径到组
+   * Attach path to group
    */
   async attach(path: string, groupId = '', by = 'user'): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = { path, by };
@@ -297,18 +297,18 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：Actor 操作
+  // Convenience methods: actor operations
   // ============================================================
 
   /**
-   * 列出组内的 Actor
+   * List actors in group
    */
   async actorList(groupId: string): Promise<Record<string, unknown>> {
     return this.call('actor_list', { group_id: groupId });
   }
 
   /**
-   * 添加 Actor
+   * Add actor
    */
   async actorAdd(options: ActorAddOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -330,7 +330,7 @@ export class CCCCClient {
   }
 
   /**
-   * 更新 Actor
+   * Update actor
    */
   async actorUpdate(options: ActorUpdateOptions): Promise<Record<string, unknown>> {
     return this.call('actor_update', {
@@ -342,42 +342,42 @@ export class CCCCClient {
   }
 
   /**
-   * 删除 Actor
+   * Remove actor
    */
   async actorRemove(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_remove', { group_id: groupId, actor_id: actorId, by });
   }
 
   /**
-   * 启动 Actor
+   * Start actor
    */
   async actorStart(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_start', { group_id: groupId, actor_id: actorId, by });
   }
 
   /**
-   * 停止 Actor
+   * Stop actor
    */
   async actorStop(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_stop', { group_id: groupId, actor_id: actorId, by });
   }
 
   /**
-   * 重启 Actor
+   * Restart actor
    */
   async actorRestart(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_restart', { group_id: groupId, actor_id: actorId, by });
   }
 
   /**
-   * 列出 actor 私有环境变量 keys（不返回 values）
+   * List actor private env keys (without values)
    */
   async actorEnvPrivateKeys(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_env_private_keys', { group_id: groupId, actor_id: actorId, by });
   }
 
   /**
-   * 更新 actor 私有环境变量（runtime-only；values 永不回显）
+   * Update actor private env vars (runtime-only; values are never echoed)
    */
   async actorEnvPrivateUpdate(options: ActorEnvPrivateUpdateOptions): Promise<Record<string, unknown>> {
     return this.call('actor_env_private_update', {
@@ -391,11 +391,11 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：消息
+  // Convenience methods: messaging
   // ============================================================
 
   /**
-   * 发送消息
+   * Send message
    */
   async send(options: SendOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -413,7 +413,7 @@ export class CCCCClient {
   }
 
   /**
-   * 跨组发送消息
+   * Send message across groups
    */
   async sendCrossGroup(options: SendCrossGroupOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -431,7 +431,7 @@ export class CCCCClient {
   }
 
   /**
-   * 回复消息
+   * Reply message
    */
   async reply(options: ReplyOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -449,7 +449,7 @@ export class CCCCClient {
   }
 
   /**
-   * 确认聊天消息
+   * Acknowledge chat message
    */
   async chatAck(
     groupId: string,
@@ -466,11 +466,11 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：收件箱
+  // Convenience methods: inbox
   // ============================================================
 
   /**
-   * 列出收件箱
+   * List inbox
    */
   async inboxList(options: InboxListOptions): Promise<Record<string, unknown>> {
     return this.call('inbox_list', {
@@ -483,7 +483,7 @@ export class CCCCClient {
   }
 
   /**
-   * 标记消息已读
+   * Mark message as read
    */
   async inboxMarkRead(
     groupId: string,
@@ -500,7 +500,7 @@ export class CCCCClient {
   }
 
   /**
-   * 标记所有消息已读
+   * Mark all messages as read
    */
   async inboxMarkAllRead(
     groupId: string,
@@ -517,11 +517,11 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：通知
+  // Convenience methods: notifications
   // ============================================================
 
   /**
-   * 确认通知
+   * Acknowledge notification
    */
   async notifyAck(
     groupId: string,
@@ -538,18 +538,18 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 便利方法：Context
+  // Convenience methods: context
   // ============================================================
 
   /**
-   * 获取组 Context
+   * Get group context
    */
   async contextGet(groupId: string): Promise<Record<string, unknown>> {
     return this.call('context_get', { group_id: groupId });
   }
 
   /**
-   * 同步 Context
+   * Sync context
    */
   async contextSync(options: ContextSyncOptions): Promise<Record<string, unknown>> {
     return this.call('context_sync', {
@@ -561,11 +561,11 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // 事件流
+  // Event stream
   // ============================================================
 
   /**
-   * 订阅事件流
+   * Subscribe to event stream
    */
   async *eventsStream(options: EventsStreamOptions): AsyncGenerator<EventStreamItem> {
     const args: Record<string, unknown> = {
@@ -612,7 +612,7 @@ export class CCCCClient {
         try {
           yield JSON.parse(line) as EventStreamItem;
         } catch {
-          // 跳过无效 JSON
+          // Skip invalid JSON lines.
         }
       }
     } finally {

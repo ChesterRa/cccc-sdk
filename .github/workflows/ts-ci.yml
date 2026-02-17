@@ -34,3 +34,114 @@ jobs:
       - name: Build
         working-directory: ts
         run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout cccc (daemon)
+        uses: actions/checkout@v4
+        with:
+          repository: ChesterRa/cccc
+          ref: main
+          path: cccc
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install TS SDK deps
+        working-directory: ts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install cccc daemon
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e cccc
+
+      - name: SDK <-> daemon integration smoke
+        run: |
+          set -euo pipefail
+          export CCCC_HOME="$PWD/.tmp_cccc_home"
+          mkdir -p "$CCCC_HOME"
+
+          python -m cccc.daemon_main run >"$CCCC_HOME/daemon.log" 2>&1 &
+          DAEMON_PID=$!
+          cleanup() {
+            kill "$DAEMON_PID" >/dev/null 2>&1 || true
+            wait "$DAEMON_PID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for i in $(seq 1 120); do
+            if [ -f "$CCCC_HOME/daemon/ccccd.addr.json" ]; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -f "$CCCC_HOME/daemon/ccccd.addr.json"
+
+          node --input-type=module <<'JS'
+          import os from 'node:os';
+          import path from 'node:path';
+          import fs from 'node:fs/promises';
+          import { CCCCClient, discoverEndpoint } from './ts/dist/index.js';
+
+          // Validate daemon TCP endpoint normalization for 0.0.0.0/localhost style descriptors.
+          const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-sdk-ts-'));
+          const fakeDaemon = path.join(fakeHome, 'daemon');
+          await fs.mkdir(fakeDaemon, { recursive: true });
+          await fs.writeFile(
+            path.join(fakeDaemon, 'ccccd.addr.json'),
+            JSON.stringify({ v: 1, transport: 'tcp', host: '0.0.0.0', port: 12345 }),
+            'utf-8'
+          );
+          const fakeEndpoint = await discoverEndpoint(fakeHome);
+          if (fakeEndpoint.host !== '127.0.0.1') {
+            throw new Error(`expected normalized loopback host, got: ${fakeEndpoint.host}`);
+          }
+
+          const client = await CCCCClient.create({ ccccHome: process.env.CCCC_HOME });
+          await client.assertCompatible({
+            requireIpcV: 1,
+            requireCapabilities: { events_stream: true },
+            requireOps: ['groups', 'group_create', 'send', 'events_stream'],
+          });
+
+          const created = await client.groupCreate({ title: 'ts-integration' });
+          const groupId = String(created.group_id || '');
+          if (!groupId) {
+            throw new Error('groupCreate did not return group_id');
+          }
+
+          const eventPromise = (async () => {
+            for await (const item of client.eventsStream({ groupId, by: 'user' })) {
+              if (item.t === 'event') return item.event;
+            }
+            return null;
+          })();
+
+          await new Promise((r) => setTimeout(r, 200));
+          await client.send({ groupId, text: 'hello from ts-ci', by: 'user', to: ['user'] });
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timed out waiting for stream event')), 5000)
+          );
+          const event = await Promise.race([eventPromise, timeoutPromise]);
+
+          if (!event || typeof event.id !== 'string' || event.id.length === 0) {
+            throw new Error('stream event is missing canonical id field');
+          }
+          console.log('integration smoke passed', { groupId, eventId: event.id });
+          JS

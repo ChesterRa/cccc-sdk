@@ -1,23 +1,35 @@
-# CCCC SDK 0.4.x (RC) — Client SDKs for the CCCC daemon
+# CCCC SDK 0.4.x — Official Client SDKs for CCCC
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **0.4.x RC** (Release Candidate). Contracts and SDK ergonomics are still being hardened.
+> Status: **stable for CCCC 0.4.x**. RC builds remain available for preview testing.
 
-CCCC SDK is a set of **client SDKs** for building higher-level applications on top of the
-**CCCC daemon** (the single-writer collaboration kernel).
+CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
+
+## Relationship to CCCC Core
+
+- CCCC core repository: https://github.com/ChesterRa/cccc
+- `cccc` (core) ships the daemon/web/CLI and owns runtime state in `CCCC_HOME`.
+- `cccc-sdk` (this repo) provides Python/TypeScript clients for **Daemon IPC v1**.
+- The SDK is not a standalone framework. It always talks to a running CCCC daemon.
+
+If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared immediately
+(messages, ACKs, context operations, automation updates, etc.).
+
+## What This Repo Contains
+
+- `python/` — Python package (`cccc-sdk`, import name `cccc_sdk`)
+- `ts/` — TypeScript package (`cccc-sdk`)
+- `spec/` — mirrored contract docs used for SDK development
 
 Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
 - Internal tools that create/manage groups, actors, and shared context programmatically
 
-**Important:** the SDK does **not** ship a daemon. CCCC remains the source of truth:
-- The daemon owns the ledger/context/presence storage under `CCCC_HOME` (default `~/.cccc/`).
-- SDKs are clients that call the daemon over **Daemon IPC v1**.
-
-If the SDK and the Web UI point to the **same `CCCC_HOME`**, everything the SDK writes
-(messages, ACKs, context ops, etc.) will show up in the Web UI.
+For language-specific details:
+- Python SDK: `python/README.md`
+- TypeScript SDK: `ts/README.md`
 
 ---
 
@@ -29,12 +41,15 @@ If the SDK and the Web UI point to the **same `CCCC_HOME`**, everything the SDK 
 cccc
 ```
 
-2) Install the SDK (RCs are typically published to TestPyPI first):
+2) Install the SDK (stable):
 
 ```bash
-python -m pip install --index-url https://pypi.org/simple \
+pip install -U cccc-sdk
+
+# RC channel (optional, TestPyPI first)
+pip install -U --pre --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rcN
+  cccc-sdk
 ```
 
 3) Compatibility check (recommended):
@@ -68,27 +83,18 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ---
 
-## Versioning (why RC numbers may not match CCCC)
+## Versioning and compatibility
 
-SDK versions match **CCCC major/minor** (`0.4.0`), but the **RC sequence is SDK-owned**:
-- Example: `cccc-sdk==0.4.0rcN` can be compatible with `cccc==0.4.x`.
+SDK versions track **CCCC major/minor** (`0.4.x`), while patch/RC cadence is SDK-owned:
+- Stable: `cccc-sdk==0.4.0` with `cccc==0.4.x`
+- RC preview: `cccc-sdk==0.4.1rc1` can still be compatible with `cccc==0.4.x`
 
-Compatibility is enforced by **contracts**, not by strict RC number matching:
+Compatibility is enforced by **contracts**, not by strict version string matching:
 - IPC version (`ipc_v`)
 - capability discovery (`capabilities`)
 - operation probing (reject `unknown_op`)
 
 See `python/examples/compat_check.py`.
-
----
-
-## Repository layout
-
-- `spec/` — contract documents mirrored for SDK development
-- `python/` — Python package (`cccc-sdk`, import `cccc_sdk`)
-- `ts/` — TypeScript SDK (Node.js)
-
----
 
 ## Specs (contracts)
 

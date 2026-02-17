@@ -1,13 +1,13 @@
-"""游戏配置"""
+"""Game configuration."""
 
 import os
 from .roles import Role
 
 # ============================================================
-# LLM 配置 - 支持多种提供商
+# LLM configuration (multiple providers)
 # ============================================================
 
-# LLM 提供商: "anthropic", "openai", "deepseek", "openai_compatible"
+# LLM provider: "anthropic", "openai", "deepseek", "openai_compatible"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
 
 # API Keys
@@ -15,11 +15,11 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
-# 自定义 OpenAI 兼容 API（如本地部署、其他提供商）
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "")  # 如 "http://localhost:8000/v1"
+# Custom OpenAI-compatible API (e.g. self-hosted or third-party gateway)
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "")  # e.g. "http://localhost:8000/v1"
 OPENAI_COMPATIBLE_KEY = os.getenv("OPENAI_COMPATIBLE_KEY", "")
 
-# 模型配置
+# Model configuration
 LLM_MODELS = {
     "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
     "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -27,32 +27,32 @@ LLM_MODELS = {
     "openai_compatible": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
 }
 
-# DeepSeek API 地址
+# DeepSeek API base URL
 DEEPSEEK_API_BASE = "https://api.deepseek.com"
 
 # ============================================================
-# 游戏配置
+# Game configuration
 # ============================================================
 
-PLAYER_NAMES = ["张三", "李四", "王五", "赵六", "钱七", "孙八"]
+PLAYER_NAMES = ["Alex", "Blake", "Casey", "Drew", "Emery", "Flynn"]
 
-# 角色分配 (6人局)
+# Role setup (6 players)
 ROLE_CONFIG = [
-    Role.WOLF,      # 2 狼人
+    Role.WOLF,      # 2 werewolves
     Role.WOLF,
-    Role.SEER,      # 1 预言家
-    Role.WITCH,     # 1 女巫
-    Role.VILLAGER,  # 2 村民
+    Role.SEER,      # 1 seer
+    Role.WITCH,     # 1 witch
+    Role.VILLAGER,  # 2 villagers
     Role.VILLAGER,
 ]
 
-# 显示配置
-DELAY_BETWEEN_ACTIONS = 0.5  # 动作间延迟（秒）
-SHOW_AI_THINKING = True      # 是否显示AI思考过程
+# Display configuration
+DELAY_BETWEEN_ACTIONS = 0.5  # Delay between actions (seconds)
+SHOW_AI_THINKING = True      # Whether to display AI thinking traces
 
 
 def get_llm_config():
-    """获取当前 LLM 配置"""
+    """Get active LLM configuration."""
     provider = LLM_PROVIDER.lower()
 
     if provider == "deepseek" and DEEPSEEK_API_KEY:
@@ -84,7 +84,7 @@ def get_llm_config():
             "model": LLM_MODELS["anthropic"],
         }
     else:
-        # 回退：自动检测可用的 key
+        # Fallback: auto-detect any available key.
         if DEEPSEEK_API_KEY:
             return {
                 "provider": "deepseek",

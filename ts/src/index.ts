@@ -7,10 +7,10 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version?: string };
 
-// 导出客户端类
+// Export client class.
 export { CCCCClient } from './client.js';
 
-// 导出异常类
+// Export error classes.
 export {
   CCCCSDKError,
   DaemonAPIError,
@@ -18,27 +18,27 @@ export {
   IncompatibleDaemonError,
 } from './errors.js';
 
-// 导出传输层工具函数
+// Export transport utility functions.
 export {
   discoverEndpoint,
   defaultHome,
 } from './transport.js';
 
-// 导出所有类型
+// Export all types.
 export type {
-  // 核心类型
+  // Core types.
   DaemonEndpoint,
   DaemonRequest,
   DaemonResponse,
   DaemonErrorPayload,
   AddressDescriptor,
-  // 事件类型
+  // Event types.
   EventStreamItem,
   CCCSEvent,
-  // 客户端选项
+  // Client options.
   CCCCClientOptions,
   CompatibilityOptions,
-  // 操作参数类型
+  // Operation argument types.
   SendOptions,
   SendCrossGroupOptions,
   ReplyOptions,
@@ -72,5 +72,5 @@ export type {
   EventsStreamOptions,
 } from './types.js';
 
-/** SDK 版本 */
+/** SDK version */
 export const version = String(pkg.version || '0.0.0');

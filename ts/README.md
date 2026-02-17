@@ -2,6 +2,12 @@
 
 TypeScript/Node.js client for the CCCC daemon (IPC v1).
 
+## Relationship to CCCC core
+
+- CCCC core repository: https://github.com/ChesterRa/cccc
+- `cccc` core provides daemon/web/CLI and owns runtime state.
+- `cccc-sdk` provides Node.js client APIs that call the daemon over IPC.
+
 ## Installation
 
 ```bash
@@ -74,7 +80,7 @@ await client.groupAutomationManage({
 ```typescript
 for await (const item of client.eventsStream({ groupId })) {
   if (item.t === 'event') {
-    console.log(item.event.kind, item.event.event_id);
+    console.log(item.event.kind, item.event.id);
   }
 }
 ```

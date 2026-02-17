@@ -1,19 +1,19 @@
 /**
- * CCCC SDK 类型定义
+ * CCCC SDK type definitions
  */
 
 // ============================================================
-// IPC 协议类型
+// IPC protocol types
 // ============================================================
 
-/** IPC 请求包 */
+/** IPC request envelope */
 export interface DaemonRequest {
   v: 1;
   op: string;
   args?: Record<string, unknown>;
 }
 
-/** IPC 响应包 */
+/** IPC response envelope */
 export interface DaemonResponse {
   v?: 1;
   ok: boolean;
@@ -21,7 +21,7 @@ export interface DaemonResponse {
   error?: DaemonErrorPayload;
 }
 
-/** 错误载荷 */
+/** Error payload */
 export interface DaemonErrorPayload {
   code: string;
   message: string;
@@ -29,10 +29,10 @@ export interface DaemonErrorPayload {
 }
 
 // ============================================================
-// 端点配置
+// Endpoint configuration
 // ============================================================
 
-/** 守护进程端点 */
+/** Daemon endpoint */
 export interface DaemonEndpoint {
   readonly transport: 'unix' | 'tcp' | '';
   readonly path: string;
@@ -40,7 +40,7 @@ export interface DaemonEndpoint {
   readonly port: number;
 }
 
-/** 地址描述符 (ccccd.addr.json) */
+/** Address descriptor (ccccd.addr.json) */
 export interface AddressDescriptor {
   v: 1;
   transport: 'unix' | 'tcp';
@@ -53,18 +53,18 @@ export interface AddressDescriptor {
 }
 
 // ============================================================
-// 事件流类型
+// Event stream types
 // ============================================================
 
-/** 事件流项 */
+/** Event stream item */
 export type EventStreamItem =
   | { t: 'event'; event: CCCSEvent }
   | { t: 'heartbeat'; ts: string }
   | { t: string; [key: string]: unknown };
 
-/** CCCS 事件 */
+/** CCCS event */
 export interface CCCSEvent {
-  event_id: string;
+  id: string;
   ts: string;
   kind: string;
   group_id: string;
@@ -72,17 +72,17 @@ export interface CCCSEvent {
 }
 
 // ============================================================
-// 客户端选项
+// Client options
 // ============================================================
 
-/** 客户端初始化选项 */
+/** Client initialization options */
 export interface CCCCClientOptions {
   ccccHome?: string;
   endpoint?: DaemonEndpoint;
   timeoutMs?: number;
 }
 
-/** 兼容性检查选项 */
+/** Compatibility check options */
 export interface CompatibilityOptions {
   requireIpcV?: number;
   requireCapabilities?: Record<string, boolean>;
@@ -90,10 +90,10 @@ export interface CompatibilityOptions {
 }
 
 // ============================================================
-// 操作参数类型
+// Operation argument types
 // ============================================================
 
-/** 发送消息选项 */
+/** Send message options */
 export interface SendOptions {
   groupId: string;
   text: string;
@@ -104,7 +104,7 @@ export interface SendOptions {
   path?: string;
 }
 
-/** 跨组发送选项 */
+/** Send-cross-group options */
 export interface SendCrossGroupOptions {
   groupId: string;
   dstGroupId: string;
@@ -115,7 +115,7 @@ export interface SendCrossGroupOptions {
   replyRequired?: boolean;
 }
 
-/** 回复消息选项 */
+/** Reply message options */
 export interface ReplyOptions {
   groupId: string;
   replyTo: string;
@@ -126,7 +126,7 @@ export interface ReplyOptions {
   replyRequired?: boolean;
 }
 
-/** 添加 Actor 选项 */
+/** Add actor options */
 export interface ActorAddOptions {
   groupId: string;
   actorId?: string;
@@ -141,7 +141,7 @@ export interface ActorAddOptions {
   by?: string;
 }
 
-/** 更新 Actor 选项 */
+/** Update actor options */
 export interface ActorUpdateOptions {
   groupId: string;
   actorId: string;
@@ -149,7 +149,7 @@ export interface ActorUpdateOptions {
   by?: string;
 }
 
-/** Actor 私有环境变量（secrets，runtime-only） */
+/** Actor private env vars (secrets, runtime-only) */
 export interface ActorEnvPrivateUpdateOptions {
   groupId: string;
   actorId: string;
@@ -159,49 +159,49 @@ export interface ActorEnvPrivateUpdateOptions {
   clear?: boolean;
 }
 
-/** 创建组选项 */
+/** Create group options */
 export interface GroupCreateOptions {
   title?: string;
   topic?: string;
   by?: string;
 }
 
-/** 更新组选项 */
+/** Update group options */
 export interface GroupUpdateOptions {
   groupId: string;
   patch: Record<string, unknown>;
   by?: string;
 }
 
-/** Automation 通知优先级 */
+/** Automation notify priority */
 export type AutomationNotifyPriority = 'low' | 'normal' | 'high' | 'urgent';
 
-/** Automation 触发器（间隔） */
+/** Automation trigger (interval) */
 export interface AutomationTriggerInterval {
   kind: 'interval';
   every_seconds: number;
 }
 
-/** Automation 触发器（日程） */
+/** Automation trigger (cron) */
 export interface AutomationTriggerCron {
   kind: 'cron';
   cron: string;
   timezone?: string;
 }
 
-/** Automation 触发器（一次性） */
+/** Automation trigger (one-time) */
 export interface AutomationTriggerAt {
   kind: 'at';
   at: string;
 }
 
-/** Automation 触发器 */
+/** Automation trigger */
 export type AutomationTrigger =
   | AutomationTriggerInterval
   | AutomationTriggerCron
   | AutomationTriggerAt;
 
-/** Automation 动作（通知） */
+/** Automation action (notify) */
 export interface AutomationActionNotify {
   kind: 'notify';
   title?: string;
@@ -211,26 +211,26 @@ export interface AutomationActionNotify {
   requires_ack?: boolean;
 }
 
-/** Automation 动作（组状态） */
+/** Automation action (group state) */
 export interface AutomationActionGroupState {
   kind: 'group_state';
   state: 'active' | 'idle' | 'paused' | 'stopped';
 }
 
-/** Automation 动作（Actor 控制） */
+/** Automation action (actor control) */
 export interface AutomationActionActorControl {
   kind: 'actor_control';
   operation: 'start' | 'stop' | 'restart';
   targets?: string[];
 }
 
-/** Automation 动作 */
+/** Automation action */
 export type AutomationAction =
   | AutomationActionNotify
   | AutomationActionGroupState
   | AutomationActionActorControl;
 
-/** Automation 规则 */
+/** Automation rule */
 export interface AutomationRule {
   id: string;
   enabled?: boolean;
@@ -241,44 +241,44 @@ export interface AutomationRule {
   action?: AutomationAction;
 }
 
-/** Automation 规则集 */
+/** Automation ruleset */
 export interface AutomationRuleSet {
   rules: AutomationRule[];
   snippets: Record<string, string>;
 }
 
-/** Automation 管理动作：创建规则 */
+/** Automation manage action: create rule */
 export interface AutomationManageCreateRule {
   type: 'create_rule';
   rule: AutomationRule;
 }
 
-/** Automation 管理动作：更新规则 */
+/** Automation manage action: update rule */
 export interface AutomationManageUpdateRule {
   type: 'update_rule';
   rule: AutomationRule;
 }
 
-/** Automation 管理动作：启停规则 */
+/** Automation manage action: toggle rule */
 export interface AutomationManageSetRuleEnabled {
   type: 'set_rule_enabled';
   rule_id: string;
   enabled: boolean;
 }
 
-/** Automation 管理动作：删除规则 */
+/** Automation manage action: delete rule */
 export interface AutomationManageDeleteRule {
   type: 'delete_rule';
   rule_id: string;
 }
 
-/** Automation 管理动作：全量替换 */
+/** Automation manage action: replace all */
 export interface AutomationManageReplaceAllRules {
   type: 'replace_all_rules';
   ruleset: AutomationRuleSet;
 }
 
-/** Automation 管理动作 */
+/** Automation manage action */
 export type AutomationManageAction =
   | AutomationManageCreateRule
   | AutomationManageUpdateRule
@@ -286,7 +286,7 @@ export type AutomationManageAction =
   | AutomationManageDeleteRule
   | AutomationManageReplaceAllRules;
 
-/** Automation 更新组选项 */
+/** Group automation update options */
 export interface GroupAutomationUpdateOptions {
   groupId: string;
   ruleset: AutomationRuleSet;
@@ -294,7 +294,7 @@ export interface GroupAutomationUpdateOptions {
   expectedVersion?: number;
 }
 
-/** Automation 增量管理组选项 */
+/** Group automation incremental-manage options */
 export interface GroupAutomationManageOptions {
   groupId: string;
   by?: string;
@@ -302,14 +302,14 @@ export interface GroupAutomationManageOptions {
   actions: AutomationManageAction[];
 }
 
-/** Automation 重置组选项 */
+/** Group automation reset options */
 export interface GroupAutomationResetBaselineOptions {
   groupId: string;
   by?: string;
   expectedVersion?: number;
 }
 
-/** 收件箱列表选项 */
+/** Inbox list options */
 export interface InboxListOptions {
   groupId: string;
   actorId: string;
@@ -318,7 +318,7 @@ export interface InboxListOptions {
   kindFilter?: string;
 }
 
-/** Context Sync 选项 */
+/** Context sync options */
 export interface ContextSyncOptions {
   groupId: string;
   ops: Record<string, unknown>[];
@@ -326,7 +326,7 @@ export interface ContextSyncOptions {
   dryRun?: boolean;
 }
 
-/** 事件流选项 */
+/** Event stream options */
 export interface EventsStreamOptions {
   groupId: string;
   by?: string;

@@ -1,4 +1,4 @@
-"""消息总线抽象层 - 支持独立模式和SDK模式"""
+"""Message bus abstraction for standalone and SDK modes."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -8,34 +8,35 @@ from collections import defaultdict
 
 @dataclass
 class Message:
-    """消息"""
+    """Message."""
+
     sender: str
     content: str
-    recipients: Optional[list] = None  # None = 广播
+    recipients: Optional[list] = None  # None = broadcast
     msg_type: str = "chat"
 
 
 class MessageBus(ABC):
-    """消息总线抽象基类"""
+    """Abstract base class for message bus."""
 
     @abstractmethod
     def send(self, sender: str, content: str, recipients: Optional[list] = None):
-        """发送消息"""
+        """Send message."""
         pass
 
     @abstractmethod
     def get_messages(self, recipient: str) -> list:
-        """获取指定接收者的消息"""
+        """Get messages visible to a recipient."""
         pass
 
     @abstractmethod
     def broadcast(self, sender: str, content: str):
-        """广播消息"""
+        """Broadcast message."""
         pass
 
 
 class StandaloneMessageBus(MessageBus):
-    """独立模式消息总线 - 使用内存队列"""
+    """Standalone message bus backed by in-memory queues."""
 
     def __init__(self):
         self.messages: list = []
@@ -44,15 +45,15 @@ class StandaloneMessageBus(MessageBus):
     def send(self, sender: str, content: str, recipients: Optional[list] = None):
         msg = Message(sender=sender, content=content, recipients=recipients)
         if recipients:
-            # 私聊
+            # Direct message.
             for r in recipients:
                 self.private_messages[r].append(msg)
         else:
-            # 广播
+            # Broadcast.
             self.messages.append(msg)
 
     def get_messages(self, recipient: str) -> list:
-        """获取所有消息（公开+私聊）"""
+        """Get all messages (public + direct)."""
         result = list(self.messages)
         result.extend(self.private_messages.get(recipient, []))
         return result
@@ -61,16 +62,16 @@ class StandaloneMessageBus(MessageBus):
         self.send(sender, content, None)
 
     def clear(self):
-        """清空消息"""
+        """Clear all buffered messages."""
         self.messages.clear()
         self.private_messages.clear()
 
 
 class SDKMessageBus(MessageBus):
-    """SDK模式消息总线 - 使用 CCCCClient"""
+    """SDK message bus implemented via CCCCClient."""
 
     def __init__(self, group_id: str):
-        # 延迟导入，避免在独立模式下报错
+        # Lazy import to avoid dependency requirement in standalone mode.
         from cccc_sdk import CCCCClient
         self.client = CCCCClient()
         self.group_id = group_id
@@ -84,7 +85,7 @@ class SDKMessageBus(MessageBus):
         )
 
     def get_messages(self, recipient: str) -> list:
-        # SDK模式下通过 events_stream 获取，这里简化处理
+        # In SDK mode this should use events_stream; simplified here.
         return []
 
     def broadcast(self, sender: str, content: str):
@@ -92,7 +93,7 @@ class SDKMessageBus(MessageBus):
 
 
 def create_message_bus(mode: str = "standalone", group_id: str = "") -> MessageBus:
-    """工厂函数：创建消息总线"""
+    """Factory: create message bus instance."""
     if mode == "sdk":
         return SDKMessageBus(group_id)
     return StandaloneMessageBus()

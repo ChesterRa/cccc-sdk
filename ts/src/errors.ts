@@ -1,23 +1,23 @@
 /**
- * CCCC SDK 异常类定义
+ * CCCC SDK error classes
  */
 
 import type { DaemonResponse } from './types.js';
 
 /**
- * SDK 基础异常
+ * Base SDK error
  */
 export class CCCCSDKError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CCCCSDKError';
-    // 修复 instanceof 检查
+    // Fix instanceof checks for transpiled targets.
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
 /**
- * 守护进程不可用
+ * Daemon unavailable
  */
 export class DaemonUnavailableError extends CCCCSDKError {
   constructor(message: string) {
@@ -27,7 +27,7 @@ export class DaemonUnavailableError extends CCCCSDKError {
 }
 
 /**
- * 守护进程 API 错误
+ * Daemon API error
  */
 export class DaemonAPIError extends CCCCSDKError {
   readonly code: string;
@@ -56,7 +56,7 @@ export class DaemonAPIError extends CCCCSDKError {
 }
 
 /**
- * 守护进程版本不兼容
+ * Incompatible daemon version/capabilities
  */
 export class IncompatibleDaemonError extends CCCCSDKError {
   constructor(message: string) {

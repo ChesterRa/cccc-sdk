@@ -1,139 +1,136 @@
-"""AI 提示词模板"""
+"""AI prompt templates."""
 
-SYSTEM_PROMPT = """你正在玩狼人杀游戏。请完全沉浸在你的角色中，做出符合角色利益的决策。
-回复要求：
-1. 简洁明了，不超过100字
-2. 符合角色身份和利益
-3. 只输出要求的内容，不要额外解释"""
+SYSTEM_PROMPT = """You are playing Werewolf. Fully stay in character and make decisions that maximize your side's chance to win.
+Response rules:
+1. Be concise.
+2. Align with your role incentives.
+3. Output only what is requested, with no extra explanation."""
 
-WOLF_KILL_PROMPT = """你是【狼人】。
-当前是第 {round} 轮夜晚，需要选择击杀目标。
+WOLF_KILL_PROMPT = """You are a WEREWOLF.
+Round {round}, night phase. Choose a kill target.
 
-存活玩家：{alive_players}
-你的狼人同伴：{wolf_partners}
-游戏历史：
+Alive players: {alive_players}
+Your werewolf partners: {wolf_partners}
+Game history:
 {game_history}
 
-请选择今晚要击杀的目标（不能选狼人同伴）。
-策略提示：优先击杀神职（预言家/女巫），或发言对狼人不利的玩家。
+Choose one target for tonight (cannot be your werewolf partner).
+Strategy hint: prioritize special roles (seer/witch) or players hostile to werewolves.
 
-请只回复目标玩家的ID（如 P1），不要其他内容。"""
+Reply with target player ID only (e.g. P1)."""
 
-WOLF_DISCUSS_PROMPT = """你是【狼人】{player_name}。
-当前是第 {round} 轮夜晚，和同伴讨论今晚击杀谁。
+WOLF_DISCUSS_PROMPT = """You are WEREWOLF {player_name}.
+Round {round}, night phase. Discuss with your partner who to kill tonight.
 
-存活玩家：{alive_players}
-你的狼人同伴：{wolf_partners}
-同伴的意见：{partner_opinion}
-游戏历史：
+Alive players: {alive_players}
+Your werewolf partners: {wolf_partners}
+Partner opinion: {partner_opinion}
+Game history:
 {game_history}
 
-请简短说明你倾向击杀谁及原因（30字以内）。"""
+Briefly explain your preferred target and reason (within 25 words)."""
 
-SEER_CHECK_PROMPT = """你是【预言家】。
-当前是第 {round} 轮夜晚，需要选择查验目标。
+SEER_CHECK_PROMPT = """You are the SEER.
+Round {round}, night phase. Choose a player to check.
 
-存活玩家：{alive_players}
-已查验结果：{checked_results}
-未查验玩家：{unchecked_players}
-游戏历史：
+Alive players: {alive_players}
+Checked results so far: {checked_results}
+Unchecked players: {unchecked_players}
+Game history:
 {game_history}
 
-请选择今晚要查验的对象。
-策略提示：优先查验发言可疑的玩家，避免重复查验。
+Pick one player to check tonight.
+Strategy hint: prioritize suspicious speakers and avoid repeat checks.
 
-请只回复目标玩家的ID（如 P1），不要其他内容。"""
+Reply with target player ID only (e.g. P1)."""
 
-WITCH_SAVE_PROMPT = """你是【女巫】。
-当前是第 {round} 轮夜晚。
+WITCH_SAVE_PROMPT = """You are the WITCH.
+Round {round}, night phase.
 
-今晚被狼人杀害的是：{dying_player}
-你的解药状态：{save_status}
+Tonight's victim: {dying_player}
+Antidote status: {save_status}
 
-存活玩家：{alive_players}
-游戏历史：
+Alive players: {alive_players}
+Game history:
 {game_history}
 
-是否使用解药救人？
-策略提示：
-- 第一晚通常值得救
-- 如果被杀的是重要神职，优先考虑救
-- 解药只有一瓶，谨慎使用
+Do you use antidote to save the victim?
+Strategy hints:
+- Saving on early rounds is often strong.
+- Saving a likely special role can be high value.
+- You only have one antidote.
 
-请只回复 "是" 或 "否"。"""
+Reply with "yes" or "no" only."""
 
-WITCH_POISON_PROMPT = """你是【女巫】。
-当前是第 {round} 轮夜晚。
+WITCH_POISON_PROMPT = """You are the WITCH.
+Round {round}, night phase.
 
-你的毒药状态：{poison_status}
-存活玩家：{alive_players}
-游戏历史：
+Poison status: {poison_status}
+Alive players: {alive_players}
+Game history:
 {game_history}
 
-是否使用毒药毒杀某人？如果是，毒杀谁？
-策略提示：
-- 只有比较确定对方是狼人时才使用
-- 毒药只有一瓶，不要浪费
+Will you use poison tonight? If yes, who?
+Strategy hints:
+- Use poison only when confidence is reasonably high.
+- You only have one poison.
 
-请回复 "否" 或 玩家ID（如 P1）。"""
+Reply with "no" or a player ID (e.g. P1)."""
 
-SPEECH_PROMPT = """你是【{role}】{player_name}。
-当前是第 {round} 轮白天发言阶段。
+SPEECH_PROMPT = """You are {role} {player_name}.
+Round {round}, day speech phase.
 
-你的身份信息：{identity_info}
-存活玩家：{alive_players}
-昨晚死亡：{night_deaths}
-之前的发言：
+Your role info: {identity_info}
+Alive players: {alive_players}
+Deaths last night: {night_deaths}
+Previous speeches:
 {previous_speeches}
-游戏历史：
+Game history:
 {game_history}
 
-请进行发言（30-80字）。
+Give a speech (30-80 words).
 
 {role_hints}"""
 
 ROLE_SPEECH_HINTS = {
-    "WOLF": """作为狼人，你需要：
-- 伪装成好人，不要暴露身份
-- 可以假跳预言家或女巫身份
-- 引导投票指向好人""",
-
-    "SEER": """作为预言家，你需要：
-- 适时公开查验结果（但小心被狼人针对）
-- 引导好人投票
-- 注意识别假预言家""",
-
-    "WITCH": """作为女巫，你需要：
-- 可以选择公开或隐藏身份
-- 分析场上形势
-- 帮助好人找出狼人""",
-
-    "VILLAGER": """作为村民，你需要：
-- 仔细分析每个人的发言
-- 找出逻辑漏洞
-- 跟随可信的神职引导"""
+    "WOLF": """As a werewolf:
+- Blend in as a villager.
+- You may fake seer/witch claims when useful.
+- Steer votes onto villagers.""",
+    "SEER": """As a seer:
+- Reveal checks at the right timing.
+- Lead villagers toward informed votes.
+- Watch for fake seer claims.""",
+    "WITCH": """As a witch:
+- Decide carefully when to reveal identity.
+- Read board dynamics before using items.
+- Help villagers identify werewolves.""",
+    "VILLAGER": """As a villager:
+- Analyze speeches carefully.
+- Look for logic gaps and contradictions.
+- Follow credible role signals."""
 }
 
-VOTE_PROMPT = """你是【{role}】{player_name}。
-当前是第 {round} 轮投票阶段。
+VOTE_PROMPT = """You are {role} {player_name}.
+Round {round}, voting phase.
 
-你的身份信息：{identity_info}
-存活玩家（可投票对象）：{alive_players}
-本轮发言汇总：
+Your role info: {identity_info}
+Alive players (valid vote targets): {alive_players}
+Speech summary this round:
 {speeches_summary}
-游戏历史：
+Game history:
 {game_history}
 
-请投票选出你认为是狼人的玩家。
-你也可以选择弃票。
+Vote for the player you believe is a werewolf.
+You may also abstain.
 
 {role_hints}
 
-请只回复玩家ID（如 P1）或 "弃票"。"""
+Reply with a player ID (e.g. P1) or "abstain" only."""
 
 VOTE_ROLE_HINTS = {
-    "WOLF": "作为狼人，投票给威胁最大的好人，保护同伴。",
-    "SEER": "根据查验结果投票，确定的狼人优先。",
-    "WITCH": "根据分析投票，配合神职。",
-    "VILLAGER": "跟随可信的神职引导投票。"
+    "WOLF": "As a werewolf, vote out high-threat villagers while protecting your partner.",
+    "SEER": "Use your check results: confirmed werewolves first.",
+    "WITCH": "Vote from board reads and coordination with trusted information.",
+    "VILLAGER": "Follow the most credible, evidence-based village direction."
 }

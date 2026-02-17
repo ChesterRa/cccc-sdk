@@ -1,76 +1,76 @@
 /**
- * 示例：创建组并发送消息
+ * Example: create group and send messages
  *
- * 运行: npx tsx examples/send.ts
+ * Run: npx tsx examples/send.ts
  */
 
 import { CCCCClient, DaemonUnavailableError, DaemonAPIError } from '../src/index.js';
 
 async function main() {
   try {
-    console.log('正在连接守护进程...');
+    console.log('Connecting to daemon...');
     const client = await CCCCClient.create();
 
-    // 创建组
-    console.log('\n正在创建组...');
-    const group = await client.groupCreate({ title: 'TS SDK 测试组' });
+    // Create group.
+    console.log('\nCreating group...');
+    const group = await client.groupCreate({ title: 'TS SDK Test Group' });
     const groupId = group['group_id'] as string;
-    console.log('组已创建:', groupId);
+    console.log('Group created:', groupId);
 
-    // 查看组详情
-    console.log('\n正在获取组详情...');
+    // Show group details.
+    console.log('\nLoading group details...');
     const groupInfo = await client.groupShow(groupId);
-    console.log('组信息:', JSON.stringify(groupInfo, null, 2));
+    console.log('Group info:', JSON.stringify(groupInfo, null, 2));
 
-    // 添加 Actor
-    console.log('\n正在添加 Actor...');
+    // Add actor.
+    console.log('\nAdding actor...');
     const actor = await client.actorAdd({
       groupId,
       actorId: 'bot-1',
       title: 'Test Bot',
       runtime: 'external',
     });
-    console.log('Actor 已添加:', actor);
+    console.log('Actor added:', actor);
 
-    // 发送消息
-    console.log('\n正在发送消息...');
+    // Send message.
+    console.log('\nSending message...');
     const sendResult = await client.send({
       groupId,
       text: 'Hello from TypeScript SDK!',
       by: 'user',
     });
-    console.log('消息已发送:', sendResult);
+    console.log('Message sent:', sendResult);
 
-    // 回复消息
+    // Reply message.
     const eventId = ((sendResult['event'] as { id?: string } | undefined)?.id ?? '') as string;
     if (eventId) {
-      console.log('\n正在回复消息...');
+      console.log('\nSending reply...');
       const replyResult = await client.reply({
         groupId,
         replyTo: eventId,
-        text: '这是一条回复',
+        text: 'This is a reply.',
         by: 'bot-1',
       });
-      console.log('回复已发送:', replyResult);
+      console.log('Reply sent:', replyResult);
     }
 
-    // 列出所有组
-    console.log('\n当前所有组:');
+    // List all groups.
+    console.log('\nCurrent groups:');
     const groups = await client.groups();
     console.log(JSON.stringify(groups, null, 2));
 
-    // 清理：删除组
-    console.log('\n正在删除测试组...');
+    // Cleanup: delete test group.
+    console.log('\nDeleting test group...');
     await client.groupDelete(groupId);
-    console.log('组已删除');
+    console.log('Group deleted.');
 
   } catch (error) {
     if (error instanceof DaemonUnavailableError) {
-      console.error('守护进程不可用:', error.message);
-      console.error('请确保 ccccd 正在运行');
+      console.error('Daemon unavailable:', error.message);
+      console.error('Please make sure ccccd is running.');
     } else if (error instanceof DaemonAPIError) {
-      console.error('API 错误:', error.code, error.message);
-      console.error('详情:', error.details);
+      console.error('API error:', error.code, error.message);
+      console.error('Details:', error.details);
     } else {
       throw error;
     }

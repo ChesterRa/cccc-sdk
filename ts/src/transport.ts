@@ -1,5 +1,5 @@
 /**
- * CCCC SDK 传输层 - Unix socket / TCP
+ * CCCC SDK transport layer - Unix socket / TCP
  */
 
 import * as net from 'node:net';
@@ -15,25 +15,37 @@ import type {
 import { DaemonUnavailableError } from './errors.js';
 
 // ============================================================
-// 常量
+// Constants
 // ============================================================
 
 const MAX_LINE_SIZE = 4_000_000; // 4MB
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+function normalizeTcpConnectHost(rawHost: string | undefined): string {
+  const host = String(rawHost ?? '').trim();
+  if (!host || host === 'localhost' || host === '0.0.0.0') {
+    return '127.0.0.1';
+  }
+  // Daemon IPC currently uses AF_INET only; avoid writing IPv6 hosts into client dial path.
+  if (host.includes(':')) {
+    return '127.0.0.1';
+  }
+  return host;
+}
+
 // ============================================================
-// 端点发现
+// Endpoint discovery
 // ============================================================
 
 /**
- * 获取默认 CCCC 主目录
+ * Get default CCCC home path
  */
 export function defaultHome(): string {
   return process.env['CCCC_HOME'] || path.join(os.homedir(), '.cccc');
 }
 
 /**
- * 发现守护进程端点
+ * Discover daemon endpoint
  */
 export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
   const ccccHome = home || defaultHome();
@@ -44,11 +56,15 @@ export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
     const descriptor: AddressDescriptor = JSON.parse(content);
 
     if (descriptor.v === 1) {
-      if (descriptor.transport === 'tcp' && descriptor.host && descriptor.port) {
+      if (descriptor.transport === 'tcp' && descriptor.port) {
+        const port = Number(descriptor.port);
+        if (!Number.isInteger(port) || port <= 0) {
+          throw new Error(`invalid daemon tcp port: ${descriptor.port}`);
+        }
         return {
           transport: 'tcp',
-          host: descriptor.host,
-          port: descriptor.port,
+          host: normalizeTcpConnectHost(descriptor.host),
+          port,
           path: '',
         };
       }
@@ -62,10 +78,10 @@ export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
       }
     }
   } catch {
-    // 忽略读取错误，尝试回退
+    // Ignore read errors and try fallback.
   }
 
-  // 回退到 Unix socket
+  // Fallback to Unix socket.
   const sockPath = path.join(ccccHome, 'daemon', 'ccccd.sock');
   return {
     transport: 'unix',
@@ -76,11 +92,11 @@ export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
 }
 
 // ============================================================
-// Socket 连接
+// Socket connection
 // ============================================================
 
 /**
- * 创建 socket 连接
+ * Create socket connection
  */
 function connect(
   endpoint: DaemonEndpoint,
@@ -125,11 +141,11 @@ function connect(
 }
 
 // ============================================================
-// IPC 调用
+// IPC calls
 // ============================================================
 
 /**
- * 发送单次 IPC 请求
+ * Send a single IPC request
  */
 export async function callDaemon(
   endpoint: DaemonEndpoint,
@@ -185,17 +201,17 @@ export async function callDaemon(
       }
     });
 
-    // 发送请求
+    // Send request.
     const line = JSON.stringify(request) + '\n';
     socket.write(line);
   });
 }
 
 // ============================================================
-// 事件流
+// Event stream
 // ============================================================
 
-/** 事件流连接结果 */
+/** Event stream connection result */
 export interface EventsStreamConnection {
   socket: net.Socket;
   handshake: DaemonResponse;
@@ -203,7 +219,7 @@ export interface EventsStreamConnection {
 }
 
 /**
- * 打开事件流连接
+ * Open event stream connection
  */
 export async function openEventsStream(
   endpoint: DaemonEndpoint,
@@ -212,11 +228,11 @@ export async function openEventsStream(
 ): Promise<EventsStreamConnection> {
   const socket = await connect(endpoint, timeoutMs);
 
-  // 发送请求
+  // Send request.
   const line = JSON.stringify(request) + '\n';
   socket.write(line);
 
-  // 读取握手响应
+  // Read handshake response.
   const { handshake, remainingBuffer } = await new Promise<{
     handshake: DaemonResponse;
     remainingBuffer: string;
@@ -265,14 +281,14 @@ export async function openEventsStream(
     });
   });
 
-  // 握手后移除超时
+  // Remove timeout after handshake.
   socket.setTimeout(0);
 
   return { socket, handshake, initialBuffer: remainingBuffer };
 }
 
 /**
- * 从 socket 创建行读取器（异步生成器）
+ * Create line reader from socket (async generator)
  */
 export async function* readLines(
   socket: net.Socket,
@@ -280,7 +296,7 @@ export async function* readLines(
 ): AsyncGenerator<string> {
   let buffer = initialBuffer;
 
-  // 处理初始缓冲区中的行
+  // Handle lines from initial buffer.
   let newlineIndex: number;
   while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
     const line = buffer.slice(0, newlineIndex);
@@ -290,7 +306,7 @@ export async function* readLines(
     }
   }
 
-  // 继续读取 socket
+  // Continue reading from socket.
   for await (const chunk of socket) {
     buffer += (chunk as Buffer).toString('utf-8');
 

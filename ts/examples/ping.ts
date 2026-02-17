@@ -1,34 +1,34 @@
 /**
- * 示例：Ping 守护进程
+ * Example: ping daemon
  *
- * 运行: npx tsx examples/ping.ts
+ * Run: npx tsx examples/ping.ts
  */
 
 import { CCCCClient, DaemonUnavailableError } from '../src/index.js';
 
 async function main() {
   try {
-    console.log('正在连接守护进程...');
+    console.log('Connecting to daemon...');
     const client = await CCCCClient.create();
-    console.log('端点:', client.endpoint);
+    console.log('Endpoint:', client.endpoint);
 
-    console.log('\n正在 ping 守护进程...');
+    console.log('\nPinging daemon...');
     const info = await client.ping();
-    console.log('守护进程信息:');
-    console.log('  - IPC 版本:', info['ipc_v']);
-    console.log('  - 进程 ID:', info['pid']);
-    console.log('  - 启动时间:', info['started_at']);
-    console.log('  - 能力:', info['capabilities']);
+    console.log('Daemon info:');
+    console.log('  - IPC version:', info['ipc_v']);
+    console.log('  - PID:', info['pid']);
+    console.log('  - Timestamp:', info['ts']);
+    console.log('  - Capabilities:', info['capabilities']);
 
-    // 兼容性检查
-    console.log('\n正在检查兼容性...');
+    // Compatibility check
+    console.log('\nChecking compatibility...');
     await client.assertCompatible({ requireIpcV: 1 });
-    console.log('兼容性检查通过!');
+    console.log('Compatibility check passed!');
 
   } catch (error) {
     if (error instanceof DaemonUnavailableError) {
-      console.error('守护进程不可用:', error.message);
-      console.error('请确保 ccccd 正在运行');
+      console.error('Daemon unavailable:', error.message);
+      console.error('Please make sure ccccd is running.');
     } else {
       throw error;
     }

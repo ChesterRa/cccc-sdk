@@ -1,13 +1,20 @@
 # CCCC Python SDK
 
-This package is the **Python client SDK** for the CCCC daemon (Daemon IPC v1).
+This package is the **Python client SDK** for CCCC daemon (Daemon IPC v1).
+
+## Relationship to CCCC core
+
+- CCCC core repository: https://github.com/ChesterRa/cccc
+- `cccc` core owns daemon/web/CLI and runtime state under `CCCC_HOME`.
+- `cccc-sdk` provides client APIs only and must connect to a running daemon.
 
 It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 
 ## Versioning
 
-This SDK matches **CCCC major/minor** (`0.4.0`), but the **RC sequence is SDK-owned**:
-- Example: `cccc-sdk==0.4.0rcN` can be compatible with `cccc==0.4.x`.
+This SDK tracks **CCCC major/minor** (`0.4.x`), while patch/RC cadence is SDK-owned:
+- Stable example: `cccc-sdk==0.4.0` with `cccc==0.4.x`
+- RC preview example: `cccc-sdk==0.4.1rc1` with `cccc==0.4.x`
 
 ## Daemon endpoint discovery
 
@@ -18,12 +25,18 @@ The SDK connects to the daemon endpoint described by:
 
 ## Install
 
-### From TestPyPI (recommended for RCs)
+### Stable (PyPI)
 
 ```bash
-python -m pip install --index-url https://pypi.org/simple \
+pip install -U cccc-sdk
+```
+
+### RC preview (optional, TestPyPI first)
+
+```bash
+pip install -U --pre --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rcN
+  cccc-sdk
 ```
 
 ### From source (development)

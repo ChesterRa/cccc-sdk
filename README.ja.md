@@ -1,21 +1,35 @@
-# CCCC SDK 0.4.x（RC）— CCCC daemon 向け Client SDK
+# CCCC SDK 0.4.x — CCCC 公式クライアント SDK
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
-> ステータス：**0.4.x RC**（Release Candidate）。契約（contracts）と SDK の使い勝手を硬化中です。
+> ステータス：**CCCC 0.4.x 向けに安定提供**。RC ビルドもプレビュー用途で継続提供します。
 
-CCCC SDK は、**CCCC daemon**（単一 writer の協調カーネル）の上に、より高度なアプリケーションを作るための **クライアント SDK** です。
+CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。
+
+## CCCC 本体との関係
+
+- CCCC 本体リポジトリ: https://github.com/ChesterRa/cccc
+- `cccc`（本体）は daemon/web/CLI を提供し、`CCCC_HOME` の実行状態を管理します。
+- `cccc-sdk`（このリポジトリ）は Python/TypeScript から **Daemon IPC v1** を呼ぶクライアントです。
+- SDK 単体では動作せず、実行中の CCCC daemon が必要です。
+
+SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込みは即時に共有されます
+（メッセージ、ACK、context 操作、automation 更新など）。
+
+## このリポジトリに含まれるもの
+
+- `python/` — Python パッケージ（PyPI 名: `cccc-sdk`、import: `cccc_sdk`）
+- `ts/` — TypeScript パッケージ（`cccc-sdk`）
+- `spec/` — SDK 開発用の契約ドキュメントミラー
 
 主な用途：
 - リアルタイム更新が必要な Web/IDE プラグイン（`events_stream`）
 - Working Group を監視して自動応答する bot/service
 - group / actors / shared context をプログラムから管理する社内ツール
 
-**重要：SDK は daemon を同梱しません。** CCCC が唯一の事実源です：
-- daemon が `CCCC_HOME`（既定 `~/.cccc/`）配下の ledger/context/presence を管理します。
-- SDK は **Daemon IPC v1** で daemon を呼び出すクライアントに過ぎません。
-
-SDK と Web UI が同じ `CCCC_HOME` を参照していれば、SDK が書き込んだ内容（メッセージ、ACK、context ops など）は Web UI に反映されます。
+言語別の詳細:
+- Python SDK: `python/README.md`
+- TypeScript SDK: `ts/README.md`
 
 ---
 
@@ -27,12 +41,15 @@ SDK と Web UI が同じ `CCCC_HOME` を参照していれば、SDK が書き込
 cccc
 ```
 
-2) SDK をインストール（RC はまず TestPyPI に公開する運用を推奨）：
+2) SDK をインストール（安定版）：
 
 ```bash
-python -m pip install --index-url https://pypi.org/simple \
+pip install -U cccc-sdk
+
+# RC チャネル（任意、通常は TestPyPI を先行）
+pip install -U --pre --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rcN
+  cccc-sdk
 ```
 
 3) 互換性チェック（推奨）：
@@ -66,27 +83,18 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ---
 
-## バージョニング（RC 番号が CCCC と一致しない理由）
+## バージョニングと互換性
 
-SDK は **CCCC 0.4.0** に major/minor を合わせますが、**RC の連番は SDK 側で管理**します：
-- 例：`cccc-sdk==0.4.0rcN` が `cccc==0.4.x` と互換な場合があります。
+SDK は **CCCC 0.4.x** に major/minor を合わせ、パッチ/RC の進行は SDK 側で管理します：
+- 安定版例：`cccc-sdk==0.4.0` と `cccc==0.4.x`
+- RC プレビュー例：`cccc-sdk==0.4.1rc1` でも `cccc==0.4.x` と互換な場合があります
 
-互換性は “契約/能力” で保証します（RC 連番の厳密一致には依存しません）：
+互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：
 - IPC バージョン（`ipc_v`）
 - capability discovery（`capabilities`）
 - op probing（`unknown_op` を検出）
 
 参考：`python/examples/compat_check.py`
-
----
-
-## リポジトリ構成
-
-- `spec/` — SDK 開発用の契約文書ミラー
-- `python/` — Python パッケージ（PyPI 名：`cccc-sdk`、import：`cccc_sdk`）
-- `ts/` — TypeScript SDK（Node.js）
-
----
 
 ## Specs（contracts）
 

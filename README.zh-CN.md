@@ -1,21 +1,35 @@
-# CCCC SDK 0.4.x（RC）— 面向 CCCC daemon 的 Client SDK
+# CCCC SDK 0.4.x — CCCC 官方客户端 SDK
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**0.4.x RC**（Release Candidate）。我们仍在打磨契约与 SDK 易用性，RC 期间可能有行为变化。
+> 状态：**已稳定支持 CCCC 0.4.x**。同时保留 RC 构建用于预览测试。
 
-CCCC SDK 是一套**客户端 SDK**，用于在 **CCCC daemon**（单写入者协作内核）之上构建更上层的应用。
+CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
+
+## 与 CCCC 本体的关系
+
+- CCCC 本体仓库：https://github.com/ChesterRa/cccc
+- `cccc`（本体）负责 daemon/web/CLI，以及 `CCCC_HOME` 下的运行时状态。
+- `cccc-sdk`（本仓库）提供 Python/TypeScript 客户端，调用 **Daemon IPC v1**。
+- SDK 不是独立框架，必须连接到已运行的 CCCC daemon。
+
+只要 SDK 与 CCCC Web 指向同一个 `CCCC_HOME`，写入会立即互通
+（消息、ACK、context 操作、automation 配置等）。
+
+## 本仓库包含
+
+- `python/` — Python 包（PyPI 名称 `cccc-sdk`，import 名称 `cccc_sdk`）
+- `ts/` — TypeScript 包（`cccc-sdk`）
+- `spec/` — SDK 开发使用的合约文档镜像
 
 典型场景：
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
 - 以编程方式创建/管理 group、actors、共享 context 的内部工具
 
-**重要说明：SDK 不包含 daemon。** CCCC 仍是唯一事实源：
-- daemon 负责写入 `CCCC_HOME`（默认 `~/.cccc/`）下的 ledger/context/presence 等状态；
-- SDK 只是通过 **Daemon IPC v1** 调用 daemon 的客户端。
-
-只要 SDK 与 Web UI 指向同一个 `CCCC_HOME`，SDK 写入的一切（消息、ACK、context ops 等）都能在 Web UI 里实时看到。
+语言细分文档：
+- Python SDK：`python/README.md`
+- TypeScript SDK：`ts/README.md`
 
 ---
 
@@ -27,12 +41,15 @@ CCCC SDK 是一套**客户端 SDK**，用于在 **CCCC daemon**（单写入者�
 cccc
 ```
 
-2) 安装 SDK（RC 通常先发布到 TestPyPI）：
+2) 安装 SDK（稳定版）：
 
 ```bash
-python -m pip install --index-url https://pypi.org/simple \
+pip install -U cccc-sdk
+
+# RC 通道（可选，通常先发 TestPyPI）
+pip install -U --pre --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.0rcN
+  cccc-sdk
 ```
 
 3) 兼容性检查（推荐先跑一次）：
@@ -66,27 +83,18 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ---
 
-## 版本策略（为什么 RC 编号不一定和 CCCC 一致）
+## 版本策略与兼容性
 
-SDK 的 major/minor 会对齐 **CCCC 0.4.0**，但 **RC 序号由 SDK 自己维护**：
-- 例如：`cccc-sdk==0.4.0rcN` 也可以兼容 `cccc==0.4.x`。
+SDK 的 major/minor 对齐 **CCCC 0.4.x**，但补丁/RC 节奏由 SDK 自身维护：
+- 稳定版示例：`cccc-sdk==0.4.0` 搭配 `cccc==0.4.x`
+- RC 预览示例：`cccc-sdk==0.4.1rc1` 也可能兼容 `cccc==0.4.x`
 
-我们保证兼容性的手段是“契约/能力”，而不是强行对齐 RC 序号：
+我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：
 - IPC 版本（`ipc_v`）
 - capability discovery（`capabilities`）
 - op probing（拒绝 `unknown_op`）
 
 参考：`python/examples/compat_check.py`。
-
----
-
-## 仓库结构
-
-- `spec/` — 合约文档镜像（用于 SDK 开发）
-- `python/` — Python 包（PyPI 名称 `cccc-sdk`，import 名称 `cccc_sdk`）
-- `ts/` — TypeScript SDK（Node.js）
-
----
 
 ## 合约文档（contracts）
 
