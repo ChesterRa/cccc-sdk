@@ -5,7 +5,9 @@
 import type { DaemonResponse } from './types.js';
 
 /**
- * Base SDK error
+ * Base error class for all CCCC SDK errors.
+ * All SDK-specific errors extend this class, so callers can use
+ * `catch (e) { if (e instanceof CCCCSDKError) ... }` for broad matching.
  */
 export class CCCCSDKError extends Error {
   constructor(message: string) {
@@ -17,7 +19,7 @@ export class CCCCSDKError extends Error {
 }
 
 /**
- * Daemon unavailable
+ * Thrown when the daemon cannot be reached (connection refused, timeout, write failure, etc.).
  */
 export class DaemonUnavailableError extends CCCCSDKError {
   constructor(message: string) {
@@ -27,7 +29,8 @@ export class DaemonUnavailableError extends CCCCSDKError {
 }
 
 /**
- * Daemon API error
+ * Thrown when the daemon returns `ok: false` with a structured error payload.
+ * Contains the error {@link code}, human-readable {@link message}, and optional {@link details}.
  */
 export class DaemonAPIError extends CCCCSDKError {
   readonly code: string;
@@ -56,7 +59,8 @@ export class DaemonAPIError extends CCCCSDKError {
 }
 
 /**
- * Incompatible daemon version/capabilities
+ * Thrown by {@link CCCCClient.assertCompatible} when the daemon does not meet
+ * the caller's IPC version, capability, or operation requirements.
  */
 export class IncompatibleDaemonError extends CCCCSDKError {
   constructor(message: string) {

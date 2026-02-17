@@ -36,7 +36,13 @@ import {
 } from './transport.js';
 
 /**
- * CCCC client
+ * Client for communicating with the CCCC daemon over IPC (Unix socket or TCP).
+ *
+ * Use the async factory {@link CCCCClient.create} to instantiate:
+ * ```ts
+ * const client = await CCCCClient.create();
+ * const result = await client.ping();
+ * ```
  */
 export class CCCCClient {
   private readonly _endpoint: DaemonEndpoint;
@@ -48,7 +54,10 @@ export class CCCCClient {
   }
 
   /**
-   * Async factory method: create a client instance
+   * Create a new client instance, auto-discovering the daemon endpoint.
+   * @param options - Client configuration (ccccHome, endpoint override, timeout).
+   * @returns A connected CCCCClient instance.
+   * @throws {DaemonUnavailableError} If the daemon endpoint cannot be discovered.
    */
   static async create(options: CCCCClientOptions = {}): Promise<CCCCClient> {
     const endpoint = options.endpoint ?? await discoverEndpoint(options.ccccHome);
@@ -56,9 +65,7 @@ export class CCCCClient {
     return new CCCCClient(endpoint, timeoutMs);
   }
 
-  /**
-   * Get the current endpoint
-   */
+  /** The resolved daemon endpoint this client connects to. */
   get endpoint(): DaemonEndpoint {
     return this._endpoint;
   }
@@ -68,7 +75,12 @@ export class CCCCClient {
   // ============================================================
 
   /**
-   * Send raw IPC request and return the full response
+   * Send a raw IPC request and return the full daemon response envelope.
+   * @param op - The IPC operation name (e.g. `'ping'`, `'send'`).
+   * @param args - Operation arguments.
+   * @returns The complete {@link DaemonResponse} including `ok`, `result`, and `error`.
+   * @throws {DaemonAPIError} If the daemon returns `ok: false`.
+   * @throws {DaemonUnavailableError} If the connection fails.
    */
   async callRaw(op: string, args?: Record<string, unknown>): Promise<DaemonResponse> {
     const request: DaemonRequest = {
@@ -81,9 +93,9 @@ export class CCCCClient {
 
     if (!response.ok && response.error) {
       throw new DaemonAPIError(
-        response.error.code,
-        response.error.message,
-        response.error.details,
+        response.error.code ?? 'error',
+        response.error.message ?? 'daemon error',
+        response.error.details ?? {},
         response
       );
     }
@@ -92,7 +104,12 @@ export class CCCCClient {
   }
 
   /**
-   * Send IPC request and return only result payload
+   * Send an IPC request and return only the result payload.
+   * @param op - The IPC operation name.
+   * @param args - Operation arguments.
+   * @returns The `result` field from the daemon response (empty object if absent).
+   * @throws {DaemonAPIError} If the daemon returns an error.
+   * @throws {DaemonUnavailableError} If the connection fails.
    */
   async call(op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await this.callRaw(op, args);
@@ -100,12 +117,21 @@ export class CCCCClient {
   }
 
   /**
-   * Compatibility check
+   * Assert that the connected daemon meets the caller's compatibility requirements.
+   * Checks IPC version, capabilities, and operation support by probing.
+   * @param options - Required IPC version, capabilities, and operations.
+   * @returns The ping result from the daemon.
+   * @throws {IncompatibleDaemonError} If any compatibility check fails.
+   * @throws {DaemonUnavailableError} If the connection fails.
    */
   async assertCompatible(options: CompatibilityOptions = {}): Promise<Record<string, unknown>> {
     const pingResult = await this.ping();
-    const ipcV = (pingResult['ipc_v'] as number) ?? 0;
-    const capabilities = (pingResult['capabilities'] as Record<string, boolean>) ?? {};
+    const rawIpcV = pingResult['ipc_v'];
+    const ipcV = typeof rawIpcV === 'number' ? rawIpcV : 0;
+    const rawCaps = pingResult['capabilities'];
+    const capabilities = (rawCaps !== null && typeof rawCaps === 'object' && !Array.isArray(rawCaps))
+      ? rawCaps as Record<string, boolean>
+      : {};
 
     // Check IPC version
     const requiredV = options.requireIpcV ?? 1;
@@ -142,7 +168,9 @@ export class CCCCClient {
   // ============================================================
 
   /**
-   * Ping daemon
+   * Ping the daemon and return diagnostic information (ipc_v, capabilities, etc.).
+   * @returns Daemon ping result.
+   * @throws {DaemonUnavailableError} If the daemon is not reachable.
    */
   async ping(): Promise<Record<string, unknown>> {
     return this.call('ping');
@@ -248,7 +276,7 @@ export class CCCCClient {
   async groupAutomationManage(options: GroupAutomationManageOptions): Promise<Record<string, unknown>> {
     const actions = options.actions;
     if (actions.length === 0) {
-      throw new Error('groupAutomationManage requires a non-empty actions array');
+      throw new DaemonAPIError('invalid_args', 'groupAutomationManage requires a non-empty actions array', {});
     }
     const args: Record<string, unknown> = {
       group_id: options.groupId,
@@ -308,23 +336,31 @@ export class CCCCClient {
   }
 
   /**
-   * Add actor
+   * Add an actor to a group.
+   * @param options - Actor configuration (id, runtime, runner, etc.).
+   * @returns The daemon result (includes assigned actor id).
+   * @throws {DaemonAPIError} On invalid group or duplicate actor id.
    */
   async actorAdd(options: ActorAddOptions): Promise<Record<string, unknown>> {
+    const optionalFields: Record<string, unknown> = {
+      actor_id: options.actorId,
+      title: options.title,
+      runtime: options.runtime,
+      runner: options.runner,
+      command: options.command,
+      env: options.env,
+      env_private: options.envPrivate,
+      default_scope_key: options.defaultScopeKey,
+      submit: options.submit,
+    };
+
     const args: Record<string, unknown> = {
       group_id: options.groupId,
       by: options.by ?? 'user',
     };
-
-    if (options.actorId) args['actor_id'] = options.actorId;
-    if (options.title) args['title'] = options.title;
-    if (options.runtime) args['runtime'] = options.runtime;
-    if (options.runner) args['runner'] = options.runner;
-    if (options.command) args['command'] = options.command;
-    if (options.env) args['env'] = options.env;
-    if (options.envPrivate) args['env_private'] = options.envPrivate;
-    if (options.defaultScopeKey) args['default_scope_key'] = options.defaultScopeKey;
-    if (options.submit) args['submit'] = options.submit;
+    for (const [key, value] of Object.entries(optionalFields)) {
+      if (value != null) args[key] = value;
+    }
 
     return this.call('actor_add', args);
   }
@@ -380,14 +416,15 @@ export class CCCCClient {
    * Update actor private env vars (runtime-only; values are never echoed)
    */
   async actorEnvPrivateUpdate(options: ActorEnvPrivateUpdateOptions): Promise<Record<string, unknown>> {
-    return this.call('actor_env_private_update', {
+    const args: Record<string, unknown> = {
       group_id: options.groupId,
       actor_id: options.actorId,
       by: options.by ?? 'user',
-      set: options.set ?? undefined,
-      unset: options.unset ?? undefined,
       clear: options.clear ?? false,
-    });
+    };
+    if (options.set) args['set'] = options.set;
+    if (options.unset) args['unset'] = options.unset;
+    return this.call('actor_env_private_update', args);
   }
 
   // ============================================================
@@ -395,7 +432,10 @@ export class CCCCClient {
   // ============================================================
 
   /**
-   * Send message
+   * Send a chat message to a group.
+   * @param options - Message content, recipients, and priority.
+   * @returns The daemon result (includes event id).
+   * @throws {DaemonAPIError} On invalid group, missing permissions, etc.
    */
   async send(options: SendOptions): Promise<Record<string, unknown>> {
     const args: Record<string, unknown> = {
@@ -565,7 +605,12 @@ export class CCCCClient {
   // ============================================================
 
   /**
-   * Subscribe to event stream
+   * Subscribe to the group event stream (Server-Sent Events style, long-lived connection).
+   * Yields {@link EventStreamItem} objects as they arrive. The socket is destroyed
+   * when the generator is returned or thrown.
+   * @param options - Group ID, event filters, and optional since cursor.
+   * @yields {EventStreamItem} Each event or heartbeat from the stream.
+   * @throws {DaemonAPIError} If the handshake fails.
    */
   async *eventsStream(options: EventsStreamOptions): AsyncGenerator<EventStreamItem> {
     const args: Record<string, unknown> = {
@@ -610,7 +655,10 @@ export class CCCCClient {
     try {
       for await (const line of readLines(socket, initialBuffer)) {
         try {
-          yield JSON.parse(line) as EventStreamItem;
+          const parsed: unknown = JSON.parse(line);
+          if (parsed !== null && typeof parsed === 'object' && 't' in (parsed as Record<string, unknown>)) {
+            yield parsed as EventStreamItem;
+          }
         } catch {
           // Skip invalid JSON lines.
         }

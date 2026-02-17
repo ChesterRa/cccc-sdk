@@ -18,16 +18,18 @@ import { DaemonUnavailableError } from './errors.js';
 // Constants
 // ============================================================
 
-const MAX_LINE_SIZE = 4_000_000; // 4MB
-const DEFAULT_TIMEOUT_MS = 30_000;
+export const MAX_LINE_SIZE = 4_000_000; // 4MB
+export const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_PORT = 65_535;
 
 function normalizeTcpConnectHost(rawHost: string | undefined): string {
   const host = String(rawHost ?? '').trim();
   if (!host || host === 'localhost' || host === '0.0.0.0') {
     return '127.0.0.1';
   }
-  // Daemon IPC currently uses AF_INET only; avoid writing IPv6 hosts into client dial path.
-  if (host.includes(':')) {
+  // Daemon IPC currently uses AF_INET only; fall back to loopback for
+  // IPv6-style addresses (contains ':') or the IPv6 loopback literal.
+  if (host.includes(':') || host === '::1') {
     return '127.0.0.1';
   }
   return host;
@@ -38,14 +40,19 @@ function normalizeTcpConnectHost(rawHost: string | undefined): string {
 // ============================================================
 
 /**
- * Get default CCCC home path
+ * Get the default CCCC home directory path.
+ * Uses `$CCCC_HOME` if set, otherwise `~/.cccc`.
+ * @returns Absolute path to the CCCC home directory.
  */
 export function defaultHome(): string {
   return process.env['CCCC_HOME'] || path.join(os.homedir(), '.cccc');
 }
 
 /**
- * Discover daemon endpoint
+ * Discover the daemon IPC endpoint by reading `ccccd.addr.json`.
+ * Falls back to the default Unix socket path if the address file is missing or unreadable.
+ * @param home - Optional CCCC home directory override.
+ * @returns The resolved {@link DaemonEndpoint} (TCP or Unix).
  */
 export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
   const ccccHome = home || defaultHome();
@@ -58,7 +65,7 @@ export async function discoverEndpoint(home?: string): Promise<DaemonEndpoint> {
     if (descriptor.v === 1) {
       if (descriptor.transport === 'tcp' && descriptor.port) {
         const port = Number(descriptor.port);
-        if (!Number.isInteger(port) || port <= 0) {
+        if (!Number.isInteger(port) || port <= 0 || port > MAX_PORT) {
           throw new Error(`invalid daemon tcp port: ${descriptor.port}`);
         }
         return {
@@ -145,7 +152,14 @@ function connect(
 // ============================================================
 
 /**
- * Send a single IPC request
+ * Send a single IPC request to the daemon and return the response.
+ * Opens a new socket, sends the JSON-line request, reads exactly one JSON-line response,
+ * then destroys the socket.
+ * @param endpoint - The daemon endpoint to connect to.
+ * @param request - The IPC request envelope.
+ * @param timeoutMs - Connection and response timeout in milliseconds.
+ * @returns The parsed {@link DaemonResponse}.
+ * @throws {DaemonUnavailableError} On connection, write, or parse failure.
  */
 export async function callDaemon(
   endpoint: DaemonEndpoint,
@@ -189,6 +203,7 @@ export async function callDaemon(
       if (!resolved) {
         resolved = true;
         cleanup();
+        socket.destroy();
         reject(new DaemonUnavailableError(err.message));
       }
     });
@@ -197,13 +212,21 @@ export async function callDaemon(
       if (!resolved) {
         resolved = true;
         cleanup();
+        socket.destroy();
         reject(new DaemonUnavailableError('Connection closed unexpectedly'));
       }
     });
 
     // Send request.
     const line = JSON.stringify(request) + '\n';
-    socket.write(line);
+    socket.write(line, (err) => {
+      if (err && !resolved) {
+        resolved = true;
+        cleanup();
+        socket.destroy();
+        reject(new DaemonUnavailableError(`Write failed: ${err.message}`));
+      }
+    });
   });
 }
 
@@ -219,7 +242,14 @@ export interface EventsStreamConnection {
 }
 
 /**
- * Open event stream connection
+ * Open a long-lived event stream connection to the daemon.
+ * Sends the request, reads the handshake response, and returns the socket
+ * for continued streaming via {@link readLines}.
+ * @param endpoint - The daemon endpoint to connect to.
+ * @param request - The IPC request envelope (op should be `events_stream`).
+ * @param timeoutMs - Connection and handshake timeout in milliseconds.
+ * @returns The socket, handshake response, and any buffered data after the handshake.
+ * @throws {DaemonUnavailableError} On connection or handshake failure.
  */
 export async function openEventsStream(
   endpoint: DaemonEndpoint,
@@ -230,7 +260,16 @@ export async function openEventsStream(
 
   // Send request.
   const line = JSON.stringify(request) + '\n';
-  socket.write(line);
+  await new Promise<void>((resolve, reject) => {
+    socket.write(line, (err) => {
+      if (err) {
+        socket.destroy();
+        reject(new DaemonUnavailableError(`Write failed: ${err.message}`));
+      } else {
+        resolve();
+      }
+    });
+  });
 
   // Read handshake response.
   const { handshake, remainingBuffer } = await new Promise<{
@@ -269,6 +308,7 @@ export async function openEventsStream(
       if (!resolved) {
         resolved = true;
         cleanup();
+        socket.destroy();
         reject(new DaemonUnavailableError(err.message));
       }
     });
@@ -276,6 +316,7 @@ export async function openEventsStream(
       if (!resolved) {
         resolved = true;
         cleanup();
+        socket.destroy();
         reject(new DaemonUnavailableError('Connection closed during handshake'));
       }
     });
@@ -288,7 +329,11 @@ export async function openEventsStream(
 }
 
 /**
- * Create line reader from socket (async generator)
+ * Async generator that yields newline-delimited lines from a socket.
+ * Handles buffering and splits on `\n`. Empty/whitespace-only lines are skipped.
+ * @param socket - The connected socket to read from.
+ * @param initialBuffer - Any data already buffered before this generator starts.
+ * @yields Each non-empty line as a string (without the trailing newline).
  */
 export async function* readLines(
   socket: net.Socket,
