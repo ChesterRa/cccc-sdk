@@ -96,3 +96,35 @@ Cross-group send:
 ```bash
 python examples/send_cross_group.py --src g_src --dst g_dst --text "hello from src"
 ```
+
+## Actor Profiles (global reusable runtime presets)
+
+`cccc` 0.4.x supports global Actor Profiles so you can reuse runtime/runner/command/env across groups.
+
+```python
+from cccc_sdk import CCCCClient
+
+c = CCCCClient()
+
+# list profiles
+profiles = c.actor_profile_list()
+
+# create or update a profile
+profile = c.actor_profile_upsert(
+    profile={
+        "name": "Codex PTY",
+        "runtime": "codex",
+        "runner": "pty",
+        "command": ["codex", "exec"],
+        "submit": "enter",
+        "env": {"CODEX_MODEL": "gpt-5"},
+    }
+)
+profile_id = str((profile.get("profile") or {}).get("id") or "")
+
+# create actor from profile
+c.actor_add(group_id="g_xxx", actor_id="reviewer", profile_id=profile_id)
+
+# profile secrets (write-only values)
+c.actor_profile_secret_update(profile_id=profile_id, set={"OPENAI_API_KEY": "..."})
+```

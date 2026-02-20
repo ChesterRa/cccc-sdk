@@ -136,6 +136,7 @@ export interface ActorAddOptions {
   command?: string[];
   env?: Record<string, string>;
   envPrivate?: Record<string, string>;
+  profileId?: string;
   defaultScopeKey?: string;
   submit?: string;
   by?: string;
@@ -145,7 +146,9 @@ export interface ActorAddOptions {
 export interface ActorUpdateOptions {
   groupId: string;
   actorId: string;
-  patch: Record<string, unknown>;
+  patch?: Record<string, unknown>;
+  profileId?: string;
+  profileAction?: 'convert_to_custom';
   by?: string;
 }
 
@@ -157,6 +160,51 @@ export interface ActorEnvPrivateUpdateOptions {
   set?: Record<string, string>;
   unset?: string[];
   clear?: boolean;
+}
+
+/** Actor profile payload (upsert/get/list item core fields) */
+export interface ActorProfile {
+  id?: string;
+  name: string;
+  runtime: string;
+  runner: 'pty' | 'headless';
+  command?: string[] | string;
+  submit?: 'enter' | 'newline' | 'none';
+  env?: Record<string, string>;
+  created_at?: string;
+  updated_at?: string;
+  revision?: number;
+  usage_count?: number;
+}
+
+/** Actor profile usage record */
+export interface ActorProfileUsage {
+  group_id: string;
+  actor_id: string;
+}
+
+/** Actor profile upsert options */
+export interface ActorProfileUpsertOptions {
+  profile: ActorProfile;
+  by?: string;
+  expectedRevision?: number;
+}
+
+/** Actor profile secret update options */
+export interface ActorProfileSecretUpdateOptions {
+  profileId: string;
+  by?: string;
+  set?: Record<string, string>;
+  unset?: string[];
+  clear?: boolean;
+}
+
+/** Copy one actor's runtime env (public + private) into a profile's private env */
+export interface ActorProfileSecretCopyFromActorOptions {
+  profileId: string;
+  groupId: string;
+  actorId: string;
+  by?: string;
 }
 
 /** Create group options */

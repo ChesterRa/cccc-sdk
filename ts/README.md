@@ -75,6 +75,37 @@ await client.groupAutomationManage({
 });
 ```
 
+## Actor Profiles (global reusable runtime presets)
+
+```typescript
+const client = await CCCCClient.create();
+
+const upsert = await client.actorProfileUpsert({
+  profile: {
+    name: 'Codex PTY',
+    runtime: 'codex',
+    runner: 'pty',
+    command: ['codex', 'exec'],
+    submit: 'enter',
+    env: { CODEX_MODEL: 'gpt-5' },
+  },
+});
+
+const profile = upsert.profile as { id?: string } | undefined;
+const profileId = String(profile?.id ?? '');
+
+await client.actorAdd({
+  groupId,
+  actorId: 'reviewer',
+  profileId,
+});
+
+await client.actorProfileSecretUpdate({
+  profileId,
+  set: { OPENAI_API_KEY: '...' },
+});
+```
+
 ## Events stream
 
 ```typescript

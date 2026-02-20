@@ -14,6 +14,9 @@ import type {
   ActorAddOptions,
   ActorUpdateOptions,
   ActorEnvPrivateUpdateOptions,
+  ActorProfileUpsertOptions,
+  ActorProfileSecretUpdateOptions,
+  ActorProfileSecretCopyFromActorOptions,
   GroupCreateOptions,
   GroupUpdateOptions,
   GroupAutomationUpdateOptions,
@@ -350,6 +353,7 @@ export class CCCCClient {
       command: options.command,
       env: options.env,
       env_private: options.envPrivate,
+      profile_id: options.profileId,
       default_scope_key: options.defaultScopeKey,
       submit: options.submit,
     };
@@ -369,12 +373,15 @@ export class CCCCClient {
    * Update actor
    */
   async actorUpdate(options: ActorUpdateOptions): Promise<Record<string, unknown>> {
-    return this.call('actor_update', {
+    const args: Record<string, unknown> = {
       group_id: options.groupId,
       actor_id: options.actorId,
-      patch: options.patch,
+      patch: options.patch ?? {},
       by: options.by ?? 'user',
-    });
+    };
+    if (options.profileId != null) args['profile_id'] = options.profileId;
+    if (options.profileAction != null) args['profile_action'] = options.profileAction;
+    return this.call('actor_update', args);
   }
 
   /**
@@ -425,6 +432,72 @@ export class CCCCClient {
     if (options.set) args['set'] = options.set;
     if (options.unset) args['unset'] = options.unset;
     return this.call('actor_env_private_update', args);
+  }
+
+  /**
+   * List global actor profiles.
+   */
+  async actorProfileList(by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_list', { by });
+  }
+
+  /**
+   * Get one actor profile and current usage.
+   */
+  async actorProfileGet(profileId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_get', { profile_id: profileId, by });
+  }
+
+  /**
+   * Create/update one actor profile.
+   */
+  async actorProfileUpsert(options: ActorProfileUpsertOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      profile: options.profile,
+      by: options.by ?? 'user',
+    };
+    if (options.expectedRevision !== undefined) args['expected_revision'] = options.expectedRevision;
+    return this.call('actor_profile_upsert', args);
+  }
+
+  /**
+   * Delete one actor profile (rejected when still in use).
+   */
+  async actorProfileDelete(profileId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_delete', { profile_id: profileId, by });
+  }
+
+  /**
+   * List profile-level secret keys and masked previews.
+   */
+  async actorProfileSecretKeys(profileId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_secret_keys', { profile_id: profileId, by });
+  }
+
+  /**
+   * Update profile-level private env.
+   */
+  async actorProfileSecretUpdate(options: ActorProfileSecretUpdateOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      profile_id: options.profileId,
+      by: options.by ?? 'user',
+      clear: options.clear ?? false,
+    };
+    if (options.set) args['set'] = options.set;
+    if (options.unset) args['unset'] = options.unset;
+    return this.call('actor_profile_secret_update', args);
+  }
+
+  /**
+   * Copy one actor's runtime env (public + private) into a profile's private env.
+   */
+  async actorProfileSecretCopyFromActor(options: ActorProfileSecretCopyFromActorOptions): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_secret_copy_from_actor', {
+      profile_id: options.profileId,
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      by: options.by ?? 'user',
+    });
   }
 
   // ============================================================

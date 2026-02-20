@@ -190,6 +190,7 @@ class CCCCClient:
         command: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
         env_private: Optional[Dict[str, str]] = None,
+        profile_id: str = "",
         default_scope_key: str = "",
         submit: str = "",
         by: str = "user",
@@ -209,16 +210,35 @@ class CCCCClient:
             args["env"] = {str(k): str(v) for k, v in env.items()}
         if env_private is not None:
             args["env_private"] = {str(k): str(v) for k, v in env_private.items()}
+        if profile_id:
+            args["profile_id"] = str(profile_id)
         if default_scope_key:
             args["default_scope_key"] = str(default_scope_key)
         if submit:
             args["submit"] = str(submit)
         return self.call("actor_add", args)
 
-    def actor_update(self, *, group_id: str, actor_id: str, patch: Dict[str, Any], by: str = "user") -> Dict[str, Any]:
-        return self.call(
-            "actor_update", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by), "patch": dict(patch)}
-        )
+    def actor_update(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        patch: Optional[Dict[str, Any]] = None,
+        by: str = "user",
+        profile_id: str = "",
+        profile_action: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "actor_id": str(actor_id),
+            "by": str(by),
+            "patch": dict(patch or {}),
+        }
+        if profile_id:
+            args["profile_id"] = str(profile_id)
+        if profile_action:
+            args["profile_action"] = str(profile_action)
+        return self.call("actor_update", args)
 
     def actor_remove(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_remove", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)})
@@ -256,6 +276,64 @@ class CCCCClient:
         if unset is not None:
             args["unset"] = [str(x) for x in unset]
         return self.call("actor_env_private_update", args)
+
+    def actor_profile_list(self, *, by: str = "user") -> Dict[str, Any]:
+        return self.call("actor_profile_list", {"by": str(by)})
+
+    def actor_profile_get(self, *, profile_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call("actor_profile_get", {"profile_id": str(profile_id), "by": str(by)})
+
+    def actor_profile_upsert(
+        self,
+        *,
+        profile: Dict[str, Any],
+        by: str = "user",
+        expected_revision: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"profile": dict(profile), "by": str(by)}
+        if expected_revision is not None:
+            args["expected_revision"] = int(expected_revision)
+        return self.call("actor_profile_upsert", args)
+
+    def actor_profile_delete(self, *, profile_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call("actor_profile_delete", {"profile_id": str(profile_id), "by": str(by)})
+
+    def actor_profile_secret_keys(self, *, profile_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call("actor_profile_secret_keys", {"profile_id": str(profile_id), "by": str(by)})
+
+    def actor_profile_secret_update(
+        self,
+        *,
+        profile_id: str,
+        set: Optional[Dict[str, str]] = None,  # noqa: A002 - match IPC field name
+        unset: Optional[List[str]] = None,
+        clear: bool = False,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"profile_id": str(profile_id), "by": str(by), "clear": bool(clear)}
+        if set is not None:
+            args["set"] = {str(k): str(v) for k, v in set.items()}
+        if unset is not None:
+            args["unset"] = [str(x) for x in unset]
+        return self.call("actor_profile_secret_update", args)
+
+    def actor_profile_secret_copy_from_actor(
+        self,
+        *,
+        profile_id: str,
+        group_id: str,
+        actor_id: str,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "actor_profile_secret_copy_from_actor",
+            {
+                "profile_id": str(profile_id),
+                "group_id": str(group_id),
+                "actor_id": str(actor_id),
+                "by": str(by),
+            },
+        )
 
     def send_cross_group(
         self,
