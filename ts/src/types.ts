@@ -136,6 +136,7 @@ export interface ActorAddOptions {
   command?: string[];
   env?: Record<string, string>;
   envPrivate?: Record<string, string>;
+  capabilityAutoload?: string[];
   profileId?: string;
   defaultScopeKey?: string;
   submit?: string;
@@ -163,6 +164,13 @@ export interface ActorEnvPrivateUpdateOptions {
 }
 
 /** Actor profile payload (upsert/get/list item core fields) */
+export interface ActorProfileCapabilityDefaults {
+  autoloadCapabilities?: string[];
+  defaultScope?: 'actor' | 'session';
+  sessionTtlSeconds?: number;
+}
+
+/** Actor profile payload (upsert/get/list item core fields) */
 export interface ActorProfile {
   id?: string;
   name: string;
@@ -171,6 +179,7 @@ export interface ActorProfile {
   command?: string[] | string;
   submit?: 'enter' | 'newline' | 'none';
   env?: Record<string, string>;
+  capabilityDefaults?: ActorProfileCapabilityDefaults | null;
   created_at?: string;
   updated_at?: string;
   revision?: number;
@@ -207,6 +216,13 @@ export interface ActorProfileSecretCopyFromActorOptions {
   by?: string;
 }
 
+/** Copy one profile's secret map into another profile */
+export interface ActorProfileSecretCopyFromProfileOptions {
+  profileId: string;
+  sourceProfileId: string;
+  by?: string;
+}
+
 /** Create group options */
 export interface GroupCreateOptions {
   title?: string;
@@ -218,6 +234,254 @@ export interface GroupCreateOptions {
 export interface GroupUpdateOptions {
   groupId: string;
   patch: Record<string, unknown>;
+  by?: string;
+}
+
+/** Capability overview options */
+export interface CapabilityOverviewOptions {
+  query?: string;
+  limit?: number;
+  includeIndexed?: boolean;
+}
+
+/** Capability search options */
+export interface CapabilitySearchOptions {
+  groupId: string;
+  actorId?: string;
+  by?: string;
+  query?: string;
+  kind?: 'mcp_toolpack' | 'skill' | '';
+  sourceId?: string;
+  trustTier?: string;
+  qualificationStatus?: 'qualified' | 'unavailable' | 'blocked' | '';
+  includeExternal?: boolean;
+  limit?: number;
+}
+
+/** Capability enable/disable options */
+export interface CapabilityEnableOptions {
+  groupId: string;
+  capabilityId: string;
+  scope?: 'group' | 'actor' | 'session';
+  enabled?: boolean;
+  cleanup?: boolean;
+  reason?: string;
+  ttlSeconds?: number;
+  by?: string;
+  actorId?: string;
+}
+
+/** Capability block/unblock options */
+export interface CapabilityBlockOptions {
+  groupId: string;
+  capabilityId: string;
+  scope?: 'group' | 'global';
+  blocked?: boolean;
+  ttlSeconds?: number;
+  reason?: string;
+  by?: string;
+  actorId?: string;
+}
+
+/** Capability state options */
+export interface CapabilityStateOptions {
+  groupId: string;
+  actorId?: string;
+  by?: string;
+}
+
+/** Capability allowlist overlay merge mode */
+export type CapabilityAllowlistMode = 'patch' | 'replace';
+
+/** Capability allowlist read options */
+export interface CapabilityAllowlistGetOptions {
+  by?: string;
+}
+
+/** Capability allowlist dry-run validation options */
+export interface CapabilityAllowlistValidateOptions {
+  mode?: CapabilityAllowlistMode;
+  patch?: Record<string, unknown>;
+  overlay?: Record<string, unknown>;
+}
+
+/** Capability allowlist update options */
+export interface CapabilityAllowlistUpdateOptions {
+  by?: string;
+  mode?: CapabilityAllowlistMode;
+  expectedRevision?: string;
+  patch?: Record<string, unknown>;
+  overlay?: Record<string, unknown>;
+}
+
+/** Capability allowlist reset options */
+export interface CapabilityAllowlistResetOptions {
+  by?: string;
+}
+
+/** Capability import options */
+export interface CapabilityImportOptions {
+  groupId: string;
+  record: Record<string, unknown>;
+  by?: string;
+  actorId?: string;
+  dryRun?: boolean;
+  probe?: boolean;
+  enableAfterImport?: boolean;
+  scope?: 'group' | 'actor' | 'session';
+  ttlSeconds?: number;
+  reason?: string;
+}
+
+/** Capability uninstall options */
+export interface CapabilityUninstallOptions {
+  groupId: string;
+  capabilityId: string;
+  reason?: string;
+  by?: string;
+  actorId?: string;
+}
+
+/** Capability dynamic-tool call options */
+export interface CapabilityToolCallOptions {
+  groupId: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+  actorId?: string;
+  by?: string;
+}
+
+/** Supported Group Space provider */
+export type GroupSpaceProvider = 'notebooklm';
+
+/** Group Space lane */
+export type GroupSpaceLane = 'work' | 'memory';
+
+/** Group Space status options */
+export interface GroupSpaceStatusOptions {
+  groupId: string;
+  provider?: GroupSpaceProvider;
+}
+
+/** Group Space spaces options */
+export interface GroupSpaceSpacesOptions {
+  groupId: string;
+  provider?: GroupSpaceProvider;
+}
+
+/** Group Space capability matrix options */
+export interface GroupSpaceCapabilitiesOptions {
+  groupId: string;
+  provider?: GroupSpaceProvider;
+}
+
+/** Group Space bind options */
+export interface GroupSpaceBindOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  action?: 'bind' | 'unbind';
+  remoteSpaceId?: string;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Group Space ingest options */
+export interface GroupSpaceIngestOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  payload?: Record<string, unknown>;
+  kind?: 'context_sync' | 'resource_ingest';
+  idempotencyKey?: string;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Group Space query options */
+export interface GroupSpaceQueryOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  query: string;
+  options?: Record<string, unknown>;
+  provider?: GroupSpaceProvider;
+}
+
+/** Group Space source-management options */
+export interface GroupSpaceSourcesOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  action?: 'list' | 'refresh' | 'rename' | 'delete';
+  sourceId?: string;
+  newTitle?: string;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Group Space artifact options */
+export interface GroupSpaceArtifactOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  action?: 'list' | 'generate' | 'download';
+  kind?: 'audio' | 'video' | 'report' | 'study_guide' | 'quiz' | 'flashcards' | 'infographic' | 'slide_deck' | 'data_table' | 'mind_map';
+  options?: Record<string, unknown>;
+  wait?: boolean;
+  saveToSpace?: boolean;
+  outputPath?: string;
+  outputFormat?: 'json' | 'markdown' | 'html';
+  artifactId?: string;
+  timeoutSeconds?: number;
+  initialInterval?: number;
+  maxInterval?: number;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Group Space job-management options */
+export interface GroupSpaceJobsOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  action?: 'list' | 'retry' | 'cancel';
+  jobId?: string;
+  state?: 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  limit?: number;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Group Space sync options */
+export interface GroupSpaceSyncOptions {
+  groupId: string;
+  lane: GroupSpaceLane;
+  action?: 'status' | 'run';
+  force?: boolean;
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Provider credential status options */
+export interface GroupSpaceProviderCredentialStatusOptions {
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Provider credential update options */
+export interface GroupSpaceProviderCredentialUpdateOptions {
+  provider?: GroupSpaceProvider;
+  by?: string;
+  authJson?: string;
+  clear?: boolean;
+}
+
+/** Provider health check options */
+export interface GroupSpaceProviderHealthCheckOptions {
+  provider?: GroupSpaceProvider;
+  by?: string;
+}
+
+/** Provider auth flow options */
+export interface GroupSpaceProviderAuthOptions {
+  provider?: GroupSpaceProvider;
+  action?: 'status' | 'start' | 'cancel';
+  timeoutSeconds?: number;
   by?: string;
 }
 

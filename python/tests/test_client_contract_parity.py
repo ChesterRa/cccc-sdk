@@ -104,6 +104,26 @@ class TestClientContractParity(unittest.TestCase):
         args = req.get("args") if isinstance(req.get("args"), dict) else {}
         self.assertEqual(args.get("profile_id"), "ap_123")
 
+    def test_actor_add_supports_capability_autoload(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"actor": {"id": "a1"}}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().actor_add(
+                group_id="g_1",
+                actor_id="a1",
+                capability_autoload=["pack:space"],
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "actor_add")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("capability_autoload"), ["pack:space"])
+
     def test_actor_update_supports_profile_args(self) -> None:
         captured: list[dict] = []
 
@@ -188,6 +208,172 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args.get("profile_id"), "ap_123")
         self.assertEqual(args.get("group_id"), "g_1")
         self.assertEqual(args.get("actor_id"), "a1")
+
+    def test_actor_profile_secret_copy_from_profile_maps_args(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"profile_id": "ap_dst", "source_profile_id": "ap_src", "keys": []}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().actor_profile_secret_copy_from_profile(
+                profile_id="ap_dst",
+                source_profile_id="ap_src",
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "actor_profile_secret_copy_from_profile")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("profile_id"), "ap_dst")
+        self.assertEqual(args.get("source_profile_id"), "ap_src")
+
+    def test_capability_enable_maps_scope_and_ttl(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"state": "activation_pending"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().capability_enable(
+                group_id="g_1",
+                capability_id="pack:space",
+                scope="session",
+                ttl_seconds=600,
+                actor_id="foreman",
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "capability_enable")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("capability_id"), "pack:space")
+        self.assertEqual(args.get("scope"), "session")
+        self.assertEqual(args.get("ttl_seconds"), 600)
+        self.assertEqual(args.get("actor_id"), "foreman")
+
+    def test_capability_allowlist_get_maps_by(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"revision": "r1"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().capability_allowlist_get(by="user")
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "capability_allowlist_get")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("by"), "user")
+
+    def test_capability_allowlist_validate_maps_patch_mode(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"valid": True}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().capability_allowlist_validate(
+                mode="patch",
+                patch={"defaults": {"source_level": {"skillsmp_remote": "indexed"}}},
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "capability_allowlist_validate")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("mode"), "patch")
+        self.assertEqual(args.get("patch"), {"defaults": {"source_level": {"skillsmp_remote": "indexed"}}})
+
+    def test_capability_allowlist_update_maps_revision_and_overlay(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"updated": True, "revision": "r2"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().capability_allowlist_update(
+                mode="replace",
+                overlay={"allow": {"packs": ["pack:space"]}},
+                expected_revision="r1",
+                by="user",
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "capability_allowlist_update")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("mode"), "replace")
+        self.assertEqual(args.get("overlay"), {"allow": {"packs": ["pack:space"]}})
+        self.assertEqual(args.get("expected_revision"), "r1")
+        self.assertEqual(args.get("by"), "user")
+
+    def test_capability_allowlist_reset_maps_by(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"reset": True}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().capability_allowlist_reset(by="user")
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "capability_allowlist_reset")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("by"), "user")
+
+    def test_group_space_bind_maps_lane_and_remote_space_id(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"lane": "work"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().group_space_bind(
+                group_id="g_1",
+                lane="work",
+                action="bind",
+                remote_space_id="nb_123",
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "group_space_bind")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("lane"), "work")
+        self.assertEqual(args.get("action"), "bind")
+        self.assertEqual(args.get("remote_space_id"), "nb_123")
+
+    def test_group_space_provider_auth_maps_timeout(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"provider": "notebooklm"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().group_space_provider_auth(
+                provider="notebooklm",
+                action="start",
+                timeout_seconds=120,
+            )
+
+        self.assertEqual(len(captured), 1)
+        req = captured[0]
+        self.assertEqual(req.get("op"), "group_space_provider_auth")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(args.get("provider"), "notebooklm")
+        self.assertEqual(args.get("action"), "start")
+        self.assertEqual(args.get("timeout_seconds"), 120)
 
 
 if __name__ == "__main__":

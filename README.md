@@ -1,8 +1,8 @@
-# CCCC SDK 0.4.x — Official Client SDKs for CCCC
+# CCCC SDK — Official Client SDKs for CCCC
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **stable for CCCC 0.4.x**. RC builds remain available for preview testing.
+> Status: maintained against the current **CCCC Daemon IPC v1** line. Preview/RC builds remain available when needed.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
 
@@ -25,7 +25,7 @@ If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared imme
 Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
-- Internal tools that create/manage groups, actors, and shared context programmatically
+- Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
 
 For language-specific details:
 - Python SDK: `python/README.md`
@@ -85,11 +85,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ## Versioning and compatibility
 
-SDK versions track **CCCC major/minor** (`0.4.x`), while patch/RC cadence is SDK-owned:
-- Stable: `cccc-sdk==0.4.0` with `cccc==0.4.x`
-- RC preview: `cccc-sdk==0.4.1rc1` can still be compatible with `cccc==0.4.x`
-
-Compatibility is enforced by **contracts**, not by strict version string matching:
+Language packages can publish on different cadences. Compatibility is enforced by **contracts**, not by strict version string matching:
 - IPC version (`ipc_v`)
 - capability discovery (`capabilities`)
 - operation probing (reject `unknown_op`)
@@ -98,7 +94,7 @@ See `python/examples/compat_check.py`.
 
 ## Specs (contracts)
 
-For CCCC v0.4.x, the canonical contract documents live in the main CCCC repo (so spec and daemon evolve together).
+For the current CCCC daemon line, the canonical contract documents live in the main CCCC repo (so spec and daemon evolve together).
 This repo keeps a mirror under `spec/`:
 
 ```bash

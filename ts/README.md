@@ -14,6 +14,8 @@ TypeScript/Node.js client for the CCCC daemon (IPC v1).
 npm install cccc-sdk
 ```
 
+Compatibility is determined by Daemon IPC v1 contracts and operation probing, not by strict package-version matching.
+
 ## Quick start
 
 ```typescript
@@ -88,6 +90,10 @@ const upsert = await client.actorProfileUpsert({
     command: ['codex', 'exec'],
     submit: 'enter',
     env: { CODEX_MODEL: 'gpt-5' },
+    capabilityDefaults: {
+      autoloadCapabilities: ['pack:space'],
+      defaultScope: 'actor',
+    },
   },
 });
 
@@ -105,6 +111,37 @@ await client.actorProfileSecretUpdate({
   set: { OPENAI_API_KEY: '...' },
 });
 ```
+
+## Current high-value surfaces
+
+```typescript
+const client = await CCCCClient.create();
+
+const caps = await client.capabilityState({
+  groupId,
+  actorId: 'foreman',
+});
+
+const policy = await client.capabilityAllowlistGet();
+const preview = await client.capabilityAllowlistValidate({
+  mode: 'patch',
+  patch: { defaults: { source_level: { skillsmp_remote: 'indexed' } } },
+});
+
+const space = await client.groupSpaceStatus({
+  groupId,
+});
+
+await client.contextSync({
+  groupId,
+  by: 'user',
+  ops: [
+    { op: 'coordination.note.add', kind: 'decision', summary: 'Use the simpler path' },
+  ],
+});
+```
+
+If you need a daemon op that does not have a dedicated helper yet, you can always fall back to `call()` / `callRaw()`.
 
 ## Events stream
 

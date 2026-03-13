@@ -190,6 +190,7 @@ class CCCCClient:
         command: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
         env_private: Optional[Dict[str, str]] = None,
+        capability_autoload: Optional[List[str]] = None,
         profile_id: str = "",
         default_scope_key: str = "",
         submit: str = "",
@@ -210,6 +211,8 @@ class CCCCClient:
             args["env"] = {str(k): str(v) for k, v in env.items()}
         if env_private is not None:
             args["env_private"] = {str(k): str(v) for k, v in env_private.items()}
+        if capability_autoload is not None:
+            args["capability_autoload"] = [str(x) for x in capability_autoload]
         if profile_id:
             args["profile_id"] = str(profile_id)
         if default_scope_key:
@@ -295,8 +298,13 @@ class CCCCClient:
             args["expected_revision"] = int(expected_revision)
         return self.call("actor_profile_upsert", args)
 
-    def actor_profile_delete(self, *, profile_id: str, by: str = "user") -> Dict[str, Any]:
-        return self.call("actor_profile_delete", {"profile_id": str(profile_id), "by": str(by)})
+    def actor_profile_delete(
+        self, *, profile_id: str, by: str = "user", force_detach: bool = False
+    ) -> Dict[str, Any]:
+        return self.call(
+            "actor_profile_delete",
+            {"profile_id": str(profile_id), "by": str(by), "force_detach": bool(force_detach)},
+        )
 
     def actor_profile_secret_keys(self, *, profile_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_profile_secret_keys", {"profile_id": str(profile_id), "by": str(by)})
@@ -334,6 +342,466 @@ class CCCCClient:
                 "by": str(by),
             },
         )
+
+    def actor_profile_secret_copy_from_profile(
+        self,
+        *,
+        profile_id: str,
+        source_profile_id: str,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "actor_profile_secret_copy_from_profile",
+            {
+                "profile_id": str(profile_id),
+                "source_profile_id": str(source_profile_id),
+                "by": str(by),
+            },
+        )
+
+    def capability_overview(
+        self,
+        *,
+        query: str = "",
+        limit: Optional[int] = None,
+        include_indexed: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        if query:
+            args["query"] = str(query)
+        if limit is not None:
+            args["limit"] = int(limit)
+        if include_indexed is not None:
+            args["include_indexed"] = bool(include_indexed)
+        return self.call("capability_overview", args)
+
+    def capability_search(
+        self,
+        *,
+        group_id: str,
+        actor_id: str = "",
+        by: str = "user",
+        query: str = "",
+        kind: str = "",
+        source_id: str = "",
+        trust_tier: str = "",
+        qualification_status: str = "",
+        include_external: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if query:
+            args["query"] = str(query)
+        if kind:
+            args["kind"] = str(kind)
+        if source_id:
+            args["source_id"] = str(source_id)
+        if trust_tier:
+            args["trust_tier"] = str(trust_tier)
+        if qualification_status:
+            args["qualification_status"] = str(qualification_status)
+        if include_external is not None:
+            args["include_external"] = bool(include_external)
+        if limit is not None:
+            args["limit"] = int(limit)
+        return self.call("capability_search", args)
+
+    def capability_enable(
+        self,
+        *,
+        group_id: str,
+        capability_id: str,
+        scope: str = "session",
+        enabled: bool = True,
+        cleanup: bool = False,
+        reason: str = "",
+        ttl_seconds: Optional[int] = None,
+        by: str = "user",
+        actor_id: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "capability_id": str(capability_id),
+            "scope": str(scope),
+            "enabled": bool(enabled),
+            "cleanup": bool(cleanup),
+            "by": str(by),
+        }
+        if reason:
+            args["reason"] = str(reason)
+        if ttl_seconds is not None:
+            args["ttl_seconds"] = int(ttl_seconds)
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("capability_enable", args)
+
+    def capability_block(
+        self,
+        *,
+        group_id: str,
+        capability_id: str,
+        scope: str = "group",
+        blocked: bool = True,
+        ttl_seconds: Optional[int] = None,
+        reason: str = "",
+        by: str = "user",
+        actor_id: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "capability_id": str(capability_id),
+            "scope": str(scope),
+            "blocked": bool(blocked),
+            "by": str(by),
+        }
+        if ttl_seconds is not None:
+            args["ttl_seconds"] = int(ttl_seconds)
+        if reason:
+            args["reason"] = str(reason)
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("capability_block", args)
+
+    def capability_state(self, *, group_id: str, actor_id: str = "", by: str = "user") -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("capability_state", args)
+
+    def capability_allowlist_get(self, *, by: str = "user") -> Dict[str, Any]:
+        return self.call("capability_allowlist_get", {"by": str(by)})
+
+    def capability_allowlist_validate(
+        self,
+        *,
+        mode: str = "patch",
+        patch: Optional[Dict[str, Any]] = None,
+        overlay: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"mode": str(mode)}
+        if patch is not None:
+            args["patch"] = dict(patch)
+        if overlay is not None:
+            args["overlay"] = dict(overlay)
+        return self.call("capability_allowlist_validate", args)
+
+    def capability_allowlist_update(
+        self,
+        *,
+        mode: str = "patch",
+        patch: Optional[Dict[str, Any]] = None,
+        overlay: Optional[Dict[str, Any]] = None,
+        expected_revision: str = "",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"mode": str(mode), "by": str(by)}
+        if patch is not None:
+            args["patch"] = dict(patch)
+        if overlay is not None:
+            args["overlay"] = dict(overlay)
+        if expected_revision:
+            args["expected_revision"] = str(expected_revision)
+        return self.call("capability_allowlist_update", args)
+
+    def capability_allowlist_reset(self, *, by: str = "user") -> Dict[str, Any]:
+        return self.call("capability_allowlist_reset", {"by": str(by)})
+
+    def capability_import(
+        self,
+        *,
+        group_id: str,
+        record: Dict[str, Any],
+        by: str = "user",
+        actor_id: str = "",
+        dry_run: bool = False,
+        probe: Optional[bool] = None,
+        enable_after_import: Optional[bool] = None,
+        scope: str = "",
+        ttl_seconds: Optional[int] = None,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "record": dict(record), "by": str(by), "dry_run": bool(dry_run)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if probe is not None:
+            args["probe"] = bool(probe)
+        if enable_after_import is not None:
+            args["enable_after_import"] = bool(enable_after_import)
+        if scope:
+            args["scope"] = str(scope)
+        if ttl_seconds is not None:
+            args["ttl_seconds"] = int(ttl_seconds)
+        if reason:
+            args["reason"] = str(reason)
+        return self.call("capability_import", args)
+
+    def capability_uninstall(
+        self,
+        *,
+        group_id: str,
+        capability_id: str,
+        by: str = "user",
+        actor_id: str = "",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "capability_id": str(capability_id),
+            "by": str(by),
+        }
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if reason:
+            args["reason"] = str(reason)
+        return self.call("capability_uninstall", args)
+
+    def capability_tool_call(
+        self,
+        *,
+        group_id: str,
+        tool_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        actor_id: str = "",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "tool_name": str(tool_name),
+            "by": str(by),
+        }
+        if arguments is not None:
+            args["arguments"] = dict(arguments)
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("capability_tool_call", args)
+
+    def group_space_status(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
+        return self.call("group_space_status", {"group_id": str(group_id), "provider": str(provider)})
+
+    def group_space_spaces(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
+        return self.call("group_space_spaces", {"group_id": str(group_id), "provider": str(provider)})
+
+    def group_space_capabilities(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
+        return self.call("group_space_capabilities", {"group_id": str(group_id), "provider": str(provider)})
+
+    def group_space_bind(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        action: str = "bind",
+        remote_space_id: str = "",
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "action": str(action),
+            "by": str(by),
+        }
+        if remote_space_id:
+            args["remote_space_id"] = str(remote_space_id)
+        return self.call("group_space_bind", args)
+
+    def group_space_ingest(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        payload: Optional[Dict[str, Any]] = None,
+        kind: str = "context_sync",
+        idempotency_key: str = "",
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "kind": str(kind),
+            "by": str(by),
+        }
+        if payload is not None:
+            args["payload"] = dict(payload)
+        if idempotency_key:
+            args["idempotency_key"] = str(idempotency_key)
+        return self.call("group_space_ingest", args)
+
+    def group_space_query(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        query: str,
+        options: Optional[Dict[str, Any]] = None,
+        provider: str = "notebooklm",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "query": str(query),
+        }
+        if options is not None:
+            args["options"] = dict(options)
+        return self.call("group_space_query", args)
+
+    def group_space_sources(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        action: str = "list",
+        source_id: str = "",
+        new_title: str = "",
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "action": str(action),
+            "by": str(by),
+        }
+        if source_id:
+            args["source_id"] = str(source_id)
+        if new_title:
+            args["new_title"] = str(new_title)
+        return self.call("group_space_sources", args)
+
+    def group_space_artifact(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        action: str = "list",
+        kind: str = "",
+        options: Optional[Dict[str, Any]] = None,
+        wait: Optional[bool] = None,
+        save_to_space: Optional[bool] = None,
+        output_path: str = "",
+        output_format: str = "",
+        artifact_id: str = "",
+        timeout_seconds: Optional[int] = None,
+        initial_interval: Optional[int] = None,
+        max_interval: Optional[int] = None,
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "action": str(action),
+            "by": str(by),
+        }
+        if kind:
+            args["kind"] = str(kind)
+        if options is not None:
+            args["options"] = dict(options)
+        if wait is not None:
+            args["wait"] = bool(wait)
+        if save_to_space is not None:
+            args["save_to_space"] = bool(save_to_space)
+        if output_path:
+            args["output_path"] = str(output_path)
+        if output_format:
+            args["output_format"] = str(output_format)
+        if artifact_id:
+            args["artifact_id"] = str(artifact_id)
+        if timeout_seconds is not None:
+            args["timeout_seconds"] = int(timeout_seconds)
+        if initial_interval is not None:
+            args["initial_interval"] = int(initial_interval)
+        if max_interval is not None:
+            args["max_interval"] = int(max_interval)
+        return self.call("group_space_artifact", args)
+
+    def group_space_jobs(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        action: str = "list",
+        job_id: str = "",
+        state: str = "",
+        limit: Optional[int] = None,
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "provider": str(provider),
+            "lane": str(lane),
+            "action": str(action),
+            "by": str(by),
+        }
+        if job_id:
+            args["job_id"] = str(job_id)
+        if state:
+            args["state"] = str(state)
+        if limit is not None:
+            args["limit"] = int(limit)
+        return self.call("group_space_jobs", args)
+
+    def group_space_sync(
+        self,
+        *,
+        group_id: str,
+        lane: str,
+        action: str = "status",
+        force: bool = False,
+        provider: str = "notebooklm",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "group_space_sync",
+            {
+                "group_id": str(group_id),
+                "provider": str(provider),
+                "lane": str(lane),
+                "action": str(action),
+                "force": bool(force),
+                "by": str(by),
+            },
+        )
+
+    def group_space_provider_credential_status(self, *, provider: str = "notebooklm", by: str = "user") -> Dict[str, Any]:
+        return self.call("group_space_provider_credential_status", {"provider": str(provider), "by": str(by)})
+
+    def group_space_provider_credential_update(
+        self,
+        *,
+        provider: str = "notebooklm",
+        by: str = "user",
+        auth_json: str = "",
+        clear: bool = False,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"provider": str(provider), "by": str(by), "clear": bool(clear)}
+        if auth_json:
+            args["auth_json"] = str(auth_json)
+        return self.call("group_space_provider_credential_update", args)
+
+    def group_space_provider_health_check(self, *, provider: str = "notebooklm", by: str = "user") -> Dict[str, Any]:
+        return self.call("group_space_provider_health_check", {"provider": str(provider), "by": str(by)})
+
+    def group_space_provider_auth(
+        self,
+        *,
+        provider: str = "notebooklm",
+        action: str = "status",
+        timeout_seconds: Optional[int] = None,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"provider": str(provider), "action": str(action), "by": str(by)}
+        if timeout_seconds is not None:
+            args["timeout_seconds"] = int(timeout_seconds)
+        return self.call("group_space_provider_auth", args)
 
     def send_cross_group(
         self,

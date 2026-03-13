@@ -1,116 +1,99 @@
-# CCCC Context Ops Contract v1
+# CCCC Context Ops Contract v3
 
-Status: Draft (for CCCC v0.4.x ecosystem)
+Status: Active (for CCCC v0.5.x ecosystem)
 
-This document defines the operation list and payload shapes for the daemon IPC operation:
+This document defines the operation list and payload shapes for daemon IPC:
 - `context_sync` (see `docs/standards/CCCC_DAEMON_IPC_V1.md`)
 
-The goal is to make `context_sync` usable from strong-typed SDKs without reading daemon source code.
+The goal is to make `context_sync` usable from SDKs and MCP/Web ports without reading daemon source code.
 
 ## 0. Conformance Language
 
-The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** in this document are to be interpreted as described in RFC 2119.
+The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are to be interpreted as described in RFC 2119.
 
 ## 1. Overview
 
-`context_sync` applies a batch of small “context ops” to a group’s shared context storage (vision/sketch/milestones/tasks/notes/references/presence).
+`context_sync` applies a batch of small operations to a group's context v3 storage:
+- `coordination` = shared control plane (`brief`, recent notes)
+- `tasks` = shared dispatch truth
+- `agent_states` = per-actor short-term working memory
+- `meta` = restricted projection-support metadata
+
+Read-only projections such as `board`, `attention`, and `panorama` are daemon-computed and are not directly writable via context ops.
 
 All operations are applied in order. If any op is invalid, the daemon rejects the entire batch.
 
-## 2. Operation Item Shape (Normative)
+## 2. Operation Item Shape
 
 Each item in `args.ops` MUST be a JSON object with:
 
 ```ts
-type ContextOpV1 = { op: string } & Record<string, unknown>
+type ContextOpV3 = { op: string } & Record<string, unknown>
 ```
 
 Rules:
 - `op` MUST be one of the strings listed in §3.
 - Unknown `op` values MUST be rejected.
-- Unknown fields in an op item MUST be ignored (forward compatibility), unless an op explicitly forbids them.
+- Unknown fields MAY be ignored unless an op explicitly forbids them.
 
-## 3. Operation List (v1)
+## 3. Operation List
 
-### 3.1 Vision / Sketch
+### 3.1 Coordination
 
-#### `vision.update`
-
-```ts
-{ op: "vision.update"; vision: string }
-```
-
-#### `sketch.update`
-
-```ts
-{ op: "sketch.update"; sketch: string }
-```
-
-### 3.2 Milestones
-
-Milestone statuses:
-```ts
-type MilestoneStatusV1 = "planned" | "active" | "done" | "archived"
-```
-
-#### `milestone.create`
+#### `coordination.brief.update`
 
 ```ts
 {
-  op: "milestone.create"
-  name: string
-  description?: string
-  status?: MilestoneStatusV1 // default "planned"
+  op: "coordination.brief.update"
+  objective?: string
+  current_focus?: string
+  constraints?: string[]
+  project_brief?: string
+  project_brief_stale?: boolean
 }
 ```
 
-#### `milestone.update`
-
-```ts
-{
-  op: "milestone.update"
-  milestone_id: string
-  name?: string
-  description?: string
-  status?: MilestoneStatusV1
-}
-```
+Permission: `foreman` or `user`.
 
 Notes:
-- Changing `status` to `"active"` may set `started` if not already present.
-- Changing `status` to `"archived"` records `archived_from` to support restore.
+- Partial patch: only provided fields are updated.
+- Daemon sets `updated_by` and `updated_at` automatically.
 
-#### `milestone.complete`
+#### `coordination.note.add`
 
 ```ts
 {
-  op: "milestone.complete"
-  milestone_id: string
-  outcomes?: string
+  op: "coordination.note.add"
+  kind: "decision" | "handoff"
+  summary: string
+  task_id?: string | null
 }
 ```
 
-#### `milestone.restore`
+Permission: any actor.
 
-Restore an archived milestone to its previous status.
+Notes:
+- Used for compact recent decisions / handoffs.
+- Daemon keeps only the newest bounded slice in context.
 
-```ts
-{ op: "milestone.restore"; milestone_id: string }
-```
-
-Rules:
-- The milestone MUST currently be archived.
-
-### 3.3 Tasks
+### 3.2 Tasks
 
 Task statuses:
+
 ```ts
-type TaskStatusV1 = "planned" | "active" | "done" | "archived"
+type TaskStatus = "planned" | "active" | "done" | "archived"
 ```
 
-Step statuses:
+Checklist statuses:
+
 ```ts
-type StepStatusV1 = "pending" | "in_progress" | "done"
+type ChecklistStatus = "pending" | "in_progress" | "done"
+```
+
+Waiting values:
+
+```ts
+type TaskWaitingOn = "none" | "user" | "actor" | "external"
 ```
 
 #### `task.create`
@@ -118,17 +101,26 @@ type StepStatusV1 = "pending" | "in_progress" | "done"
 ```ts
 {
   op: "task.create"
-  name: string
-  goal?: string
-  steps?: Array<{ name?: string; acceptance?: string }>
-  milestone_id?: string | null
-  milestone?: string | null
+  title: string
+  outcome?: string
+  status?: TaskStatus
+  parent_id?: string | null
   assignee?: string | null
+  priority?: string
+  blocked_by?: string[]
+  waiting_on?: TaskWaitingOn
+  handoff_to?: string | null
+  notes?: string
+  checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
 }
 ```
 
-Notes:
-- `milestone_id` and `milestone` are aliases (either may be used).
+Permission: any actor.
+
+Rules:
+- `title` is required.
+- If `parent_id` is provided, the parent task MUST exist.
+- Peer actors MUST NOT create a task assigned to another peer.
 
 #### `task.update`
 
@@ -136,102 +128,163 @@ Notes:
 {
   op: "task.update"
   task_id: string
-
-  // Task fields
-  status?: TaskStatusV1
-  name?: string
-  goal?: string
+  title?: string
+  outcome?: string
+  parent_id?: string | null
   assignee?: string | null
-  milestone_id?: string | null
-  milestone?: string | null
-
-  // Optional step update
-  step_id?: string
-  step_status?: StepStatusV1
+  priority?: string
+  blocked_by?: string[]
+  waiting_on?: TaskWaitingOn
+  handoff_to?: string | null
+  notes?: string
+  checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
 }
 ```
 
+Permission: assignee / handoff target / foreman / user.
+
 Rules:
-- If `step_id` is provided, `step_status` MUST also be provided (and vice versa).
+- Partial patch.
+- If `parent_id` changes, the daemon MUST reject cycles.
+- `task.update` does not change lifecycle status.
+
+#### `task.move`
+
+```ts
+{
+  op: "task.move"
+  task_id: string
+  status: TaskStatus
+}
+```
+
+Permission: assignee / handoff target / foreman / user.
+
+Notes:
+- This is the canonical lifecycle transition op.
+- Moving to `archived` records `archived_from`.
+- Task lifecycle changes append memory lane events; root-task completion may promote one stable memory entry into `state/memory/MEMORY.md`.
 
 #### `task.restore`
-
-Restore an archived task to its previous status.
 
 ```ts
 { op: "task.restore"; task_id: string }
 ```
 
+Permission: assignee / handoff target / foreman / user.
+
 Rules:
 - The task MUST currently be archived.
 
-### 3.4 Notes
+### 3.3 Agent State
 
-#### `note.add`
+Agent states are keyed by `actor_id`.
 
-```ts
-{ op: "note.add"; content: string }
-```
-
-#### `note.update`
-
-```ts
-{ op: "note.update"; note_id: string; content?: string }
-```
-
-#### `note.remove`
-
-```ts
-{ op: "note.remove"; note_id: string }
-```
-
-### 3.5 References
-
-#### `reference.add`
-
-```ts
-{ op: "reference.add"; url: string; note?: string }
-```
-
-#### `reference.update`
+#### `agent_state.update`
 
 ```ts
 {
-  op: "reference.update"
-  reference_id: string
-  url?: string
-  note?: string
+  op: "agent_state.update"
+  actor_id: string
+  active_task_id?: string | null
+  focus?: string
+  blockers?: string[]
+  next_action?: string
+  what_changed?: string
+  open_loops?: string[]
+  commitments?: string[]
+  environment_summary?: string
+  user_model?: string
+  persona_notes?: string
+  resume_hint?: string
 }
 ```
 
-#### `reference.remove`
+Permission: self / user.
+
+Notes:
+- Partial patch.
+- Daemon stores data into `hot` (`active_task_id`, `focus`, `blockers`, `next_action`) and `warm` (the rest).
+- `agent_state` is actor-owned working state. Foreman should guide peers via tasks, coordination, or help/role-notes, not by directly rewriting a peer's `agent_state`.
+- Legacy aliases `agent_id`, `environment`, `user_profile`, and `notes` are tolerated by daemon but SHOULD NOT be used by new clients.
+
+#### `agent_state.clear`
 
 ```ts
-{ op: "reference.remove"; reference_id: string }
+{ op: "agent_state.clear"; actor_id: string }
 ```
 
-### 3.6 Presence
+Permission: self / user.
 
-Presence entries are keyed by `agent_id` (typically an `actor_id`).
+Notes:
+- Clears both `hot` and `warm`, then refreshes `updated_at`.
 
-#### `presence.update`
+### 3.4 Restricted Meta
+
+#### `meta.merge`
 
 ```ts
-{ op: "presence.update"; agent_id: string; status: string }
+{
+  op: "meta.merge"
+  data: {
+    project_status?: string | null
+  }
+}
 ```
 
-#### `presence.clear`
+Permission: `foreman` or `user`.
+
+Rules:
+- Only `project_status` is allowed.
+- Resulting `meta` payload MUST stay within daemon size limits.
+
+## 4. Optimistic Concurrency (CAS)
+
+`context_sync` accepts an optional `if_version` field:
 
 ```ts
-{ op: "presence.clear"; agent_id: string }
+{ group_id: string; ops: [...]; if_version?: string }
 ```
 
-## 4. Dry Run
+Rules:
+- If `if_version` is provided and does not match the current context version hash, the entire batch MUST be rejected with error code `version_conflict`.
+- If `if_version` is omitted, no version check is performed.
+
+## 5. Dry Run
 
 If `context_sync.args.dry_run == true`, the daemon MUST NOT persist changes and SHOULD still return a computed `changes` list.
 
-## 5. Result Notes (Non-normative)
+## 6. Result Notes
 
-`context_sync` returns `changes: Array<{ index, op, detail }>` where `detail` is intended for logs/UI.
-SDKs SHOULD NOT parse `detail` as a stable machine contract.
+`context_sync` returns `changes: Array<{ index, op, detail }>` where `detail` is intended for logs/UI. SDKs SHOULD NOT parse `detail` as a stable machine contract.
 
+When Group Space is enabled and a curated context change is detected, the daemon MAY also return:
+
+```ts
+space_sync?: {
+  queued: boolean
+  reason?: "not_bound" | "binding_inactive" | "missing_remote_space_id" | "provider_disabled" | "enqueue_failed"
+  deduped?: boolean
+  job_id?: string
+  provider?: "notebooklm"
+  kind?: "context_sync"
+  idempotency_key?: string
+  error?: string
+}
+```
+
+Curated trigger allowlist:
+- `coordination.*`
+- `task.*`
+
+`agent_state.*` updates do not trigger Group Space export.
+
+## 7. Permission Model
+
+| Role | Allowed ops |
+|------|------------|
+| `user` | All ops |
+| `foreman` | All ops |
+| `peer` | `coordination.note.add`, `task.create`, `task.update` (own assigned / handed-off), `task.move` (own assigned / handed-off), `task.restore` (own assigned / handed-off), `agent_state.update` (self), `agent_state.clear` (self) |
+
+Permission checks use `context_sync.args.by`.

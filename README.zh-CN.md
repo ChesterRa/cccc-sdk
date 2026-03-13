@@ -1,8 +1,8 @@
-# CCCC SDK 0.4.x — CCCC 官方客户端 SDK
+# CCCC SDK — CCCC 官方客户端 SDK
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**已稳定支持 CCCC 0.4.x**。同时保留 RC 构建用于预览测试。
+> 状态：面向当前 **CCCC Daemon IPC v1** 主线持续维护；必要时仍会提供 RC/预览构建。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
@@ -25,7 +25,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 典型场景：
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
-- 以编程方式创建/管理 group、actors、共享 context 的内部工具
+- 以编程方式创建/管理 group、actors、共享 context、capability 策略与 Group Space 的内部工具
 
 语言细分文档：
 - Python SDK：`python/README.md`
@@ -85,11 +85,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ## 版本策略与兼容性
 
-SDK 的 major/minor 对齐 **CCCC 0.4.x**，但补丁/RC 节奏由 SDK 自身维护：
-- 稳定版示例：`cccc-sdk==0.4.0` 搭配 `cccc==0.4.x`
-- RC 预览示例：`cccc-sdk==0.4.1rc1` 也可能兼容 `cccc==0.4.x`
-
-我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：
+不同语言包可以按各自节奏发布。我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：
 - IPC 版本（`ipc_v`）
 - capability discovery（`capabilities`）
 - op probing（拒绝 `unknown_op`）
@@ -98,7 +94,7 @@ SDK 的 major/minor 对齐 **CCCC 0.4.x**，但补丁/RC 节奏由 SDK 自身维
 
 ## 合约文档（contracts）
 
-在 0.4.x 期间，合约文档的“唯一真源”在 CCCC 主仓库（保证 spec 与 daemon 同步演进）。
+当前 CCCC daemon 主线上，合约文档的“唯一真源”在 CCCC 主仓库（保证 spec 与 daemon 同步演进）。
 本仓库的 `spec/` 是镜像，可用脚本刷新：
 
 ```bash

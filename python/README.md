@@ -12,9 +12,7 @@ It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 
 ## Versioning
 
-This SDK tracks **CCCC major/minor** (`0.4.x`), while patch/RC cadence is SDK-owned:
-- Stable example: `cccc-sdk==0.4.0` with `cccc==0.4.x`
-- RC preview example: `cccc-sdk==0.4.1rc1` with `cccc==0.4.x`
+Compatibility is determined by Daemon IPC v1 contracts and operation probing, not by strict string matching of package versions. Different language packages may publish on different cadences.
 
 ## Daemon endpoint discovery
 
@@ -85,10 +83,10 @@ Auto-ACK attention messages (as a recipient):
 python examples/auto_ack_attention.py --group g_xxx --actor user
 ```
 
-Add a note to shared context:
+Add a coordination note to shared context:
 
 ```bash
-python examples/context_add_note.py --group g_xxx --content "remember to do X"
+python examples/context_add_note.py --group g_xxx --kind decision --content "Promote this path"
 ```
 
 Cross-group send:
@@ -99,7 +97,7 @@ python examples/send_cross_group.py --src g_src --dst g_dst --text "hello from s
 
 ## Actor Profiles (global reusable runtime presets)
 
-`cccc` 0.4.x supports global Actor Profiles so you can reuse runtime/runner/command/env across groups.
+`cccc` supports global Actor Profiles so you can reuse runtime/runner/command/env across groups.
 
 ```python
 from cccc_sdk import CCCCClient
@@ -118,6 +116,10 @@ profile = c.actor_profile_upsert(
         "command": ["codex", "exec"],
         "submit": "enter",
         "env": {"CODEX_MODEL": "gpt-5"},
+        "capability_defaults": {
+            "autoload_capabilities": ["pack:space"],
+            "default_scope": "actor",
+        },
     }
 )
 profile_id = str((profile.get("profile") or {}).get("id") or "")
@@ -128,3 +130,33 @@ c.actor_add(group_id="g_xxx", actor_id="reviewer", profile_id=profile_id)
 # profile secrets (write-only values)
 c.actor_profile_secret_update(profile_id=profile_id, set={"OPENAI_API_KEY": "..."})
 ```
+
+## Current high-value surfaces
+
+```python
+from cccc_sdk import CCCCClient
+
+c = CCCCClient()
+
+# Capability exposure for one caller scope
+caps = c.capability_state(group_id="g_xxx", actor_id="foreman")
+
+# Capability policy / allowlist overlay
+policy = c.capability_allowlist_get()
+preview = c.capability_allowlist_validate(
+    mode="patch",
+    patch={"defaults": {"source_level": {"skillsmp_remote": "indexed"}}},
+)
+
+# Group Space / Notebook status
+space = c.group_space_status(group_id="g_xxx")
+
+# Context v3: add a compact shared decision or handoff
+c.context_sync(
+    group_id="g_xxx",
+    by="user",
+    ops=[{"op": "coordination.note.add", "kind": "decision", "summary": "Use the simpler path"}],
+)
+```
+
+If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.

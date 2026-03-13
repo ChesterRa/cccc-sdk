@@ -17,11 +17,38 @@ import type {
   ActorProfileUpsertOptions,
   ActorProfileSecretUpdateOptions,
   ActorProfileSecretCopyFromActorOptions,
+  ActorProfileSecretCopyFromProfileOptions,
   GroupCreateOptions,
   GroupUpdateOptions,
+  CapabilityOverviewOptions,
+  CapabilitySearchOptions,
+  CapabilityEnableOptions,
+  CapabilityBlockOptions,
+  CapabilityStateOptions,
+  CapabilityAllowlistGetOptions,
+  CapabilityAllowlistValidateOptions,
+  CapabilityAllowlistUpdateOptions,
+  CapabilityAllowlistResetOptions,
+  CapabilityImportOptions,
+  CapabilityUninstallOptions,
+  CapabilityToolCallOptions,
   GroupAutomationUpdateOptions,
   GroupAutomationManageOptions,
   GroupAutomationResetBaselineOptions,
+  GroupSpaceStatusOptions,
+  GroupSpaceSpacesOptions,
+  GroupSpaceCapabilitiesOptions,
+  GroupSpaceBindOptions,
+  GroupSpaceIngestOptions,
+  GroupSpaceQueryOptions,
+  GroupSpaceSourcesOptions,
+  GroupSpaceArtifactOptions,
+  GroupSpaceJobsOptions,
+  GroupSpaceSyncOptions,
+  GroupSpaceProviderCredentialStatusOptions,
+  GroupSpaceProviderCredentialUpdateOptions,
+  GroupSpaceProviderHealthCheckOptions,
+  GroupSpaceProviderAuthOptions,
   InboxListOptions,
   ContextSyncOptions,
   EventsStreamOptions,
@@ -353,6 +380,7 @@ export class CCCCClient {
       command: options.command,
       env: options.env,
       env_private: options.envPrivate,
+      capability_autoload: options.capabilityAutoload,
       profile_id: options.profileId,
       default_scope_key: options.defaultScopeKey,
       submit: options.submit,
@@ -452,8 +480,29 @@ export class CCCCClient {
    * Create/update one actor profile.
    */
   async actorProfileUpsert(options: ActorProfileUpsertOptions): Promise<Record<string, unknown>> {
+    const profile: Record<string, unknown> = { ...options.profile };
+    if ('capabilityDefaults' in profile) {
+      const rawDefaults = profile['capabilityDefaults'];
+      delete profile['capabilityDefaults'];
+      if (rawDefaults != null && typeof rawDefaults === 'object' && !Array.isArray(rawDefaults)) {
+        const defaults = rawDefaults as Record<string, unknown>;
+        profile['capability_defaults'] = {
+          ...(defaults['autoloadCapabilities'] !== undefined
+            ? { autoload_capabilities: defaults['autoloadCapabilities'] }
+            : {}),
+          ...(defaults['defaultScope'] !== undefined
+            ? { default_scope: defaults['defaultScope'] }
+            : {}),
+          ...(defaults['sessionTtlSeconds'] !== undefined
+            ? { session_ttl_seconds: defaults['sessionTtlSeconds'] }
+            : {}),
+        };
+      } else {
+        profile['capability_defaults'] = rawDefaults;
+      }
+    }
     const args: Record<string, unknown> = {
-      profile: options.profile,
+      profile,
       by: options.by ?? 'user',
     };
     if (options.expectedRevision !== undefined) args['expected_revision'] = options.expectedRevision;
@@ -463,8 +512,8 @@ export class CCCCClient {
   /**
    * Delete one actor profile (rejected when still in use).
    */
-  async actorProfileDelete(profileId: string, by = 'user'): Promise<Record<string, unknown>> {
-    return this.call('actor_profile_delete', { profile_id: profileId, by });
+  async actorProfileDelete(profileId: string, by = 'user', forceDetach = false): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_delete', { profile_id: profileId, by, force_detach: forceDetach });
   }
 
   /**
@@ -498,6 +547,195 @@ export class CCCCClient {
       actor_id: options.actorId,
       by: options.by ?? 'user',
     });
+  }
+
+  /**
+   * Copy one profile's secrets into another profile.
+   */
+  async actorProfileSecretCopyFromProfile(
+    options: ActorProfileSecretCopyFromProfileOptions
+  ): Promise<Record<string, unknown>> {
+    return this.call('actor_profile_secret_copy_from_profile', {
+      profile_id: options.profileId,
+      source_profile_id: options.sourceProfileId,
+      by: options.by ?? 'user',
+    });
+  }
+
+  // ============================================================
+  // Convenience methods: capabilities
+  // ============================================================
+
+  /**
+   * Read the global capability overview snapshot.
+   */
+  async capabilityOverview(options: CapabilityOverviewOptions = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {};
+    if (options.query) args['query'] = options.query;
+    if (options.limit !== undefined) args['limit'] = options.limit;
+    if (options.includeIndexed !== undefined) args['include_indexed'] = options.includeIndexed;
+    return this.call('capability_overview', args);
+  }
+
+  /**
+   * Search the capability registry for one group/caller scope.
+   */
+  async capabilitySearch(options: CapabilitySearchOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+    };
+    if (options.actorId) args['actor_id'] = options.actorId;
+    if (options.query) args['query'] = options.query;
+    if (options.kind !== undefined) args['kind'] = options.kind;
+    if (options.sourceId) args['source_id'] = options.sourceId;
+    if (options.trustTier) args['trust_tier'] = options.trustTier;
+    if (options.qualificationStatus !== undefined) args['qualification_status'] = options.qualificationStatus;
+    if (options.includeExternal !== undefined) args['include_external'] = options.includeExternal;
+    if (options.limit !== undefined) args['limit'] = options.limit;
+    return this.call('capability_search', args);
+  }
+
+  /**
+   * Enable or disable a capability.
+   */
+  async capabilityEnable(options: CapabilityEnableOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      capability_id: options.capabilityId,
+      scope: options.scope ?? 'session',
+      enabled: options.enabled ?? true,
+      cleanup: options.cleanup ?? false,
+      by: options.by ?? 'user',
+    };
+    if (options.reason) args['reason'] = options.reason;
+    if (options.ttlSeconds !== undefined) args['ttl_seconds'] = options.ttlSeconds;
+    if (options.actorId) args['actor_id'] = options.actorId;
+    return this.call('capability_enable', args);
+  }
+
+  /**
+   * Block or unblock a capability.
+   */
+  async capabilityBlock(options: CapabilityBlockOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      capability_id: options.capabilityId,
+      scope: options.scope ?? 'group',
+      blocked: options.blocked ?? true,
+      by: options.by ?? 'user',
+    };
+    if (options.ttlSeconds !== undefined) args['ttl_seconds'] = options.ttlSeconds;
+    if (options.reason) args['reason'] = options.reason;
+    if (options.actorId) args['actor_id'] = options.actorId;
+    return this.call('capability_block', args);
+  }
+
+  /**
+   * Read effective capability exposure for one caller scope.
+   */
+  async capabilityState(options: CapabilityStateOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+    };
+    if (options.actorId) args['actor_id'] = options.actorId;
+    return this.call('capability_state', args);
+  }
+
+  /**
+   * Read capability allowlist default, overlay, and effective snapshots.
+   */
+  async capabilityAllowlistGet(options: CapabilityAllowlistGetOptions = {}): Promise<Record<string, unknown>> {
+    return this.call('capability_allowlist_get', {
+      by: options.by ?? 'user',
+    });
+  }
+
+  /**
+   * Dry-run capability allowlist overlay validation without persistence.
+   */
+  async capabilityAllowlistValidate(
+    options: CapabilityAllowlistValidateOptions = {}
+  ): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      mode: options.mode ?? 'patch',
+    };
+    if (options.patch !== undefined) args['patch'] = options.patch;
+    if (options.overlay !== undefined) args['overlay'] = options.overlay;
+    return this.call('capability_allowlist_validate', args);
+  }
+
+  /**
+   * Persist capability allowlist overlay with optional optimistic concurrency.
+   */
+  async capabilityAllowlistUpdate(
+    options: CapabilityAllowlistUpdateOptions = {}
+  ): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      by: options.by ?? 'user',
+      mode: options.mode ?? 'patch',
+    };
+    if (options.expectedRevision) args['expected_revision'] = options.expectedRevision;
+    if (options.patch !== undefined) args['patch'] = options.patch;
+    if (options.overlay !== undefined) args['overlay'] = options.overlay;
+    return this.call('capability_allowlist_update', args);
+  }
+
+  /**
+   * Reset capability allowlist overlay to empty/default state.
+   */
+  async capabilityAllowlistReset(options: CapabilityAllowlistResetOptions = {}): Promise<Record<string, unknown>> {
+    return this.call('capability_allowlist_reset', {
+      by: options.by ?? 'user',
+    });
+  }
+
+  /**
+   * Import one structured capability record, with optional readiness probe.
+   */
+  async capabilityImport(options: CapabilityImportOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      record: options.record,
+      by: options.by ?? 'user',
+      dry_run: options.dryRun ?? false,
+    };
+    if (options.actorId) args['actor_id'] = options.actorId;
+    if (options.probe !== undefined) args['probe'] = options.probe;
+    if (options.enableAfterImport !== undefined) args['enable_after_import'] = options.enableAfterImport;
+    if (options.scope) args['scope'] = options.scope;
+    if (options.ttlSeconds !== undefined) args['ttl_seconds'] = options.ttlSeconds;
+    if (options.reason) args['reason'] = options.reason;
+    return this.call('capability_import', args);
+  }
+
+  /**
+   * Uninstall a capability from the target group scope.
+   */
+  async capabilityUninstall(options: CapabilityUninstallOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      capability_id: options.capabilityId,
+      by: options.by ?? 'user',
+    };
+    if (options.reason) args['reason'] = options.reason;
+    if (options.actorId) args['actor_id'] = options.actorId;
+    return this.call('capability_uninstall', args);
+  }
+
+  /**
+   * Call one enabled dynamic capability tool through daemon IPC.
+   */
+  async capabilityToolCall(options: CapabilityToolCallOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      tool_name: options.toolName,
+      by: options.by ?? 'user',
+    };
+    if (options.arguments) args['arguments'] = options.arguments;
+    if (options.actorId) args['actor_id'] = options.actorId;
+    return this.call('capability_tool_call', args);
   }
 
   // ============================================================
@@ -671,6 +909,208 @@ export class CCCCClient {
       by: options.by ?? 'system',
       dry_run: options.dryRun ?? false,
     });
+  }
+
+  // ============================================================
+  // Convenience methods: Group Space
+  // ============================================================
+
+  /**
+   * Read Group Space provider and binding status.
+   */
+  async groupSpaceStatus(options: GroupSpaceStatusOptions): Promise<Record<string, unknown>> {
+    return this.call('group_space_status', {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+    });
+  }
+
+  /**
+   * List available remote spaces for binding.
+   */
+  async groupSpaceSpaces(options: GroupSpaceSpacesOptions): Promise<Record<string, unknown>> {
+    return this.call('group_space_spaces', {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+    });
+  }
+
+  /**
+   * Read the provider capability matrix for a group.
+   */
+  async groupSpaceCapabilities(options: GroupSpaceCapabilitiesOptions): Promise<Record<string, unknown>> {
+    return this.call('group_space_capabilities', {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+    });
+  }
+
+  /**
+   * Bind or unbind one Group Space lane.
+   */
+  async groupSpaceBind(options: GroupSpaceBindOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      action: options.action ?? 'bind',
+      by: options.by ?? 'user',
+    };
+    if (options.remoteSpaceId) args['remote_space_id'] = options.remoteSpaceId;
+    return this.call('group_space_bind', args);
+  }
+
+  /**
+   * Enqueue one Group Space ingest action.
+   */
+  async groupSpaceIngest(options: GroupSpaceIngestOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      kind: options.kind ?? 'context_sync',
+      by: options.by ?? 'user',
+    };
+    if (options.payload) args['payload'] = options.payload;
+    if (options.idempotencyKey) args['idempotency_key'] = options.idempotencyKey;
+    return this.call('group_space_ingest', args);
+  }
+
+  /**
+   * Query Group Space knowledge for one lane.
+   */
+  async groupSpaceQuery(options: GroupSpaceQueryOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      query: options.query,
+    };
+    if (options.options) args['options'] = options.options;
+    return this.call('group_space_query', args);
+  }
+
+  /**
+   * Manage remote sources in the bound Group Space lane.
+   */
+  async groupSpaceSources(options: GroupSpaceSourcesOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      action: options.action ?? 'list',
+      by: options.by ?? 'user',
+    };
+    if (options.sourceId) args['source_id'] = options.sourceId;
+    if (options.newTitle) args['new_title'] = options.newTitle;
+    return this.call('group_space_sources', args);
+  }
+
+  /**
+   * List, generate, or download Group Space artifacts.
+   */
+  async groupSpaceArtifact(options: GroupSpaceArtifactOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      action: options.action ?? 'list',
+      by: options.by ?? 'user',
+    };
+    if (options.kind) args['kind'] = options.kind;
+    if (options.options) args['options'] = options.options;
+    if (options.wait !== undefined) args['wait'] = options.wait;
+    if (options.saveToSpace !== undefined) args['save_to_space'] = options.saveToSpace;
+    if (options.outputPath) args['output_path'] = options.outputPath;
+    if (options.outputFormat) args['output_format'] = options.outputFormat;
+    if (options.artifactId) args['artifact_id'] = options.artifactId;
+    if (options.timeoutSeconds !== undefined) args['timeout_seconds'] = options.timeoutSeconds;
+    if (options.initialInterval !== undefined) args['initial_interval'] = options.initialInterval;
+    if (options.maxInterval !== undefined) args['max_interval'] = options.maxInterval;
+    return this.call('group_space_artifact', args);
+  }
+
+  /**
+   * List or manage Group Space jobs.
+   */
+  async groupSpaceJobs(options: GroupSpaceJobsOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      action: options.action ?? 'list',
+      by: options.by ?? 'user',
+    };
+    if (options.jobId) args['job_id'] = options.jobId;
+    if (options.state) args['state'] = options.state;
+    if (options.limit !== undefined) args['limit'] = options.limit;
+    return this.call('group_space_jobs', args);
+  }
+
+  /**
+   * Read or run Group Space synchronization for one lane.
+   */
+  async groupSpaceSync(options: GroupSpaceSyncOptions): Promise<Record<string, unknown>> {
+    return this.call('group_space_sync', {
+      group_id: options.groupId,
+      provider: options.provider ?? 'notebooklm',
+      lane: options.lane,
+      action: options.action ?? 'status',
+      force: options.force ?? false,
+      by: options.by ?? 'user',
+    });
+  }
+
+  /**
+   * Read provider credential status.
+   */
+  async groupSpaceProviderCredentialStatus(
+    options: GroupSpaceProviderCredentialStatusOptions = {}
+  ): Promise<Record<string, unknown>> {
+    return this.call('group_space_provider_credential_status', {
+      provider: options.provider ?? 'notebooklm',
+      by: options.by ?? 'user',
+    });
+  }
+
+  /**
+   * Update provider credentials.
+   */
+  async groupSpaceProviderCredentialUpdate(
+    options: GroupSpaceProviderCredentialUpdateOptions = {}
+  ): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      provider: options.provider ?? 'notebooklm',
+      by: options.by ?? 'user',
+      clear: options.clear ?? false,
+    };
+    if (options.authJson) args['auth_json'] = options.authJson;
+    return this.call('group_space_provider_credential_update', args);
+  }
+
+  /**
+   * Run provider health check.
+   */
+  async groupSpaceProviderHealthCheck(
+    options: GroupSpaceProviderHealthCheckOptions = {}
+  ): Promise<Record<string, unknown>> {
+    return this.call('group_space_provider_health_check', {
+      provider: options.provider ?? 'notebooklm',
+      by: options.by ?? 'user',
+    });
+  }
+
+  /**
+   * Control provider auth flow.
+   */
+  async groupSpaceProviderAuth(options: GroupSpaceProviderAuthOptions = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      provider: options.provider ?? 'notebooklm',
+      action: options.action ?? 'status',
+      by: options.by ?? 'user',
+    };
+    if (options.timeoutSeconds !== undefined) args['timeout_seconds'] = options.timeoutSeconds;
+    return this.call('group_space_provider_auth', args);
   }
 
   // ============================================================
