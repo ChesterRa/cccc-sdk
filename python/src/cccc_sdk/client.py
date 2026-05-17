@@ -7,6 +7,10 @@ from .errors import DaemonAPIError, IncompatibleDaemonError
 from .transport import DaemonEndpoint, call_daemon, discover_endpoint, open_events_stream
 
 
+def _compact(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in data.items() if v is not None}
+
+
 class CCCCClient:
     """A minimal client for the CCCC daemon IPC v1."""
 
@@ -826,6 +830,42 @@ class CCCCClient:
             args["to"] = [str(x) for x in to]
         return self.call("send_cross_group", args)
 
+    def tracked_send(
+        self,
+        *,
+        group_id: str,
+        title: str,
+        text: str,
+        by: str = "user",
+        to: Optional[List[str]] = None,
+        priority: str = "normal",
+        reply_required: bool = True,
+        outcome: Optional[str] = None,
+        assignee: Optional[str] = None,
+        handoff_to: Optional[str] = None,
+        waiting_on: Optional[str] = None,
+        checklist: Optional[List[Dict[str, Any]]] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        args = _compact(
+            {
+                "group_id": str(group_id),
+                "title": str(title),
+                "text": str(text),
+                "outcome": outcome,
+                "assignee": assignee,
+                "handoff_to": handoff_to,
+                "waiting_on": waiting_on,
+                "checklist": [dict(x) for x in checklist] if checklist is not None else None,
+                "notes": notes,
+                "by": str(by),
+                "to": [str(x) for x in to] if to is not None else None,
+                "priority": str(priority),
+                "reply_required": bool(reply_required),
+            }
+        )
+        return self.call("tracked_send", args)
+
     def send(
         self,
         *,
@@ -945,6 +985,345 @@ class CCCCClient:
             {"group_id": str(group_id), "by": str(by), "ops": list(ops), "dry_run": bool(dry_run)},
         )
 
+    def _context_op(
+        self, *, group_id: str, op: Dict[str, Any], by: str = "system", dry_run: bool = False
+    ) -> Dict[str, Any]:
+        return self.context_sync(group_id=group_id, by=by, dry_run=dry_run, ops=[op])
+
+    def coordination_brief_update(
+        self,
+        *,
+        group_id: str,
+        by: str = "system",
+        dry_run: bool = False,
+        objective: Optional[str] = None,
+        current_focus: Optional[str] = None,
+        constraints: Optional[List[str]] = None,
+        project_brief: Optional[str] = None,
+        project_brief_stale: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        op = _compact(
+            {
+                "op": "coordination.brief.update",
+                "objective": objective,
+                "current_focus": current_focus,
+                "constraints": [str(x) for x in constraints] if constraints is not None else None,
+                "project_brief": project_brief,
+                "project_brief_stale": project_brief_stale,
+            }
+        )
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
+
+    def coordination_note_add(
+        self,
+        *,
+        group_id: str,
+        kind: str,
+        summary: str,
+        by: str = "system",
+        task_id: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        op = _compact({"op": "coordination.note.add", "kind": str(kind), "summary": str(summary), "task_id": task_id})
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
+
+    def task_create(
+        self,
+        *,
+        group_id: str,
+        title: str,
+        by: str = "system",
+        dry_run: bool = False,
+        outcome: Optional[str] = None,
+        status: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        assignee: Optional[str] = None,
+        priority: Optional[str] = None,
+        blocked_by: Optional[List[str]] = None,
+        waiting_on: Optional[str] = None,
+        handoff_to: Optional[str] = None,
+        task_type: Optional[str] = None,
+        notes: Optional[str] = None,
+        checklist: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        op = _compact(
+            {
+                "op": "task.create",
+                "title": str(title),
+                "outcome": outcome,
+                "status": status,
+                "parent_id": parent_id,
+                "assignee": assignee,
+                "priority": priority,
+                "blocked_by": [str(x) for x in blocked_by] if blocked_by is not None else None,
+                "waiting_on": waiting_on,
+                "handoff_to": handoff_to,
+                "task_type": task_type,
+                "notes": notes,
+                "checklist": [dict(x) for x in checklist] if checklist is not None else None,
+            }
+        )
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
+
+    def task_update(
+        self,
+        *,
+        group_id: str,
+        task_id: str,
+        by: str = "system",
+        dry_run: bool = False,
+        title: Optional[str] = None,
+        outcome: Optional[str] = None,
+        status: Optional[str] = None,
+        assignee: Optional[str] = None,
+        priority: Optional[str] = None,
+        blocked_by: Optional[List[str]] = None,
+        waiting_on: Optional[str] = None,
+        handoff_to: Optional[str] = None,
+        notes: Optional[str] = None,
+        checklist: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        op = _compact(
+            {
+                "op": "task.update",
+                "task_id": str(task_id),
+                "title": title,
+                "outcome": outcome,
+                "status": status,
+                "assignee": assignee,
+                "priority": priority,
+                "blocked_by": [str(x) for x in blocked_by] if blocked_by is not None else None,
+                "waiting_on": waiting_on,
+                "handoff_to": handoff_to,
+                "notes": notes,
+                "checklist": [dict(x) for x in checklist] if checklist is not None else None,
+            }
+        )
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
+
+    def task_move(
+        self, *, group_id: str, task_id: str, status: str, by: str = "system", dry_run: bool = False
+    ) -> Dict[str, Any]:
+        return self._context_op(
+            group_id=group_id,
+            by=by,
+            dry_run=dry_run,
+            op={"op": "task.move", "task_id": str(task_id), "status": str(status)},
+        )
+
+    def task_restore(self, *, group_id: str, task_id: str, by: str = "system", dry_run: bool = False) -> Dict[str, Any]:
+        return self._context_op(
+            group_id=group_id,
+            by=by,
+            dry_run=dry_run,
+            op={"op": "task.restore", "task_id": str(task_id)},
+        )
+
+    def agent_state_update(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        by: str = "system",
+        dry_run: bool = False,
+        active_task_id: Optional[str] = None,
+        focus: Optional[str] = None,
+        next_action: Optional[str] = None,
+        what_changed: Optional[str] = None,
+        blockers: Optional[List[str]] = None,
+        open_loops: Optional[List[str]] = None,
+        commitments: Optional[List[str]] = None,
+        environment_summary: Optional[str] = None,
+        user_model: Optional[str] = None,
+        persona_notes: Optional[str] = None,
+        resume_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        op = _compact(
+            {
+                "op": "agent_state.update",
+                "actor_id": str(actor_id),
+                "active_task_id": active_task_id,
+                "focus": focus,
+                "next_action": next_action,
+                "what_changed": what_changed,
+                "blockers": [str(x) for x in blockers] if blockers is not None else None,
+                "open_loops": [str(x) for x in open_loops] if open_loops is not None else None,
+                "commitments": [str(x) for x in commitments] if commitments is not None else None,
+                "environment_summary": environment_summary,
+                "user_model": user_model,
+                "persona_notes": persona_notes,
+                "resume_hint": resume_hint,
+            }
+        )
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
+
+    def agent_state_clear(
+        self, *, group_id: str, actor_id: str, by: str = "system", dry_run: bool = False
+    ) -> Dict[str, Any]:
+        return self._context_op(
+            group_id=group_id,
+            by=by,
+            dry_run=dry_run,
+            op={"op": "agent_state.clear", "actor_id": str(actor_id)},
+        )
+
+    def meta_merge(
+        self, *, group_id: str, data: Dict[str, Any], by: str = "system", dry_run: bool = False
+    ) -> Dict[str, Any]:
+        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op={"op": "meta.merge", "data": dict(data)})
+
+    def capability_search(
+        self,
+        *,
+        query: str = "",
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        source_id: Optional[str] = None,
+        trust_tier: Optional[str] = None,
+        qualification_status: Optional[str] = None,
+        include_external: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "capability_search",
+            _compact(
+                {
+                    "query": str(query) if query else None,
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "kind": kind,
+                    "source_id": source_id,
+                    "trust_tier": trust_tier,
+                    "qualification_status": qualification_status,
+                    "include_external": include_external,
+                    "limit": int(limit) if limit is not None else None,
+                }
+            ),
+        )
+
+    def capability_state(self, *, group_id: Optional[str] = None, actor_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.call("capability_state", _compact({"group_id": group_id, "actor_id": actor_id}))
+
+    def capability_enable(
+        self,
+        *,
+        capability_id: str,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        by: Optional[str] = None,
+        scope: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        reason: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+        cleanup: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "capability_enable",
+            _compact(
+                {
+                    "capability_id": str(capability_id),
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "by": by,
+                    "scope": scope,
+                    "enabled": enabled,
+                    "reason": reason,
+                    "ttl_seconds": int(ttl_seconds) if ttl_seconds is not None else None,
+                    "cleanup": cleanup,
+                }
+            ),
+        )
+
+    def capability_use(
+        self,
+        *,
+        capability_id: str,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        by: Optional[str] = None,
+        scope: Optional[str] = None,
+        reason: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+        tool_name: Optional[str] = None,
+        tool_arguments: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        enable_result = self.capability_enable(
+            capability_id=capability_id,
+            group_id=group_id,
+            actor_id=actor_id,
+            by=by,
+            scope=scope,
+            reason=reason,
+            ttl_seconds=ttl_seconds,
+        )
+        if not tool_name:
+            return enable_result
+        return self.call(
+            "capability_tool_call",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "by": by,
+                    "tool_name": tool_name,
+                    "arguments": dict(tool_arguments or {}),
+                }
+            ),
+        )
+
+    def memory_search(
+        self,
+        *,
+        query: str,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        max_results: Optional[int] = None,
+        vector_weight: Optional[float] = None,
+        candidate_multiplier: Optional[float] = None,
+        min_score: Optional[float] = None,
+        sources: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "memory_reme_search",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "query": str(query),
+                    "max_results": int(max_results if max_results is not None else limit)
+                    if (max_results is not None or limit is not None)
+                    else None,
+                    "vector_weight": float(vector_weight) if vector_weight is not None else None,
+                    "candidate_multiplier": float(candidate_multiplier) if candidate_multiplier is not None else None,
+                    "min_score": float(min_score) if min_score is not None else None,
+                    "sources": [str(x) for x in sources] if sources is not None else None,
+                }
+            ),
+        )
+
+    def memory_get(
+        self,
+        *,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        path: str,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "memory_reme_get",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "path": str(path),
+                    "offset": int(offset) if offset is not None else None,
+                    "limit": int(limit) if limit is not None else None,
+                }
+            ),
+        )
 
     # ---------------------------------------------------------------------
     # events_stream (push stream)

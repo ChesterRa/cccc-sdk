@@ -27,11 +27,11 @@ async function main() {
   await client.assertCompatible({
     requireIpcV: 1,
     requireCapabilities: { events_stream: true },
-    requireOps: ['groups', 'send', 'reply', 'group_automation_manage'],
+    requireOps: ['groups', 'send', 'reply', 'tracked_send', 'context_sync'],
   });
 
   const group = await client.groupCreate({ title: 'TS demo' });
-  const groupId = String(group.group_id || '');
+  const groupId = group.group.group_id;
 
   await client.send({
     groupId,
@@ -53,6 +53,32 @@ Supported in:
 - `send(options)`
 - `reply(options)`
 - `sendCrossGroup(options)`
+- `trackedSend(options)`
+
+## Workflow helpers
+
+Current CCCC workflow contracts are exposed as focused wrappers over daemon IPC:
+
+```typescript
+await client.trackedSend({
+  groupId,
+  title: 'Update SDK',
+  text: 'Please handle the compatibility update.',
+  outcome: 'Tests and live compat pass',
+  assignee: 'peer-impl',
+});
+
+await client.coordinationBriefUpdate({
+  groupId,
+  objective: 'Ship SDK updates',
+  currentFocus: 'context v3 compatibility',
+});
+
+await client.taskMove({ groupId, taskId: 't_xxx', status: 'done' });
+await client.agentStateUpdate({ groupId, actorId: 'peer-impl', focus: 'testing' });
+await client.capabilitySearch({ groupId, query: 'docs' });
+await client.memorySearch({ groupId, query: 'recent decisions' });
+```
 
 ## Automation semantics
 
@@ -163,7 +189,7 @@ npm run build
 
 ## Requirements
 
-- Node.js 16+
+- Node.js 18+
 - Running CCCC daemon
 
 ## License

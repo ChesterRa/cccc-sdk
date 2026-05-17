@@ -56,11 +56,29 @@ export interface AddressDescriptor {
 // Event stream types
 // ============================================================
 
-/** Event stream item */
+/** Event stream item: event */
+export interface EventStreamEvent {
+  t: 'event';
+  event: CCCSEvent;
+}
+
+/** Event stream item: heartbeat */
+export interface EventStreamHeartbeat {
+  t: 'heartbeat';
+  ts: string;
+}
+
+/** Event stream item: unknown type (forward-compatible) */
+export interface EventStreamUnknown {
+  t: string;
+  [key: string]: unknown;
+}
+
+/** Event stream item (discriminated on `t`) */
 export type EventStreamItem =
-  | { t: 'event'; event: CCCSEvent }
-  | { t: 'heartbeat'; ts: string }
-  | { t: string; [key: string]: unknown };
+  | EventStreamEvent
+  | EventStreamHeartbeat
+  | EventStreamUnknown;
 
 /** CCCS event */
 export interface CCCSEvent {
@@ -68,7 +86,80 @@ export interface CCCSEvent {
   ts: string;
   kind: string;
   group_id: string;
+  scope_key?: string;
+  by?: string;
   data: Record<string, unknown>;
+}
+
+// ============================================================
+// Strongly-typed event data (B3)
+// ============================================================
+
+/** Data payload for `chat.message` events */
+export interface ChatMessageEventData {
+  text: string;
+  format?: string;
+  priority?: 'normal' | 'attention';
+  reply_required?: boolean;
+  to?: string[];
+  reply_to?: string | null;
+  quote_text?: string | null;
+  src_group_id?: string | null;
+  src_event_id?: string | null;
+  dst_group_id?: string | null;
+  dst_to?: string[] | null;
+  refs?: unknown[];
+  attachments?: unknown[];
+  thread?: string;
+  client_id?: string | null;
+}
+
+/** Data payload for `chat.read` events */
+export interface ChatReadEventData {
+  actor_id: string;
+  event_id: string;
+}
+
+/** Data payload for `notify.reminder` events */
+export interface NotifyReminderEventData {
+  rule_id: string;
+  title?: string;
+  message?: string;
+  snippet?: string;
+  priority?: string;
+  requires_ack?: boolean;
+}
+
+/** A chat.message event with strongly-typed data */
+export interface ChatMessageEvent extends CCCSEvent {
+  kind: 'chat.message';
+  data: ChatMessageEventData & Record<string, unknown>;
+}
+
+/** A chat.read event with strongly-typed data */
+export interface ChatReadEvent extends CCCSEvent {
+  kind: 'chat.read';
+  data: ChatReadEventData & Record<string, unknown>;
+}
+
+/** Type guard: is this event a chat.message? */
+export function isChatMessageEvent(event: CCCSEvent): event is ChatMessageEvent {
+  return event.kind === 'chat.message';
+}
+
+/** Type guard: is this event a chat.read? */
+export function isChatReadEvent(event: CCCSEvent): event is ChatReadEvent {
+  return event.kind === 'chat.read';
+}
+
+/** Type guard: is this stream item an event? */
+export function isStreamEvent(item: EventStreamItem): item is EventStreamEvent {
+  return item.t === 'event' && 'event' in item;
+}
+
+/** Type guard: is this stream item a heartbeat? */
+export function isStreamHeartbeat(item: EventStreamItem): item is EventStreamHeartbeat {
+  return item.t === 'heartbeat';
 }
 
 // ============================================================
@@ -113,6 +204,17 @@ export interface SendCrossGroupOptions {
   to?: string[];
   priority?: 'normal' | 'attention';
   replyRequired?: boolean;
+}
+
+/** Create a task and send a linked visible delegation message. */
+export interface TrackedSendOptions extends SendOptions {
+  title: string;
+  outcome?: string;
+  assignee?: string;
+  handoffTo?: string;
+  waitingOn?: 'none' | 'user' | 'actor' | 'external';
+  checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
+  notes?: string;
 }
 
 /** Reply message options */
@@ -246,7 +348,7 @@ export interface CapabilityOverviewOptions {
 
 /** Capability search options */
 export interface CapabilitySearchOptions {
-  groupId: string;
+  groupId?: string;
   actorId?: string;
   by?: string;
   query?: string;
@@ -260,7 +362,7 @@ export interface CapabilitySearchOptions {
 
 /** Capability enable/disable options */
 export interface CapabilityEnableOptions {
-  groupId: string;
+  groupId?: string;
   capabilityId: string;
   scope?: 'group' | 'actor' | 'session';
   enabled?: boolean;
@@ -285,7 +387,7 @@ export interface CapabilityBlockOptions {
 
 /** Capability state options */
 export interface CapabilityStateOptions {
-  groupId: string;
+  groupId?: string;
   actorId?: string;
   by?: string;
 }
@@ -638,6 +740,92 @@ export interface ContextSyncOptions {
   dryRun?: boolean;
 }
 
+/** Common context_sync wrapper options. */
+export interface ContextWrapperOptions {
+  groupId: string;
+  by?: string;
+  dryRun?: boolean;
+}
+
+/** Update the shared coordination brief (Context Ops v3). */
+export interface CoordinationBriefUpdateOptions extends ContextWrapperOptions {
+  objective?: string;
+  currentFocus?: string;
+  constraints?: string[];
+  projectBrief?: string;
+  projectBriefStale?: boolean;
+}
+
+/** Add a compact coordination note. */
+export interface CoordinationNoteAddOptions extends ContextWrapperOptions {
+  kind: 'decision' | 'handoff';
+  summary: string;
+  taskId?: string | null;
+}
+
+/** Create/update/move/restore task options for Context Ops v3. */
+export interface TaskCreateOptions extends ContextWrapperOptions {
+  title: string;
+  outcome?: string;
+  status?: 'planned' | 'active' | 'done' | 'archived';
+  parentId?: string | null;
+  assignee?: string | null;
+  priority?: string;
+  blockedBy?: string[];
+  waitingOn?: 'none' | 'user' | 'actor' | 'external';
+  handoffTo?: string | null;
+  taskType?: 'free' | 'standard' | 'optimization';
+  notes?: string;
+  checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
+}
+
+export interface TaskUpdateOptions extends ContextWrapperOptions {
+  taskId: string;
+  title?: string;
+  outcome?: string;
+  status?: 'planned' | 'active' | 'done' | 'archived';
+  assignee?: string | null;
+  priority?: string;
+  blockedBy?: string[];
+  waitingOn?: 'none' | 'user' | 'actor' | 'external';
+  handoffTo?: string | null;
+  notes?: string;
+  checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
+}
+
+export interface TaskMoveOptions extends ContextWrapperOptions {
+  taskId: string;
+  status: 'planned' | 'active' | 'done' | 'archived';
+}
+
+export interface TaskRestoreOptions extends ContextWrapperOptions {
+  taskId: string;
+}
+
+/** Update or clear per-actor working memory. */
+export interface AgentStateUpdateOptions extends ContextWrapperOptions {
+  actorId: string;
+  activeTaskId?: string;
+  focus?: string;
+  nextAction?: string;
+  whatChanged?: string;
+  blockers?: string[];
+  openLoops?: string[];
+  commitments?: string[];
+  environmentSummary?: string;
+  userModel?: string;
+  personaNotes?: string;
+  resumeHint?: string;
+}
+
+export interface AgentStateClearOptions extends ContextWrapperOptions {
+  actorId: string;
+}
+
+export interface MetaMergeOptions extends ContextWrapperOptions {
+  data: Record<string, unknown>;
+}
+
 /** Event stream options */
 export interface EventsStreamOptions {
   groupId: string;
@@ -646,4 +834,182 @@ export interface EventsStreamOptions {
   sinceEventId?: string;
   sinceTs?: string;
   timeoutMs?: number;
+  /** AbortSignal to tear down the stream. When aborted the async generator returns. */
+  signal?: AbortSignal;
+}
+
+// ============================================================
+// Result types (daemon response payloads)
+// ============================================================
+
+/** Result of send / reply / sendCrossGroup */
+export interface SendResult {
+  event: CCCSEvent;
+  ack_event: CCCSEvent | null;
+}
+
+/** Options for sendAndWaitForReply */
+export interface SendAndWaitOptions extends SendOptions {
+  /** Actor ID that will listen for the reply (used to open events stream). */
+  listenAs: string;
+  /** Timeout in ms to wait for a reply (default 60_000). */
+  waitTimeoutMs?: number;
+  /** AbortSignal to cancel the wait. */
+  signal?: AbortSignal;
+}
+
+// ============================================================
+// B6: Strongly-typed result types for all methods
+// ============================================================
+
+/** Actor descriptor returned by daemon */
+export interface ActorInfo {
+  id: string;
+  role?: string;
+  title?: string;
+  enabled?: boolean;
+  running?: boolean;
+  runner?: string;
+  runtime?: string;
+  submit?: string;
+  unread_count?: number;
+  updated_at?: string;
+  created_at?: string;
+}
+
+/** Scope descriptor */
+export interface ScopeInfo {
+  scope_key: string;
+  url: string;
+  label?: string;
+  git_remote?: string;
+}
+
+/** Group descriptor returned by daemon */
+export interface GroupInfo {
+  group_id: string;
+  title?: string;
+  topic?: string;
+  state?: string;
+  running?: boolean;
+  active_scope_key?: string;
+  created_at?: string;
+  updated_at?: string;
+  scopes?: ScopeInfo[];
+}
+
+/** Result of ping */
+export interface PingResult {
+  ipc_v: number;
+  version?: string;
+  capabilities?: Record<string, boolean>;
+  [key: string]: unknown;
+}
+
+/** Result of groups list */
+export interface GroupsResult {
+  groups: GroupInfo[];
+}
+
+/** Result of group_show */
+export interface GroupShowResult {
+  group: GroupInfo;
+  actors?: ActorInfo[];
+}
+
+/** Result of group_create */
+export interface GroupCreateResult {
+  group: GroupInfo;
+}
+
+/** Result of actor_list */
+export interface ActorListResult {
+  actors: ActorInfo[];
+}
+
+/** Result of actor_add */
+export interface ActorAddResult {
+  actor_id: string;
+}
+
+/** Result of inbox_list */
+export interface InboxListResult {
+  messages: CCCSEvent[];
+  cursor?: {
+    event_id: string;
+    ts: string;
+  };
+}
+
+/** File send options */
+export interface FileSendOptions {
+  groupId: string;
+  path: string;
+  text?: string;
+  by?: string;
+  to?: string[];
+  priority?: 'normal' | 'attention';
+  replyRequired?: boolean;
+}
+
+/** Ledger tail options */
+export interface LedgerTailOptions {
+  groupId: string;
+  limit?: number;
+  maxChars?: number;
+  by?: string;
+}
+
+/** Terminal tail options */
+export interface TerminalTailOptions {
+  groupId: string;
+  actorId: string;
+  lines?: number;
+  by?: string;
+}
+
+export interface CapabilityUseOptions extends CapabilityEnableOptions {
+  toolName?: string;
+  toolArguments?: Record<string, unknown>;
+}
+
+/** ReMe memory operation options. */
+export interface MemorySearchOptions {
+  groupId?: string;
+  actorId?: string;
+  query: string;
+  limit?: number;
+  maxResults?: number;
+  vectorWeight?: number;
+  candidateMultiplier?: number;
+  minScore?: number;
+  sources?: string[];
+}
+
+export interface MemoryGetOptions {
+  groupId?: string;
+  actorId?: string;
+  path: string;
+  offset?: number;
+  limit?: number;
+}
+
+/** Result of context_get */
+export interface ContextGetResult {
+  version: string;
+  vision?: string | null;
+  sketch?: string | null;
+  milestones?: unknown[];
+  notes?: unknown[];
+  references?: unknown[];
+  tasks_summary?: {
+    total: number;
+    done: number;
+    active: number;
+    planned: number;
+  };
+  active_task?: unknown;
+  presence?: {
+    agents: unknown[];
+  };
 }

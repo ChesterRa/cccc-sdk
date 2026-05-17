@@ -164,6 +164,77 @@ Rules:
 - `heartbeat` items MUST NOT be appended to the group ledger; they are transport-level keepalives.
 - Streams are best-effort: clients MUST tolerate disconnects, duplicates, and gaps (use `inbox_list` or a ledger read to reconcile).
 
+### 4.6 Streaming Upgrade: `presentation_browser_attach` / VNC attach (Optional)
+
+`presentation_browser_attach` upgrades the connection into a daemon-local **browser-surface control stream** for a slot-scoped Presentation browser session.
+The same stream envelope is reused by other projected browser attach operations, including provider-auth and Web Model browser surfaces.
+
+1) Client sends a normal request line with `op="presentation_browser_attach"`.
+2) Daemon sends a normal response line.
+3) If the response is `ok=true`, the connection remains open and becomes a bidirectional NDJSON stream.
+
+After upgrade:
+- The daemon pushes `state` and `frame` items for the active browser surface session.
+- The client MAY send browser-control commands such as navigation, click, scroll, key, text, resize, and close.
+- Only one active controller MAY be attached at a time for a given slot browser surface session.
+- If a matching `*_vnc_attach` operation succeeds, the connection upgrades into a raw RFB/VNC byte stream instead of NDJSON. VNC attach is an optional viewer transport; browser control and delivery semantics remain owned by the daemon runtime.
+
+Recommended daemon-to-client items (CCCC v0.4.x behavior):
+```ts
+type PresentationBrowserStreamItem =
+  | {
+      t: "state"
+      active: boolean
+      state: "starting" | "ready" | "failed" | "closed" | "idle"
+      message: string
+      error?: Record<string, unknown>
+      strategy?: string
+      url?: string
+      width?: number
+      height?: number
+      started_at?: string
+      updated_at?: string
+      last_frame_seq?: number
+      last_frame_at?: string
+      controller_attached?: boolean
+    }
+  | {
+      t: "frame"
+      seq: number
+      captured_at: string
+      mime: "image/jpeg"
+      data_base64: string
+      width: number
+      height: number
+      url: string
+    }
+  | {
+      t: "error"
+      code: string
+      message: string
+    }
+```
+
+Recommended client-to-daemon commands (CCCC v0.4.x behavior):
+```ts
+type PresentationBrowserCommand =
+  | { t: "ping" }
+  | { t: "navigate"; url: string }
+  | { t: "back" }
+  | { t: "refresh" }
+  | { t: "click"; x: number; y: number; button?: "left" | "middle" | "right" }
+  | { t: "scroll"; dx?: number; dy?: number }
+  | { t: "key"; key: string }
+  | { t: "text"; text: string }
+  | { t: "resize"; width: number; height: number }
+  | { t: "close" | "disconnect" }
+```
+
+Rules:
+- Clients MUST treat unknown `t` values as ignorable forward-compatible extensions.
+- The browser-surface stream is best-effort and ephemeral; clients MUST be able to reconnect and recover via `presentation_browser_info` / `presentation_browser_open`.
+- The stream is daemon-local runtime state and MUST NOT be treated as persisted Presentation card state.
+
 ## 5. Request/Response Envelope (Normative)
 
 Daemon IPC v1 uses the envelope defined in `src/cccc/contracts/v1/ipc.py`.
@@ -302,6 +373,41 @@ Result:
 { observability: Record<string, unknown> }
 ```
 
+#### `branding_get`
+
+Args: none
+
+Result:
+```ts
+{
+  branding: {
+    product_name: string
+    logo_icon_asset_path?: string
+    favicon_asset_path?: string
+    updated_at?: string
+  }
+}
+```
+
+#### `branding_update`
+
+Args:
+```ts
+{ by?: "user"; patch: Record<string, unknown> }
+```
+
+Result:
+```ts
+{
+  branding: {
+    product_name: string
+    logo_icon_asset_path?: string
+    favicon_asset_path?: string
+    updated_at?: string
+  }
+}
+```
+
 #### `debug_snapshot`
 
 Developer-mode diagnostic snapshot (global + optional group context).
@@ -408,6 +514,8 @@ Result:
     blocked_reason?: string
     enable_supported: boolean
     qualification_status: "qualified" | "unavailable" | "blocked"
+    qualification_reasons?: string[] // currently exposed for agent_self_proposed skill management
+    capsule_text?: string            // currently exposed for agent_self_proposed skill management
     install_mode?: string
     autoload_candidate: boolean
     tags?: string[]
@@ -491,8 +599,13 @@ Result:
     enable_supported: boolean
     install_mode?: string
     policy_level?: "indexed" | "mounted" | "enabled" | "pinned"
-    enable_hint?: "enable_now" | "blocked" | "unsupported"
+    enable_hint?: "enable_now" | "blocked" | "unsupported" | "active"
     blocked_reason?: string
+    readiness_preview?: {
+      preview_status: "blocked" | "enableable" | "active" | "needs_inspect"
+      next_step: string
+      already_active?: boolean
+    }
     tags?: string[]
     tool_count?: number
     tool_names?: string[]
@@ -604,7 +717,7 @@ Result:
 
 Quota notes:
 
-1. `CCCC_CAPABILITY_MAX_ENABLED_PER_ACTOR` (default `12`) limits actor/session enabled capability count.
+1. `CCCC_CAPABILITY_MAX_ENABLED_PER_ACTOR` (default `20`) limits actor/session enabled non-skill capability count.
 2. `CCCC_CAPABILITY_MAX_ENABLED_PER_GROUP` (default `24`) limits group-scope enabled capability count.
 3. `CCCC_CAPABILITY_MAX_INSTALLATIONS_TOTAL` (default `128`) limits total cached external artifacts.
 4. Quota failures return `ok=true` with `state="failed"` and deterministic `reason` code.
@@ -663,7 +776,12 @@ Read effective capability exposure and visible MCP tool names for caller scope.
 
 Args:
 ```ts
-{ group_id: string; actor_id?: string; by?: string }
+{
+  group_id: string
+  actor_id?: string
+  by?: string
+  capability_id?: string // optional; returns capability_usage for this id
+}
 ```
 
 Result:
@@ -689,24 +807,39 @@ Result:
     capability_id: string
     name: string
     description_short?: string
+    capsule_preview?: string
+    capsule_text?: string
     source_id?: string
     source_uri?: string
     policy_level?: "indexed" | "mounted" | "enabled" | "pinned"
+    activation_sources?: Array<{
+      scope: "group" | "actor" | "session"
+      actor_id?: string
+      expires_at?: string
+      ttl_seconds?: number
+    }>
   }>
   autoload_skills?: Array<{
     capability_id: string
     name: string
     description_short?: string
+    capsule_preview?: string
+    capsule_text?: string
     source_id?: string
     policy_level?: "indexed" | "mounted" | "enabled" | "pinned"
   }>
   autoload_capabilities?: string[]
   actor_autoload_capabilities?: string[]
   profile_autoload_capabilities?: string[]
+  actor_hidden_capabilities?: string[] // actor-level UI/menu hide preferences, including Web user slash menu; does not disable the capability
   hidden_capabilities: Array<{
     capability_id: string
     reason: string
-    policy_level?: "indexed" | "mounted" | "enabled" | "pinned"
+    name?: string
+    description_short?: string
+    kind?: "mcp_toolpack" | "skill"
+    source_id?: string
+    policy_level?: "indexed" | "mounted" | "enabled" | "pinned" | "blocked"
     state?: string
     install_error_code?: string
     install_error?: string
@@ -734,6 +867,19 @@ Result:
     blocked_at?: string
     expires_at?: string
   }>
+  capability_usage?: {
+    capability_id: string
+    used: boolean
+    group_enabled: boolean
+    group_actor_count: number
+    actor_enabled: Array<{ actor_id: string; actor_title?: string; label?: string }>
+    session_enabled: Array<{ actor_id: string; actor_title?: string; label?: string; expires_at: string; ttl_seconds: number }>
+    actor_autoload: Array<{ actor_id: string; actor_title?: string; label?: string }>
+    profile_autoload: Array<{ actor_id: string; actor_title?: string; label?: string; profile_id?: string; profile_name?: string }>
+    blocked: boolean
+    blocked_scope?: "group" | "global"
+    blocked_reason?: string
+  }
   is_foreman: boolean
 }
 ```
@@ -746,6 +892,8 @@ Operational notes:
    - `CCCC_CAPABILITY_SOURCE_MCP_REGISTRY_ENABLED` (default `1`)
    - `CCCC_CAPABILITY_SOURCE_ANTHROPIC_SKILLS_ENABLED` (default `1`)
    - `github_skills_curated` is allowlist-curated (no periodic source crawler).
+   - `agent_self_proposed` is for agent-generated procedural skill candidates; default policy keeps MCP
+     toolpacks indexed while allowing capsule skills to be validated and enabled at narrow scope.
    - `skillsmp_remote` is on-demand SkillsMP remote search (API key mode + proxy fallback).
    - `clawhub_remote` is on-demand ClawHub remote search (official API).
    - `openclaw_skills_remote` is on-demand OpenClaw GitHub corpus search.
@@ -777,6 +925,36 @@ Operational notes:
    - user overlay: `CCCC_HOME/config/capability-allowlist.user.yaml`
    - effective policy: deterministic merge (`default <- overlay`).
 
+#### `capability_visibility`
+
+Hide or show a capability for one actor's UI/menu surfaces without changing enabled bindings.
+The Web UI uses `actor_id="user"` to control whether an enabled capsule skill appears in the `/` command menu.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  actor_id?: string // default: by or "user"
+  capability_id: string
+  hidden: boolean
+  reason?: string
+}
+```
+
+Result:
+```ts
+{
+  action_id: string
+  group_id: string
+  actor_id: string
+  capability_id: string
+  hidden: boolean
+  actor_hidden_capabilities: string[]
+  state: "hidden" | "visible"
+}
+```
+
 #### `capability_import`
 
 Import one normalized capability record prepared by the caller (agent-driven parsing), then optionally enable it.
@@ -790,6 +968,28 @@ Notes:
 5. `command*` and `fallback_command*` may be provided as top-level shortcuts; daemon copies them into
    `install_spec` when missing.
 6. `record.source_id` is optional; empty or unknown source ids are normalized to `manual_import`.
+7. `record.source_id=agent_self_proposed` preserves autonomous skill-proposal provenance. Default policy treats
+   `kind=skill` capsule records from this source as mounted, while non-skill toolpacks remain indexed unless
+   policy explicitly promotes them.
+8. `agent_self_proposed` skill capsule text must include required proposal sections: `When to use`, `Avoid when`,
+   `Procedure`, `Pitfalls`, and `Verification`; non-dry-run imports missing sections are rejected before catalog
+   persistence so the last valid active record is preserved.
+9. `agent_self_proposed` skill capability ids must use `skill:agent_self_proposed:<stable-slug>` to avoid
+   colliding with curated namespaces such as `skill:anthropic:*` or `skill:github:*`.
+10. For low-risk, syntax-valid `agent_self_proposed` capsule skills, direct import is allowed. Use `dry_run=true`
+   first when enabling immediately, scope/risk is unclear, or probe diagnostics are useful; high-risk candidates
+   should be recorded as `qualification_status=blocked` with explicit `qualification_reasons`.
+11. Re-importing the same `capability_id` updates the catalog record. Agents should use that path for stale,
+    incomplete, wrong, or duplicative `agent_self_proposed` skills instead of creating near-duplicates or silently
+    deleting records.
+12. Import results use `import_action`, `record_changed`, `already_active`, and `active_after_import` to distinguish
+    create/update/no-op and whether the target actor had an effective binding before and after import. Local sync
+    timestamps do not count as semantic changes, while an explicitly supplied `updated_at_source` still participates
+    in the comparison. `import_action` is the primary create/update/unchanged signal; `record_changed` only compares
+    existing records. `already_active` is pre-import state; `active_after_import` is the post-import runnable binding.
+13. If `readiness_preview.preview_status=active` or `active_after_import=true`, agents must not re-enable the same skill
+    just to refresh its capsule text. Use `capability_state.active_capsule_skills[].capsule_text` for full post-import
+    verification; `capsule_preview` is only a compact display summary.
 
 Args:
 ```ts
@@ -802,7 +1002,7 @@ Args:
     kind: "mcp_toolpack" | "skill"
     name?: string
     description_short?: string
-    source_id?: string // optional; unknown/empty -> manual_import
+    source_id?: string // optional; unknown/empty -> manual_import; agent_self_proposed preserves skill-proposal provenance
     source_uri?: string
     source_record_id?: string
     source_record_version?: string
@@ -841,7 +1041,11 @@ Result:
   kind: "mcp_toolpack" | "skill"
   dry_run: boolean
   imported: boolean
-  deduped?: boolean
+  scope: "group" | "actor" | "session"
+  import_action?: "created" | "updated" | "unchanged"
+  record_changed?: boolean
+  already_active?: boolean           // target actor had an effective binding before optional enable_after_import
+  active_after_import?: boolean      // target actor has a runnable binding after import/optional enablement
   record: Record<string, unknown>
   probe: {
     state: "runnable" | "failed" | "skipped"
@@ -863,8 +1067,9 @@ Result:
   enableable_now: boolean
   enable_block_reason?: "policy_level_indexed" | "qualification_blocked" | "capability_unavailable"
   readiness_preview?: {
-    preview_status: "blocked" | "enableable" | "needs_inspect"
+    preview_status: "blocked" | "enableable" | "active" | "needs_inspect"
     next_step: string
+    already_active?: boolean
     preview_basis?: string[]
     required_env?: string[]
     missing_env?: string[]
@@ -995,7 +1200,10 @@ Result:
 
 #### `capability_uninstall`
 
-Revoke capability bindings for the target group. Installation cache is removed only when no other group/actor bindings remain.
+Revoke capability bindings for the target group, remove current-group actor autoload references, and remove runtime cache
+when no other group/actor bindings remain. For `source_id=agent_self_proposed` skill records, uninstall also removes the
+generated local catalog record plus all actor/profile autoload references for that capability id. External registry catalog
+records are not deleted.
 
 Args:
 ```ts
@@ -1016,9 +1224,13 @@ Result:
   actor_id: string
   capability_id: string
   state: "ready"
+  removed_record: boolean
   removed_bindings: number
+  removed_blocked?: number
   removed_installation: boolean
   removed_runtime_bindings?: number
+  removed_actor_autoload: number
+  removed_profile_autoload: number
   cleanup_skipped_reason?: "cleanup_skipped_capability_still_bound"
   refresh_required: boolean
   refresh_mode?: "relist_or_reconnect"
@@ -1158,6 +1370,512 @@ Patch keys used by CCCC v0.4.x include:
 Result:
 ```ts
 { group_id: string; settings: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+#### `assistant_state`
+
+Read the group-scoped state for first-party built-in assistants. Voice
+Secretary service-local ASR runs in a daemon-managed first-party service
+process; heavy ASR runtimes remain behind an explicit local command adapter.
+
+Args:
+```ts
+{ group_id: string; assistant_id?: "pet" | "voice_secretary" }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  assistants?: Array<Record<string, unknown>>
+  assistants_by_id?: Record<string, unknown>
+  assistant?: Record<string, unknown>
+  proposals?: Array<Record<string, unknown>>
+  proposals_by_id?: Record<string, unknown>
+  documents?: Array<Record<string, unknown>>
+  documents_by_path?: Record<string, unknown>
+  active_document_path?: string
+  capture_target_document_path?: string
+  documents_by_id?: Record<string, unknown>      // daemon sidecar/internal compatibility only
+  active_document_id?: string                    // daemon sidecar/internal compatibility only
+  capture_target_document_id?: string            // daemon sidecar/internal compatibility only
+  new_input_available?: boolean
+}
+```
+
+#### `assistant_settings_update`
+
+Update group-scoped built-in assistant settings. `pet` is read-only in M0 and
+mirrors `group_settings_update.patch.desktop_pet_enabled`.
+
+When `voice_secretary.enabled=true`, the daemon also materializes a hidden
+internal actor with `internal_kind="voice_secretary"` and `actor_id="voice-secretary"`.
+That actor is a distinct assistant identity, not the foreman and not a normal
+peer. Its startup runtime config (`runtime`, `runner`, `command`, env/secrets,
+scope, submit behavior) is copied from the current stable foreman actor so the user
+does not configure a second runtime profile. The foreman's enabled/running state
+does not affect assistant config inheritance. If no foreman actor exists,
+enabling Voice Secretary fails. If the group is already running, the daemon
+starts or restarts this assistant actor as needed; disabling Voice Secretary
+stops/removes the actor and its private env.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  assistant_id: "voice_secretary"
+  patch: {
+    enabled?: boolean
+    config?: {
+      capture_mode?: "browser" | "service"
+      recognition_backend?: "mock" | "assistant_service_local_asr" | "browser_asr" | "external_provider_asr"
+      recognition_language?: "auto" | string
+      retention_ttl_seconds?: number
+      auto_document_enabled?: boolean
+      document_default_dir?: string
+      auto_document_quiet_ms?: number
+      auto_document_min_chars?: number
+      auto_document_max_window_seconds?: number
+      service_model_id?: string
+      tts_enabled?: boolean
+    }
+  }
+}
+```
+
+`browser_asr` means browser-managed speech recognition and does not guarantee
+browser-device-local model execution. `assistant_service_local_asr` means ASR
+runs on the daemon host through the first-party Voice Secretary service and uses
+an installed local ASR model. The returned assistant health may include `health.service` with
+`status`, `alive`, `asr_command_configured`, `asr_mock_configured`,
+`selected_model_id`, `managed_model`, and `last_error` so Web can show whether
+service-local ASR is actually usable. `service_model_id` is optional and
+selects a daemon-managed local ASR model for on-demand install/use.
+`recognition_language="auto"` means the browser/client chooses the best language
+hint; otherwise callers should pass a BCP-47-like tag such as `zh-CN`, `en-US`,
+or `ja-JP`. `auto_document_enabled=true` is the default path: stable transcript
+segments are compacted into the Voice Secretary input stream, then the
+`voice-secretary` runtime actor pulls unread input and edits the working markdown
+document directly in the repository. `auto_document_quiet_ms` is the client
+silence window before flushing speech into that semantic lane;
+`auto_document_min_chars` and `auto_document_max_window_seconds` are daemon-side
+guardrails that keep long continuous speech from waiting forever for a pause.
+The runtime actor should treat transcript as source material for
+evidence-bounded reconstruction: it may use transcript, group context, existing
+documents, common knowledge, and verified lightweight research to produce a
+coherent artifact, but must not fabricate facts and should compactly mark
+low-confidence entities, numbers, quotations, or dates.
+The document loop should be incremental and non-lossy: each unread input batch
+should be organized into the best current document structure while preserving
+useful concrete details, and idle review should refine/reorganize/enrich rather
+than replace detail-rich material with a short executive summary.
+The daemon does not track per-job completion: it stores an input cursor, nudges
+the actor when unread input exists, and sends idle-review nudges only on
+recording stop or after enough new transcript input plus the group cooldown
+(default: stop flush immediately, otherwise 8 new transcript input flushes and
+at least 5 minutes since the previous idle review).
+If the group has an active workspace scope,
+`document_default_dir` (default `docs/voice-secretary`) is
+resolved under that workspace; otherwise the daemon falls back to CCCC_HOME.
+Raw transcript/source/input sidecars stay in CCCC_HOME.
+`external_provider_asr` must remain explicit opt-in.
+
+Result:
+```ts
+{ group_id: string; assistant: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+#### `assistant_voice_model_install`
+
+Download and verify a daemon-managed local Voice Secretary ASR model into
+CCCC-owned cache storage. Built-in releases include a default model manifest;
+tests and local development may add a local overlay at
+`CCCC_HOME/config/voice-models.json`. Each artifact entry must include a fixed
+URL and `sha256`.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  model_id: string
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  assistant: Record<string, unknown>
+  model: {
+    model_id: string
+    status: "not_installed" | "downloading" | "ready" | "failed" | "unknown"
+    install_dir?: string
+    installed_at?: string
+    updated_at?: string
+    error?: Record<string, unknown>
+  }
+}
+```
+
+#### `assistant_voice_transcribe`
+
+Transcribe a push-to-talk audio payload through the daemon-managed first-party
+Voice Secretary service. This endpoint only returns transcript text and service
+health; it does not create a chat message, proposal, or working document by
+itself. Call `assistant_voice_transcript_append` after transcription so the
+daemon can append stable transcript source material and update the current
+working document.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  audio_base64: string
+  mime_type?: string
+  language?: string
+}
+```
+
+Preconditions:
+- `voice_secretary` is enabled for the group.
+- `recognition_backend` is `assistant_service_local_asr`.
+- The selected `service_model_id` is installed and exposes a managed command via
+  the manifest. The effective command receives the audio path as the final
+  argument unless it includes `{audio_path}` / `{input_path}` / `{input}`.
+
+Result:
+```ts
+{
+  group_id: string
+  assistant: Record<string, unknown>
+  transcript: string
+  mime_type: string
+  language?: string
+  bytes?: number
+  backend: "assistant_service_local_asr"
+  service: Record<string, unknown>
+  asr?: Record<string, unknown>
+}
+```
+
+#### `assistant_voice_recording_lease`
+
+Acquire, refresh, release, or inspect the daemon-owned Voice Secretary recording
+lease. Web clients may keep a local browser lock for fast UX debouncing, but the
+daemon lease is the final cross-tab / cross-browser / cross-device guard that
+prevents two Voice Secretary recording streams from running at the same time.
+The lease is TTL-based so a crashed tab or disconnected browser eventually
+expires without manual cleanup.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  action: "acquire" | "heartbeat" | "release" | "status"
+  owner_id?: string        // required for acquire/heartbeat/release
+  lease_id?: string        // returned by acquire; required to refresh/release that acquisition
+  ttl_seconds?: number     // default 30; bounded by the daemon
+  capture_mode?: string
+  recognition_backend?: string
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  action: string
+  acquired: boolean
+  released: boolean
+  lost: boolean
+  lease_id?: string        // only returned to the acquiring/refreshing owner
+  lease?: {
+    owner_id: string
+    group_id: string
+    group_title?: string
+    capture_mode?: string
+    recognition_backend?: string
+    by?: string
+    created_at?: string
+    updated_at?: string
+    expires_at?: string
+  }
+}
+```
+
+If another live lease exists, `acquire` / `heartbeat` returns
+`assistant_voice_recording_busy` with `details.active_lease`.
+`heartbeat` only refreshes the matching active `owner_id` + `lease_id`; it never
+creates a new lease. Stale `heartbeat` / `release` requests return `lost` or
+`released=false` without modifying a newer lease.
+
+#### `assistant_voice_transcript_append`
+
+Append a stable transcript segment for Voice Secretary. Web/browser ASR and
+service-local ASR converge here. The daemon writes stable segments to
+`$CCCC_HOME/voice-secretary/<group_id>/<session_id>/transcripts/segments.jsonl`,
+keeps a short in-memory/session window in group assistant runtime state, and
+by default appends a semantic input event for the current Voice Secretary
+markdown working document. The working document is a user-facing repo artifact;
+raw transcript/source/revision sidecars remain in CCCC_HOME. When new input is
+available, the daemon emits a targeted `system.notify` to `voice-secretary` with
+`context.kind="voice_secretary_input"` and a daemon-owned `input_envelope`. The
+envelope is the canonical work item delivered to both PTY and headless runtimes;
+`assistant_voice_document_input_read` /
+`cccc_voice_secretary_document(action="read_new_input")` remains a legacy,
+recovery, and debugging entrypoint. Input append is durable before runtime actor
+wake-up; if wake-up fails, the input remains readable and the API reports the
+best-effort wake error separately. If wake-up succeeds after the notify was
+created while the actor was stopped, the daemon re-dispatches that same notify:
+headless runtimes receive it as a control turn, and PTY runtimes receive it
+through the pending delivery queue so lazy preamble delivery is triggered.
+
+The public document identity for Voice Secretary APIs is `document_path`, a
+repository-relative markdown path. `document_id` may exist in daemon sidecar
+state as an implementation detail, but runtime actors and Web clients should
+route by `document_path`.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  session_id: string
+  segment_id?: string
+  text?: string
+  language?: string
+  document_path?: string
+  is_final?: boolean
+  flush?: boolean
+  trigger?: {
+    trigger_kind?: "push_to_talk_stop" | "service_transcript" | "meeting_window"
+    mode?: "dictation" | "meeting"
+    capture_mode?: "browser" | "service" | string
+    recognition_backend?: string
+    client_session_id?: string
+    input_device_label?: string
+    language?: string
+  }
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  assistant: Record<string, unknown>
+  session_id: string
+  segment?: Record<string, unknown>
+  segment_path?: string
+  document?: Record<string, unknown>
+  document_updated: boolean
+  input_event?: Record<string, unknown>
+  input_event_created: boolean
+  input_notify_emitted: boolean
+  input_notify_error?: string
+  actor_woken?: boolean
+  actor_wake_error?: string
+  actor_notify_delivered?: boolean
+  actor_notify_delivery_error?: string
+}
+```
+
+#### `assistant_voice_document_list`
+
+List active Voice Secretary working documents for the group. Archived documents
+are excluded unless `include_archived=true`.
+
+Args:
+```ts
+{ group_id: string; include_archived?: boolean }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  documents: Array<Record<string, unknown>>
+  documents_by_id: Record<string, unknown>
+  documents_by_path: Record<string, unknown>
+  active_document_id?: string
+  capture_target_document_id?: string
+  active_document_path?: string
+  capture_target_document_path?: string
+}
+```
+
+#### `assistant_voice_document_input_read`
+
+Read all unread Voice Secretary input events since the actor's last successful
+read. Reading advances the daemon-managed cursor immediately; the actor does not
+see or manage cursor/sequence values. This intentionally avoids a separate
+job-completion protocol. If the actor crashes after reading, the raw input log
+remains in CCCC_HOME for debugging/replay, but the normal live cursor has moved.
+
+Args:
+```ts
+{ group_id: string; by?: "voice-secretary" | "assistant:voice_secretary" }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  item_count: number
+  document_count: number
+  input_text: string
+  input_batches: Array<{
+    document_path: string
+    filename?: string
+    title?: string
+    item_count: number
+    kinds?: string[]
+    intent_hints?: string[]
+    languages?: string[]
+    sources?: string[]
+  }>
+  documents: Array<Record<string, unknown>>
+  has_new_input: boolean
+}
+```
+
+#### `assistant_voice_document_save`
+
+Save or create a Voice Secretary working markdown document. This is the daemon
+path used by Web when the user edits the document surface. The `voice-secretary`
+actor should normally edit repository-backed markdown directly at
+`document_path`; the MCP document tool intentionally has no save action.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  document_path?: string
+  workspace_path?: string
+  title?: string
+  content?: string
+  status?: "active" | "archived"
+  create_new?: boolean
+}
+```
+
+Result:
+```ts
+{ group_id: string; document: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+#### `assistant_voice_document_instruction`
+
+Append a user instruction into the same Voice Secretary input stream used for
+ASR transcript. The daemon emits a targeted `voice_secretary_input` notify; the
+runtime actor works from the inline `input_envelope` and saves the full revised markdown.
+The daemon does not directly append the instruction to the document. Cross-peer
+handoff is intentionally handled only by `assistant_voice_request`, and only when
+the Voice Secretary decides the work belongs to foreman or one concrete peer.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  document_path: string
+  instruction?: string
+  source_text?: string
+  trigger?: Record<string, unknown>
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  assistant?: Record<string, unknown>
+  document: Record<string, unknown>
+  input_event?: Record<string, unknown>
+  input_event_created?: boolean
+  input_notify_emitted?: boolean
+  input_notify_error?: string
+  actor_woken?: boolean
+  actor_wake_error?: string
+  actor_notify_delivered?: boolean
+  actor_notify_delivery_error?: string
+  event?: CCCSEventV1
+}
+```
+
+#### `assistant_voice_request`
+
+Send a structured Voice Secretary action request to `@foreman` or one concrete
+actor without exposing normal `chat.message` send tools to the
+`voice-secretary` runtime actor. The daemon records an `assistant.voice.request`
+event and delivers a targeted `system.notify` with
+`context.kind="voice_secretary_action_request"`. This is the default path for
+spoken "please do X / ask Y to do X" content; ordinary memo/document updates
+MUST stay in the Voice Secretary document surface.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: "voice-secretary" | "assistant:voice_secretary"
+  target?: "@foreman" | string   // one concrete actor id; no @all/user broadcast
+  request_text: string           // concise actionable handoff, not raw transcript
+  summary?: string
+  document_path?: string
+  artifact_paths?: string[]      // repo-relative produced docs/artifacts for user-visible links
+  source_event_id?: string
+  priority?: "low" | "normal" | "high" | "urgent"
+  requires_ack?: boolean
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  assistant: Record<string, unknown>
+  request: Record<string, unknown>
+  notify_event: CCCSEventV1
+  event: CCCSEventV1
+}
+```
+
+#### `assistant_voice_document_archive`
+
+Archive a Voice Secretary working document. The markdown file is left in place;
+the assistant index hides it from the active document list, and later transcript
+ingress without an explicit `document_path` creates or selects another active
+document instead of appending to the archived one.
+
+Args:
+```ts
+{ group_id: string; by?: string; document_path: string }
+```
+
+Result:
+```ts
+{ group_id: string; document: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+#### `assistant_status_update`
+
+Update lifecycle/health for a built-in assistant service. The assistant principal
+(`assistant:<assistant_id>`) may update its own status; users/foremen may also
+update it for control-plane repair.
+
+Args:
+```ts
+{ group_id: string; by?: string; assistant_id: "voice_secretary" | "pet"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
+```
+
+Result:
+```ts
+{ group_id: string; assistant: Record<string, unknown>; event: CCCSEventV1 }
 ```
 
 #### `group_automation_update`
@@ -1346,6 +2064,7 @@ Args:
   command?: string[]
   env?: Record<string, string>
   capability_autoload?: string[] // actor startup autoload capability ids
+  capability_hidden?: string[] // actor-level skill menu hide preferences; does not disable capabilities
   env_private?: Record<string, string> // write-only secrets (stored under CCCC_HOME/state; never persisted into ledger)
   profile_id?: string            // optional Actor Profile link (runtime/runner/command/submit/env + secrets)
   default_scope_key?: string
@@ -1641,6 +2360,7 @@ Args (core):
   priority?: "normal" | "attention"
   path?: string                 // optional filesystem path to attribute scope_key
   attachments?: unknown[]       // attachment refs (implementation-defined)
+  refs?: ReferenceV1[]          // structured message refs, e.g. presentation_ref/task_ref
   src_group_id?: string         // relay provenance (both required if either is set)
   src_event_id?: string
   dst_group_id?: string         // optional "send record" metadata (source messages)
@@ -1667,6 +2387,7 @@ Args:
   to?: string[]                 // defaults to original sender if omitted
   priority?: "normal" | "attention"
   attachments?: unknown[]
+  refs?: ReferenceV1[]
 }
 ```
 
@@ -1674,6 +2395,52 @@ Result:
 ```ts
 { event: CCCSEventV1 } // kind="chat.message"
 ```
+
+#### `tracked_send`
+
+Create a durable task and send one linked visible delegation message. This is an
+explicit composite write; the daemon MUST NOT infer it from arbitrary chat text.
+
+Args:
+```ts
+{
+  group_id: string
+  title: string
+  text: string
+  by?: string
+  to?: string[]
+  outcome?: string
+  checklist?: { text: string; status?: "pending" | "in_progress" | "done" | string }[]
+  assignee?: string             // defaults from one concrete to actor when possible
+  waiting_on?: "none" | "user" | "actor" | "external"
+  handoff_to?: string
+  notes?: string
+  priority?: "normal" | "attention"
+  reply_required?: boolean      // default true
+  idempotency_key?: string
+  refs?: ReferenceV1[]
+}
+```
+
+Result:
+```ts
+{
+  task_id: string
+  task_ref: ReferenceV1          // kind="task_ref"
+  event?: CCCSEventV1            // present when message_sent=true
+  event_id?: string
+  task_created: boolean
+  message_sent: boolean
+  partial_failure: boolean
+  replayed?: boolean
+}
+```
+
+Notes:
+- `task_ref` in the emitted `chat.message.data.refs` is the canonical message-task link.
+- If task creation fails, no message is sent.
+- If message delivery fails after task creation, the response MUST report `partial_failure=true`.
+- Successful retries SHOULD use `idempotency_key` / `client_request_id` to avoid duplicate task/message pairs.
 
 #### `send_cross_group`
 
@@ -1817,10 +2584,12 @@ Result:
     done?: Array<Record<string, unknown>>
     archived?: Array<Record<string, unknown>>
   }
-  panorama?: { mermaid?: string | null }
   meta?: Record<string, unknown>
 }
 ```
+
+Notes:
+- Task objects returned in `coordination.tasks`, `board`, or `task_list` include `task_type`.
 
 #### `context_sync`
 
@@ -2101,6 +2870,9 @@ Result:
 { tasks?: Array<Record<string, unknown>>; task?: Record<string, unknown> }
 ```
 
+Notes:
+- Returned task objects include `task_type`.
+
 `presence_get` has been removed. Agent state is returned in `context_get.result.agent_states`.
 
 #### `blueprint_generate`
@@ -2302,66 +3074,58 @@ Args:
 
 Result: implementation-defined compaction report.
 
-### 8.13 Group Templates
+### 8.14 Presentation Browser Surface (Optional)
 
-Templates use the portable schema in `src/cccc/contracts/v1/group_template.py`.
+#### `presentation_browser_attach`
 
-#### `group_template_export`
-
-Args:
-```ts
-{ group_id: string }
-```
-
-Result:
-```ts
-{ template: string; filename: string } // YAML text
-```
-
-#### `group_template_preview`
+Attach to the currently active slot browser-surface session over a dedicated bidirectional NDJSON stream.
 
 Args:
 ```ts
-{ group_id: string; by?: string; template: string }
+{
+  group_id: string
+  slot: "slot-1" | "slot-2" | "slot-3" | "slot-4"
+  by?: string
+  viewer_mode?: "auto" | "screencast" | "vnc"
+}
 ```
 
-Result:
+Handshake result:
 ```ts
-{ template: Record<string, unknown>; diff: Record<string, unknown> }
+{ group_id: string; slot_id: string }
 ```
 
-#### `group_template_import_replace`
+Streaming mode:
+- After a successful handshake, the connection upgrades into the browser-surface stream described in §4.6.
+- The daemon emits `state` items when runtime/session status changes and `frame` items for captured browser frames.
+- The client MAY send browser-control commands (`navigate`, `back`, `refresh`, `click`, `scroll`, `key`, `text`, `resize`, `close`, `disconnect`).
+- At most one active controller MAY be attached at a time; a second attach attempt SHOULD fail with a busy-style error.
+- If no active browser-surface session exists for the slot, attach SHOULD fail with `browser_surface_not_found`.
+- If the underlying browser runtime is no longer active, attach SHOULD fail with `browser_surface_not_active`.
 
-Destructive replace of actors/settings/group prompt overrides (does not delete ledger history).
+#### `presentation_browser_vnc_attach`
+
+Attach to the currently active slot browser-surface session over a raw RFB/VNC stream.
 
 Args:
 ```ts
-{ group_id: string; by?: string; confirm: string; template: string }
+{
+  group_id: string
+  slot: "slot-1" | "slot-2" | "slot-3" | "slot-4"
+  by?: string
+}
 ```
 
-Rules:
-- `confirm` MUST equal `group_id` (prevents accidental destructive import).
-
-Result:
+Handshake result:
 ```ts
-{ group_id: string; applied: true; removed: string[]; added: string[]; updated: string[]; settings_patch: Record<string, unknown>; prompt_paths: string[] }
+{ group_id: string; slot_id: string }
 ```
 
-#### `group_create_from_template`
+Streaming mode:
+- After a successful handshake, the connection upgrades into a raw VNC/RFB byte stream.
+- The operation SHOULD fail with `browser_vnc_unavailable` when the browser surface is not backed by a local VNC projection.
 
-Create a new group attached to `path`, then apply a template (no confirmation).
-
-Args:
-```ts
-{ path: string; by?: string; title?: string; topic?: string; template: string }
-```
-
-Result:
-```ts
-{ group_id: string; applied: true }
-```
-
-### 8.14 Event Streaming (Optional)
+### 8.15 Event Streaming (Optional)
 
 #### `events_stream`
 
@@ -2393,7 +3157,7 @@ Streaming mode:
 - The stream ends when the client closes the connection or the daemon exits.
 - To protect daemon responsiveness, a daemon MAY drop slow subscribers (clients SHOULD reconnect and reconcile).
 
-### 8.15 IM Authentication
+### 8.16 IM Authentication
 
 #### `im_bind_chat`
 
@@ -2502,7 +3266,7 @@ Errors:
 - `missing_group_id` – `group_id` is empty.
 - `group_not_found` – group does not exist.
 
-### 8.16 Remote Access (Contract-Gated)
+### 8.17 Remote Access (Contract-Gated)
 
 These operations are optional extensions for productized remote-access control.
 Deployments without this feature MAY return `unknown_op`.
@@ -2608,7 +3372,7 @@ Result:
 { remote_access: Record<string, unknown> }
 ```
 
-### 8.17 Group Space (Provider-Backed Shared Memory, dual-lane NotebookLM)
+### 8.18 Group Space (Provider-Backed Shared Memory, dual-lane NotebookLM)
 
 These operations provide a thin control-plane for optional external memory providers.
 Provider failures MUST NOT block core collaboration flows (chat/context/actors).
@@ -3120,15 +3884,16 @@ Result:
 
 #### `group_space_provider_auth`
 
-Control provider auth flow (`status`/`start`/`cancel`) for backend-managed
+Control provider auth flow (`status`/`start`/`cancel`/`disconnect`) for backend-managed
 NotebookLM sign-in.
 
 Args:
 ```ts
 {
   provider?: "notebooklm"
-  action?: "status" | "start" | "cancel"
+  action?: "status" | "start" | "cancel" | "disconnect"
   timeout_seconds?: number
+  projected?: boolean // when true, expose sign-in through the projected browser surface instead of a daemon-host browser window
   by?: string // user-only
 }
 ```
@@ -3152,19 +3917,247 @@ Result:
     provider: "notebooklm"
     state: "idle" | "running" | "succeeded" | "failed" | "canceled"
     phase?: string
+    delivery?: "local_browser" | "projected_browser" | ""
     session_id?: string
     started_at?: string
     updated_at?: string
     finished_at?: string
     message?: string
     error?: { code: string; message: string } | Record<string, unknown>
+    projected_browser?: {
+      active: boolean
+      state: string
+      message?: string
+      error?: { code?: string; message?: string } | Record<string, unknown>
+      strategy?: string
+      url?: string
+      width?: number
+      height?: number
+      started_at?: string
+      updated_at?: string
+      last_frame_seq?: number
+      last_frame_at?: string
+      controller_attached?: boolean
+    }
   }
 }
 ```
 
 Notes:
-- `start` may open a browser on the daemon host for Google sign-in.
+- `start` may open a browser on the daemon host for Google sign-in when `projected` is false.
+- `start` SHOULD expose the sign-in flow through a projected browser surface when `projected=true`.
 - Provider write readiness remains gated by `auth_configured` and runtime mode.
+
+#### `space_provider_auth_browser_attach`
+
+Attach to the currently active projected provider-auth browser surface over a dedicated bidirectional NDJSON stream.
+
+Args:
+```ts
+{
+  provider: "notebooklm"
+  by?: string // user-only
+  viewer_mode?: "auto" | "screencast" | "vnc"
+}
+```
+
+Handshake result:
+```ts
+{ provider: "notebooklm" }
+```
+
+Streaming mode:
+- After a successful handshake, the connection upgrades into the browser-surface stream described in §4.6.
+- The daemon emits `state` items when runtime/session status changes and `frame` items for captured browser frames.
+- The client MAY send browser-control commands (`navigate`, `back`, `refresh`, `click`, `scroll`, `key`, `text`, `resize`, `close`, `disconnect`).
+- At most one active controller MAY be attached at a time; a second attach attempt SHOULD fail with a busy-style error.
+- If no active projected auth browser exists, attach SHOULD fail with `browser_surface_not_found`.
+- If the underlying browser runtime is no longer active, attach SHOULD fail with `browser_surface_not_active`.
+
+#### `space_provider_auth_browser_vnc_attach`
+
+Attach to the currently active projected provider-auth browser surface over a raw RFB/VNC stream.
+
+Args:
+```ts
+{
+  provider: "notebooklm"
+  by?: string // user-only
+}
+```
+
+Handshake result:
+```ts
+{ provider: "notebooklm" }
+```
+
+Streaming mode:
+- After a successful handshake, the connection upgrades into a raw VNC/RFB byte stream.
+- The operation SHOULD fail with `browser_vnc_unavailable` when the browser surface is not backed by a local VNC projection.
+
+### 8.19 ChatGPT Web Model Browser Surface (Optional)
+
+#### `web_model_browser_attach`
+
+Attach to the currently active daemon-owned ChatGPT Web Model browser surface over a dedicated bidirectional NDJSON stream.
+
+Args:
+```ts
+{
+  group_id?: string
+  actor_id?: string
+  by?: string
+  viewer_mode?: "auto" | "screencast" | "vnc"
+}
+```
+
+Handshake result:
+```ts
+{ group_id: string; actor_id: string }
+```
+
+Streaming mode:
+- After a successful handshake, the connection upgrades into the browser-surface stream described in §4.6.
+- The daemon emits `state` items when runtime/session status changes and `frame` items for captured browser frames.
+- The client MAY send browser-control commands (`navigate`, `back`, `refresh`, `click`, `scroll`, `key`, `text`, `resize`, `close`, `disconnect`).
+- The daemon owns the browser runtime; Web clients are surface proxies and MUST NOT create a separate ChatGPT browser runtime for the same actor.
+- When `group_id` or `actor_id` is supplied, the actor MUST exist and use `runtime=web_model`.
+- If no active Web Model browser surface exists, attach SHOULD fail with `browser_surface_not_found`.
+- If the underlying browser runtime is no longer active, attach SHOULD fail with `browser_surface_not_active`.
+
+#### `web_model_browser_vnc_attach`
+
+Attach to the currently active daemon-owned ChatGPT Web Model browser surface over a raw RFB/VNC stream.
+
+Args:
+```ts
+{
+  group_id?: string
+  actor_id?: string
+  by?: string
+}
+```
+
+Handshake result:
+```ts
+{ group_id: string; actor_id: string }
+```
+
+Streaming mode:
+- After a successful handshake, the connection upgrades into a raw VNC/RFB byte stream.
+- The operation SHOULD fail with `browser_vnc_unavailable` when the browser surface is not backed by a local VNC projection.
+
+### 8.20 Copy Groups
+
+Copy Groups operations export/import durable CCCC group state as a zip package. Copy packages contain CCCC group state only; workspace repository files are not included.
+
+#### `group_copy_export`
+
+Export one group as a base64-encoded zip package.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+}
+```
+
+Result:
+```ts
+{
+  package_b64: string
+  filename: string
+  manifest: {
+    kind: "cccc.group_copy"
+    version: number
+    source_group_id: string
+    source_title?: string
+    exported_at: string
+    cccc_version?: string
+    source_platform?: string
+    export_mode: "group_state_only"
+    workspace_included: false
+    contains_secrets: false
+    content_digest?: string
+    content?: Record<string, unknown>
+  }
+}
+```
+
+Notes:
+- Export MUST exclude live runtime state, browser profiles, credentials, connector secrets, lock files, and rebuildable caches.
+- Export MUST scrub actor environment secrets from packaged `group.yaml`.
+- `contains_secrets: false` means CCCC-managed live credentials and auth sessions are excluded. The package can still contain user-provided sensitive content such as ledger history, memory, blobs, and attachments.
+
+#### `group_copy_preview_import`
+
+Validate a copy package and return an import preview without writing group state.
+
+Args:
+```ts
+{
+  package_b64: string
+  by?: string
+}
+```
+
+Result:
+```ts
+{
+  preview: {
+    manifest: Record<string, unknown>
+    source_group_id: string
+    source_title: string
+    actor_count: number
+    actors: Array<Record<string, unknown>>
+    source_workspace_root: string
+    workspace_root_exists: boolean
+    group_id_conflict: boolean
+    target_default_scope_conflict?: boolean
+    requires_reconnect?: Record<string, boolean>
+    workspace_included: false
+    contains_secrets: false
+    runtime_reset?: Record<string, unknown>
+  }
+}
+```
+
+Errors:
+- `invalid_group_copy` when the payload is not a valid supported CCCC group copy.
+- `contains_secrets: false` in the preview has the same meaning as export: system credentials are excluded, but user content in ledger history, memory, blobs, and attachments can still be sensitive.
+
+#### `group_copy_import`
+
+Import a group copy into the current `CCCC_HOME`.
+
+Args:
+```ts
+{
+  package_b64: string
+  workspace_root?: string
+  title?: string
+  by?: string
+}
+```
+
+Result:
+```ts
+{
+  group_id: string
+  source_group_id: string
+  group_id_conflict: boolean
+  workspace_root: string
+  active_scope_key: string
+}
+```
+
+Notes:
+- Import MUST stage and validate copy package contents before moving them into `groups/<group_id>`.
+- If the source `group_id` conflicts in the target home, import MUST allocate a new group id.
+- Imported groups MUST start stopped: `running=false`, `state="idle"`.
+- `workspace_root`, when supplied, remaps the active workspace root during import.
+- Import MUST reject unsupported copy package schema versions, workspace-including copy packages, secret-containing copy packages, path traversal, symlinks, duplicate entries, and unsafe package paths.
 
 ## 9. Appendix: Example Lines
 

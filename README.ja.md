@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
-> ステータス：現在の **CCCC Daemon IPC v1** 系列に合わせて継続保守しています。必要に応じて RC/プレビューも提供します。
+> ステータス：**現在の CCCC Daemon IPC v1 向けの contract-first SDK**。0.4.x の基本互換性を保ちつつ、daemon contract の進化に合わせて新しい workflow API を追加します。
 
 CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。
 
@@ -26,6 +26,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 - リアルタイム更新が必要な Web/IDE プラグイン（`events_stream`）
 - Working Group を監視して自動応答する bot/service
 - group / actors / shared context / capability ポリシー / Group Space をプログラムから管理する社内ツール
+- `tracked_send`、Context Ops v3 task/agent state、capability discovery、ReMe memory search を使う workflow 連携
 
 言語別の詳細:
 - Python SDK: `python/README.md`
@@ -85,7 +86,11 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ## バージョニングと互換性
 
-言語ごとのパッケージは個別の公開 cadence を取れます。互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：
+SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
+- Python と TypeScript のパッケージバージョンは現在の SDK リリースラインに追従し、RC 番号は SDK 側で管理します。
+- 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
+
+互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：
 - IPC バージョン（`ipc_v`）
 - capability discovery（`capabilities`）
 - op probing（`unknown_op` を検出）

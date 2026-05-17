@@ -355,6 +355,12 @@ export async function* readLines(
   for await (const chunk of socket) {
     buffer += (chunk as Buffer).toString('utf-8');
 
+    if (buffer.indexOf('\n') === -1 && buffer.length > MAX_LINE_SIZE) {
+      throw new DaemonUnavailableError(
+        `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`
+      );
+    }
+
     while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
       const line = buffer.slice(0, newlineIndex);
       buffer = buffer.slice(newlineIndex + 1);

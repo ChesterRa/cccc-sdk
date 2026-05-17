@@ -12,7 +12,9 @@ It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 
 ## Versioning
 
-Compatibility is determined by Daemon IPC v1 contracts and operation probing, not by strict string matching of package versions. Different language packages may publish on different cadences.
+This SDK follows daemon contracts rather than strict daemon version strings:
+- Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
+- Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, capability discovery, and ReMe memory search.
 
 ## Daemon endpoint discovery
 
@@ -55,6 +57,14 @@ c.assert_compatible(require_ipc_v=1, require_capabilities={"events_stream": True
 groups = c.groups()
 print(groups)
 PY
+```
+
+Context Ops v3 helpers:
+
+```python
+c.coordination_brief_update(group_id="g_xxx", objective="Ship SDK updates", by="user")
+c.task_move(group_id="g_xxx", task_id="t_xxx", status="done", by="user")
+c.agent_state_update(group_id="g_xxx", actor_id="peer-impl", focus="testing", by="peer-impl")
 ```
 
 ## Examples (repo)

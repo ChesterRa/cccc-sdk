@@ -1,8 +1,43 @@
 /**
- * CCCC SDK error classes
+ * CCCC SDK error classes and error code constants
  */
 
 import type { DaemonResponse } from './types.js';
+
+/**
+ * Well-known daemon error codes.
+ * Use these constants instead of raw strings to match against {@link DaemonAPIError.code}.
+ *
+ * ```ts
+ * import { ErrorCodes, DaemonAPIError } from 'cccc-sdk';
+ * try { ... }
+ * catch (e) {
+ *   if (e instanceof DaemonAPIError && e.code === ErrorCodes.NOT_FOUND) { ... }
+ * }
+ * ```
+ */
+export const ErrorCodes = {
+  // ---- daemon protocol errors ----
+  NOT_FOUND: 'not_found',
+  INVALID_ARGS: 'invalid_args',
+  INVALID_OP: 'invalid_op',
+  UNKNOWN_OP: 'unknown_op',
+  PERMISSION_DENIED: 'permission_denied',
+  CONFLICT: 'conflict',
+  RATE_LIMITED: 'rate_limited',
+  INTERNAL: 'internal',
+  UNAVAILABLE: 'unavailable',
+  INVALID_REQUEST: 'invalid_request_error',
+
+  // ---- SDK-specific codes ----
+  /** Unparseable JSON line in event stream */
+  INVALID_STREAM_DATA: 'invalid_stream_data',
+  /** Daemon sent an error object inside the event stream */
+  STREAM_ERROR: 'stream_error',
+} as const;
+
+/** Union of all known error code string values. */
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 /**
  * Base error class for all CCCC SDK errors.

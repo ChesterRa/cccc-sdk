@@ -84,6 +84,220 @@ class TestClientContractParity(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.group_automation_manage(group_id="g_1", actions=[])
 
+    def test_tracked_send_includes_task_metadata(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"event": {"id": "e1"}, "task": {"id": "t1"}}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().tracked_send(
+                group_id="g_1",
+                title="Update SDK",
+                text="please handle",
+                outcome="all tests pass",
+                assignee="peer-impl",
+                checklist=[{"text": "write tests", "status": "pending"}],
+                by="user",
+                to=["peer-impl"],
+                priority="attention",
+                reply_required=True,
+                waiting_on="actor",
+            )
+
+        req = captured[0]
+        self.assertEqual(req.get("op"), "tracked_send")
+        args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        self.assertEqual(
+            args,
+            {
+                "group_id": "g_1",
+                "title": "Update SDK",
+                "text": "please handle",
+                "outcome": "all tests pass",
+                "assignee": "peer-impl",
+                "checklist": [{"text": "write tests", "status": "pending"}],
+                "by": "user",
+                "to": ["peer-impl"],
+                "priority": "attention",
+                "reply_required": True,
+                "waiting_on": "actor",
+            },
+        )
+
+    def test_tracked_send_defaults_reply_required_to_true(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"task_id": "t1"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().tracked_send(group_id="g_1", title="Review SDK", text="please review")
+
+        args = captured[0].get("args") if isinstance(captured[0].get("args"), dict) else {}
+        self.assertIs(args.get("reply_required"), True)
+
+    def test_context_v3_helpers_emit_context_sync_ops(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"success": True}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.coordination_brief_update(
+                group_id="g_1",
+                by="foreman",
+                objective="ship",
+                current_focus="compat",
+                constraints=["no regressions"],
+                project_brief="sdk",
+                project_brief_stale=False,
+                dry_run=True,
+            )
+            client.task_move(group_id="g_1", task_id="t1", status="done", by="foreman")
+            client.agent_state_update(
+                group_id="g_1",
+                actor_id="peer-impl",
+                by="peer-impl",
+                focus="coding",
+                blockers=[],
+            )
+
+        self.assertEqual(captured[0]["op"], "context_sync")
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "group_id": "g_1",
+                "by": "foreman",
+                "ops": [
+                    {
+                        "op": "coordination.brief.update",
+                        "objective": "ship",
+                        "current_focus": "compat",
+                        "constraints": ["no regressions"],
+                        "project_brief": "sdk",
+                        "project_brief_stale": False,
+                    }
+                ],
+                "dry_run": True,
+            },
+        )
+        self.assertEqual(captured[1]["args"]["ops"], [{"op": "task.move", "task_id": "t1", "status": "done"}])
+        self.assertEqual(
+            captured[2]["args"]["ops"],
+            [{"op": "agent_state.update", "actor_id": "peer-impl", "focus": "coding", "blockers": []}],
+        )
+
+    def test_capability_and_memory_helpers_map_to_current_ops(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.capability_search(
+                query="docs",
+                group_id="g_1",
+                actor_id="foreman",
+                include_external=True,
+                trust_tier="local",
+                limit=5,
+            )
+            client.memory_search(group_id="g_1", query="recent decisions", limit=3, vector_weight=0.2)
+
+        self.assertEqual(captured[0]["op"], "capability_search")
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "query": "docs",
+                "group_id": "g_1",
+                "actor_id": "foreman",
+                "include_external": True,
+                "trust_tier": "local",
+                "limit": 5,
+            },
+        )
+        self.assertEqual(captured[1]["op"], "memory_reme_search")
+        self.assertEqual(
+            captured[1]["args"],
+            {
+                "group_id": "g_1",
+                "query": "recent decisions",
+                "max_results": 3,
+                "vector_weight": 0.2,
+            },
+        )
+
+    def test_memory_get_and_capability_use_match_daemon_contract(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.memory_get(group_id="g_1", path="state/memory/MEMORY.md", offset=10, limit=25)
+            client.capability_use(
+                group_id="g_1",
+                actor_id="foreman",
+                capability_id="cap.docs",
+                tool_name="docs_search",
+                tool_arguments={"q": "memory"},
+                scope="session",
+                by="foreman",
+            )
+
+        self.assertEqual(captured[0]["op"], "memory_reme_get")
+        self.assertEqual(
+            captured[0]["args"],
+            {"group_id": "g_1", "path": "state/memory/MEMORY.md", "offset": 10, "limit": 25},
+        )
+        self.assertEqual(captured[1]["op"], "capability_enable")
+        self.assertEqual(
+            captured[1]["args"],
+            {
+                "capability_id": "cap.docs",
+                "group_id": "g_1",
+                "actor_id": "foreman",
+                "by": "foreman",
+                "scope": "session",
+            },
+        )
+        self.assertEqual(captured[2]["op"], "capability_tool_call")
+        self.assertEqual(
+            captured[2]["args"],
+            {
+                "group_id": "g_1",
+                "actor_id": "foreman",
+                "by": "foreman",
+                "tool_name": "docs_search",
+                "arguments": {"q": "memory"},
+            },
+        )
+
+    def test_capability_use_without_tool_returns_enable_result(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"state": "runnable"}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            result = self._client().capability_use(group_id="g_1", capability_id="cap.docs")
+
+        self.assertEqual(result, {"state": "runnable"})
+        self.assertEqual(
+            captured,
+            [{"v": 1, "op": "capability_enable", "args": {"capability_id": "cap.docs", "group_id": "g_1"}}],
+        )
+
     def test_actor_add_supports_profile_id(self) -> None:
         captured: list[dict] = []
 

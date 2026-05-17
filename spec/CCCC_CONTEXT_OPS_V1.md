@@ -19,7 +19,7 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** ar
 - `agent_states` = per-actor short-term working memory
 - `meta` = restricted projection-support metadata
 
-Read-only projections such as `board`, `attention`, and `panorama` are daemon-computed and are not directly writable via context ops.
+Read-only projections such as `board` and `attention` are daemon-computed and are not directly writable via context ops.
 
 All operations are applied in order. If any op is invalid, the daemon rejects the entire batch.
 
@@ -96,6 +96,15 @@ Waiting values:
 type TaskWaitingOn = "none" | "user" | "actor" | "external"
 ```
 
+Task type values:
+
+```ts
+type TaskType =
+  | "free"
+  | "standard"
+  | "optimization"
+```
+
 #### `task.create`
 
 ```ts
@@ -110,6 +119,7 @@ type TaskWaitingOn = "none" | "user" | "actor" | "external"
   blocked_by?: string[]
   waiting_on?: TaskWaitingOn
   handoff_to?: string | null
+  task_type?: TaskType
   notes?: string
   checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
 }
@@ -121,6 +131,10 @@ Rules:
 - `title` is required.
 - If `parent_id` is provided, the parent task MUST exist.
 - Peer actors MUST NOT create a task assigned to another peer.
+- If `task_type` is provided, it MUST be one of the allowed task-type ids above.
+- If `task_type` is omitted, the daemon MUST persist `standard` for a root task and `free` for a subtask.
+- `task_type` stores the durable work kind. It MUST NOT be treated as lifecycle state or parent/child structure.
+- `task_type` does not auto-seed `notes` or `checklist`; those remain ordinary editable task content.
 
 #### `task.update`
 
@@ -136,6 +150,7 @@ Rules:
   blocked_by?: string[]
   waiting_on?: TaskWaitingOn
   handoff_to?: string | null
+  task_type?: TaskType
   notes?: string
   checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
 }
@@ -147,6 +162,7 @@ Rules:
 - Partial patch.
 - If `parent_id` changes, the daemon MUST reject cycles.
 - `task.update` does not change lifecycle status.
+- If `task_type` is provided, it MUST be one of the allowed task-type ids above.
 
 #### `task.move`
 
@@ -162,6 +178,7 @@ Permission: assignee / handoff target / foreman / user.
 
 Notes:
 - This is the canonical lifecycle transition op.
+- `task.move` only accepts `task_id` and `status`. Fields such as `outcome`, `notes`, `checklist`, or `task_type` MUST go through `task.update`.
 - Moving to `archived` records `archived_from`.
 - Task lifecycle changes append memory lane events; root-task completion may promote one stable memory entry into `state/memory/MEMORY.md`.
 

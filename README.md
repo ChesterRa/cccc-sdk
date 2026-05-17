@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: maintained against the current **CCCC Daemon IPC v1** line. Preview/RC builds remain available when needed.
+> Status: **contract-first SDK for current CCCC daemon IPC v1**. Baseline 0.4.x compatibility is retained while newer workflow APIs are added as daemon contracts evolve.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
 
@@ -26,6 +26,7 @@ Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
 - Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
+- Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and ReMe memory search
 
 For language-specific details:
 - Python SDK: `python/README.md`
@@ -85,7 +86,11 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ## Versioning and compatibility
 
-Language packages can publish on different cadences. Compatibility is enforced by **contracts**, not by strict version string matching:
+SDK releases follow daemon contracts, not strict daemon version strings:
+- Python and TypeScript package versions track the current SDK release line, while RC sequencing remains SDK-owned.
+- Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
+
+Compatibility is enforced by **contracts**, not by strict version string matching:
 - IPC version (`ipc_v`)
 - capability discovery (`capabilities`)
 - operation probing (reject `unknown_op`)

@@ -10,19 +10,31 @@ const pkg = require('../package.json') as { version?: string };
 // Export client class.
 export { CCCCClient } from './client.js';
 
-// Export error classes.
+// Export error classes and codes.
 export {
   CCCCSDKError,
   DaemonAPIError,
   DaemonUnavailableError,
   IncompatibleDaemonError,
+  ErrorCodes,
 } from './errors.js';
+export type { ErrorCode } from './errors.js';
 
-// Export transport utility functions.
+// Export transport utility functions and constants.
 export {
   discoverEndpoint,
   defaultHome,
+  MAX_LINE_SIZE,
+  DEFAULT_TIMEOUT_MS,
 } from './transport.js';
+
+// Export type guards.
+export {
+  isChatMessageEvent,
+  isChatReadEvent,
+  isStreamEvent,
+  isStreamHeartbeat,
+} from './types.js';
 
 // Export all types.
 export type {
@@ -33,6 +45,9 @@ export type {
   DaemonErrorPayload,
   AddressDescriptor,
   // Event types.
+  EventStreamEvent,
+  EventStreamHeartbeat,
+  EventStreamUnknown,
   EventStreamItem,
   CCCSEvent,
   // Client options.
@@ -40,6 +55,7 @@ export type {
   CompatibilityOptions,
   // Operation argument types.
   SendOptions,
+  TrackedSendOptions,
   SendCrossGroupOptions,
   ReplyOptions,
   ActorAddOptions,
@@ -105,7 +121,43 @@ export type {
   GroupAutomationResetBaselineOptions,
   InboxListOptions,
   ContextSyncOptions,
+  CoordinationBriefUpdateOptions,
+  CoordinationNoteAddOptions,
+  TaskCreateOptions,
+  TaskUpdateOptions,
+  TaskMoveOptions,
+  TaskRestoreOptions,
+  AgentStateUpdateOptions,
+  AgentStateClearOptions,
+  MetaMergeOptions,
   EventsStreamOptions,
+  FileSendOptions,
+  LedgerTailOptions,
+  TerminalTailOptions,
+  CapabilityUseOptions,
+  MemorySearchOptions,
+  MemoryGetOptions,
+  // Result types.
+  SendResult,
+  SendAndWaitOptions,
+  // Strongly-typed event data.
+  ChatMessageEventData,
+  ChatReadEventData,
+  NotifyReminderEventData,
+  ChatMessageEvent,
+  ChatReadEvent,
+  // B6: Strongly-typed result types.
+  ActorInfo,
+  ScopeInfo,
+  GroupInfo,
+  PingResult,
+  GroupsResult,
+  GroupShowResult,
+  GroupCreateResult,
+  ActorListResult,
+  ActorAddResult,
+  InboxListResult,
+  ContextGetResult,
 } from './types.js';
 
 /** SDK version */

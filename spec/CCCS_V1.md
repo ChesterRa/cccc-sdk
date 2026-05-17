@@ -101,7 +101,7 @@ interface CCCSEventV1 {
 
 ### 4.4 Event Kind Namespaces
 
-Standard kinds use the `chat.*`, `system.*`, `group.*`, `actor.*`, and `context.*` namespaces.
+Standard kinds use the `chat.*`, `system.*`, `group.*`, `actor.*`, `context.*`, and `assistant.*` namespaces.
 
 Extensions SHOULD use one of:
 - `x.<vendor>.*` (recommended for private/vendor-specific kinds)
@@ -292,20 +292,62 @@ type AttachmentRefV1 = {
 ### 8.2 `ReferenceV1`
 
 ```ts
-type ReferenceV1 = {
-  kind?: "file" | "url" | "commit" | "text"  // default "url"
-  url?: string
-  path?: string
-  title?: string
-  sha?: string
-  bytes?: number
-  // extra fields MAY exist; clients MUST ignore unknown fields
-}
+type ReferenceV1 =
+  | {
+      kind?: "file" | "url" | "commit" | "text"  // default "url"
+      url?: string
+      path?: string
+      title?: string
+      sha?: string
+      bytes?: number
+      // extra fields MAY exist; clients MUST ignore unknown fields
+    }
+  | {
+      kind: "presentation_ref"
+      v?: 1
+      slot_id: string
+      label?: string
+      locator_label?: string
+      title?: string
+      card_type?: string
+      status?: "open" | "needs_user" | "resolved"
+      href?: string
+      excerpt?: string
+      locator?: Record<string, unknown>
+      snapshot?: {
+        path: string
+        mime_type?: string
+        bytes?: number
+        sha256?: string
+        width?: number
+        height?: number
+        captured_at?: string
+        source?: "browser_surface" | "pdf_viewer" | "viewer_dom" | string
+      }
+      // extra fields MAY exist; clients MUST ignore unknown fields
+    }
+  | {
+      kind: "task_ref"
+      task_id: string
+      title?: string
+      status?: "planned" | "active" | "done" | "archived" | string
+      // extra fields MAY exist; clients MUST ignore unknown fields
+    }
 ```
 
 **Rules**
 - Attachments SHOULD include content hashes where possible (`sha256`) to enable reproducibility/auditing.
 - `path` MUST be stable and retrievable within the group’s storage scope.
+- `kind="presentation_ref"` is a structured evidence anchor into a group Presentation slot.
+  - `slot_id` MUST identify the target slot within the group presentation surface.
+  - `locator` SHOULD carry best-effort position hints for the current view (for example page, heading, row, or scroll state).
+  - `snapshot`, when present, SHOULD be treated as a best-effort visual anchor for the quoted view.
+    - `snapshot.path` MUST be a stable group-scoped blob path.
+    - Implementations SHOULD use `locator` for precise recovery when possible, and `snapshot` as a visual fallback when precise recovery is unavailable.
+  - `status`, when present, is advisory metadata for the referenced discussion state; ledger-derived obligation status remains authoritative.
+- `kind="task_ref"` links a chat message to a durable shared task.
+  - `task_id` MUST identify a task in the same working group unless explicitly documented otherwise by a relay/bridge.
+  - `title` and `status`, when present, are UI hints; the task store remains authoritative.
 
 ### 8.3 Attachment Resolution (Non‑Normative Guidance)
 

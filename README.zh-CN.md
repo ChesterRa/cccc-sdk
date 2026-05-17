@@ -2,7 +2,7 @@
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：面向当前 **CCCC Daemon IPC v1** 主线持续维护；必要时仍会提供 RC/预览构建。
+> 状态：**面向当前 CCCC Daemon IPC v1 的契约优先 SDK**。保留 0.4.x 基础兼容，同时随 daemon 合约演进补充新版工作流 API。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
@@ -26,6 +26,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
 - 以编程方式创建/管理 group、actors、共享 context、capability 策略与 Group Space 的内部工具
+- 使用 `tracked_send`、Context Ops v3 任务/agent state、capability discovery、ReMe memory search 的工作流集成
 
 语言细分文档：
 - Python SDK：`python/README.md`
@@ -85,7 +86,11 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ## 版本策略与兼容性
 
-不同语言包可以按各自节奏发布。我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：
+SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
+- Python 和 TypeScript 包版本跟随当前 SDK 发布线；RC 序号由 SDK 自身维护。
+- 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
+
+我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：
 - IPC 版本（`ipc_v`）
 - capability discovery（`capabilities`）
 - op probing（拒绝 `unknown_op`）
