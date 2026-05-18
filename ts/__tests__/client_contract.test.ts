@@ -146,6 +146,7 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       query: 'docs',
       group_id: 'g1',
       actor_id: 'foreman',
+      by: 'user',
       include_external: true,
       trust_tier: 'local',
       limit: 5,
@@ -215,6 +216,8 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
           actor_id: 'foreman',
           by: 'foreman',
           scope: 'session',
+          enabled: true,
+          cleanup: false,
         },
       },
       {
@@ -248,7 +251,14 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     assert.deepEqual(result, { state: 'runnable' });
     assert.deepEqual(calls, [{
       op: 'capability_enable',
-      args: { capability_id: 'cap.docs', group_id: 'g1' },
+      args: {
+        group_id: 'g1',
+        capability_id: 'cap.docs',
+        scope: 'session',
+        enabled: true,
+        cleanup: false,
+        by: 'user',
+      },
     }]);
   });
 

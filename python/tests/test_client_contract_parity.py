@@ -218,6 +218,7 @@ class TestClientContractParity(unittest.TestCase):
                 "query": "docs",
                 "group_id": "g_1",
                 "actor_id": "foreman",
+                "by": "user",
                 "include_external": True,
                 "trust_tier": "local",
                 "limit": 5,
@@ -268,6 +269,8 @@ class TestClientContractParity(unittest.TestCase):
                 "actor_id": "foreman",
                 "by": "foreman",
                 "scope": "session",
+                "enabled": True,
+                "cleanup": False,
             },
         )
         self.assertEqual(captured[2]["op"], "capability_tool_call")
@@ -295,7 +298,20 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(result, {"state": "runnable"})
         self.assertEqual(
             captured,
-            [{"v": 1, "op": "capability_enable", "args": {"capability_id": "cap.docs", "group_id": "g_1"}}],
+            [
+                {
+                    "v": 1,
+                    "op": "capability_enable",
+                    "args": {
+                        "group_id": "g_1",
+                        "capability_id": "cap.docs",
+                        "scope": "session",
+                        "enabled": True,
+                        "cleanup": False,
+                        "by": "user",
+                    },
+                }
+            ],
         )
 
     def test_actor_add_supports_profile_id(self) -> None:
@@ -588,6 +604,435 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args.get("provider"), "notebooklm")
         self.assertEqual(args.get("action"), "start")
         self.assertEqual(args.get("timeout_seconds"), 120)
+
+    # -----------------------------------------------------------------
+    # cccc 0.4.17 alignment — new ops and contract extensions
+    # -----------------------------------------------------------------
+
+    def _capture(self, op_result: dict) -> tuple[list[dict], CCCCClient]:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": op_result}
+
+        client = self._client()
+        patcher = patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return captured, client
+
+    def test_send_includes_refs_and_attachments(self) -> None:
+        captured, client = self._capture({"event": {"id": "e_refs"}})
+        client.send(
+            group_id="g_1",
+            text="see ref",
+            refs=[{"kind": "task_ref", "task_id": "t_42"}],
+            attachments=[{"kind": "file", "path": "blobs/a.txt"}],
+            client_id="cl_1",
+        )
+        args = captured[0]["args"]
+        self.assertEqual(args["refs"], [{"kind": "task_ref", "task_id": "t_42"}])
+        self.assertEqual(args["attachments"], [{"kind": "file", "path": "blobs/a.txt"}])
+        self.assertEqual(args["client_id"], "cl_1")
+
+    def test_reply_includes_refs(self) -> None:
+        captured, client = self._capture({"event": {"id": "e_r"}})
+        client.reply(
+            group_id="g_1",
+            reply_to="e_origin",
+            text="roger",
+            refs=[{"kind": "presentation_ref", "slot_id": "slot-1"}],
+        )
+        args = captured[0]["args"]
+        self.assertEqual(args["refs"], [{"kind": "presentation_ref", "slot_id": "slot-1"}])
+
+    def test_send_cross_group_includes_refs(self) -> None:
+        captured, client = self._capture({"src_event": {"id": "s"}, "dst_event": {"id": "d"}})
+        client.send_cross_group(
+            group_id="g_src",
+            dst_group_id="g_dst",
+            text="cross",
+            refs=[{"kind": "url", "url": "https://example.com"}],
+        )
+        args = captured[0]["args"]
+        self.assertEqual(args["refs"], [{"kind": "url", "url": "https://example.com"}])
+
+    def test_actor_add_supports_capability_hidden_and_profile_scope(self) -> None:
+        captured, client = self._capture({"actor": {"id": "a1"}})
+        client.actor_add(
+            group_id="g_1",
+            actor_id="a1",
+            capability_hidden=["skill:x"],
+            profile_scope="user",
+            profile_owner="alice",
+        )
+        args = captured[0]["args"]
+        self.assertEqual(args["capability_hidden"], ["skill:x"])
+        self.assertEqual(args["profile_scope"], "user")
+        self.assertEqual(args["profile_owner"], "alice")
+
+    def test_actor_update_can_set_runtime_state_source_via_patch(self) -> None:
+        captured, client = self._capture({"actor": {"id": "a1"}})
+        client.actor_update(
+            group_id="g_1",
+            actor_id="a1",
+            patch={"runtime_state_source": "app_server"},
+        )
+        args = captured[0]["args"]
+        self.assertEqual(args["patch"], {"runtime_state_source": "app_server"})
+
+    def test_tracked_send_maps_all_fields(self) -> None:
+        captured, client = self._capture({"task_id": "t_1", "event_id": "e_1"})
+        client.tracked_send(
+            group_id="g_1",
+            text="please fix bug",
+            title="Fix bug",
+            to=["@alice"],
+            priority="attention",
+            task_priority="attention",
+            idempotency_key="idem-1",
+            outcome="bug closed",
+            status="planned",
+            waiting_on="actor",
+            task_type="standard",
+            checklist=[{"label": "repro"}, {"label": "patch"}],
+            notes="see ticket",
+            blocked_by=["t_0"],
+            handoff_to="alice",
+            assignee="alice",
+            refs=[{"kind": "url", "url": "https://example.com/issue/1"}],
+        )
+        args = captured[0]["args"]
+        self.assertEqual(captured[0]["op"], "tracked_send")
+        self.assertEqual(args["title"], "Fix bug")
+        self.assertEqual(args["to"], ["@alice"])
+        self.assertEqual(args["priority"], "attention")
+        self.assertEqual(args["task_priority"], "attention")
+        self.assertEqual(args["idempotency_key"], "idem-1")
+        self.assertEqual(args["outcome"], "bug closed")
+        self.assertEqual(args["status"], "planned")
+        self.assertEqual(args["waiting_on"], "actor")
+        self.assertEqual(args["task_type"], "standard")
+        self.assertEqual(args["checklist"], [{"label": "repro"}, {"label": "patch"}])
+        self.assertEqual(args["notes"], "see ticket")
+        self.assertEqual(args["blocked_by"], ["t_0"])
+        self.assertEqual(args["handoff_to"], "alice")
+        self.assertEqual(args["assignee"], "alice")
+        self.assertEqual(args["refs"], [{"kind": "url", "url": "https://example.com/issue/1"}])
+
+    def test_tracked_send_omits_unset_fields(self) -> None:
+        captured, client = self._capture({"task_id": "t_2"})
+        client.tracked_send(group_id="g_1", text="quick task")
+        args = captured[0]["args"]
+        # Only required + always-emitted defaults should be present
+        self.assertEqual(args["group_id"], "g_1")
+        self.assertEqual(args["text"], "quick task")
+        self.assertEqual(args["by"], "user")
+        self.assertEqual(args["priority"], "normal")
+        self.assertIs(args["reply_required"], True)
+        self.assertNotIn("idempotency_key", args)
+        self.assertNotIn("checklist", args)
+        self.assertNotIn("refs", args)
+
+    def test_task_list_with_and_without_task_id(self) -> None:
+        captured, client = self._capture({"tasks": []})
+        client.task_list(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "task_list")
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+
+        captured.clear()
+        client.task_list(group_id="g_1", task_id="t_3")
+        self.assertEqual(captured[0]["args"]["task_id"], "t_3")
+
+    def test_headless_ops_map_args(self) -> None:
+        captured, client = self._capture({"state": {"status": "idle"}})
+        client.headless_status(group_id="g_1", actor_id="a1")
+        self.assertEqual(captured[0]["op"], "headless_status")
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1", "actor_id": "a1"})
+
+        captured.clear()
+        client.headless_set_status(group_id="g_1", actor_id="a1", status="working", task_id="t_9")
+        self.assertEqual(captured[0]["op"], "headless_set_status")
+        self.assertEqual(captured[0]["args"]["status"], "working")
+        self.assertEqual(captured[0]["args"]["task_id"], "t_9")
+
+        captured.clear()
+        client.headless_ack_message(group_id="g_1", actor_id="a1", message_id="msg_42")
+        self.assertEqual(captured[0]["op"], "headless_ack_message")
+        self.assertEqual(captured[0]["args"]["message_id"], "msg_42")
+
+    def test_group_copy_ops(self) -> None:
+        captured, client = self._capture({"package_b64": "AAAA"})
+        client.group_copy_export(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "group_copy_export")
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+
+        captured.clear()
+        client.group_copy_preview_import(package_b64="ZZZ=")
+        self.assertEqual(captured[0]["op"], "group_copy_preview_import")
+        self.assertEqual(captured[0]["args"], {"package_b64": "ZZZ="})
+
+        captured.clear()
+        client.group_copy_import(package_b64="ZZZ=", workspace_root="/tmp/x", title="Restored")
+        self.assertEqual(captured[0]["op"], "group_copy_import")
+        self.assertEqual(captured[0]["args"]["workspace_root"], "/tmp/x")
+        self.assertEqual(captured[0]["args"]["title"], "Restored")
+
+    def test_capability_extensions(self) -> None:
+        captured, client = self._capture({"action_id": "cv_1"})
+        client.capability_visibility(
+            group_id="g_1",
+            capability_id="skill:x",
+            hidden=True,
+            actor_id="a1",
+            reason="dup",
+            by="a1",
+        )
+        self.assertEqual(captured[0]["op"], "capability_visibility")
+        self.assertEqual(captured[0]["args"]["capability_id"], "skill:x")
+        self.assertIs(captured[0]["args"]["hidden"], True)
+        self.assertEqual(captured[0]["args"]["reason"], "dup")
+
+        captured.clear()
+        client.capability_install_target(
+            group_id="g_1",
+            target="github:owner/repo",
+            actor_id="a1",
+            scope="session",
+            ttl_seconds=600,
+            reason="trial",
+        )
+        self.assertEqual(captured[0]["op"], "capability_install_target")
+        self.assertEqual(captured[0]["args"]["target"], "github:owner/repo")
+        self.assertEqual(captured[0]["args"]["scope"], "session")
+        self.assertEqual(captured[0]["args"]["ttl_seconds"], 600)
+
+        captured.clear()
+        client.capability_source_delete(
+            group_id="g_1", source_id="skillsmp_remote", source_instance_key="k1"
+        )
+        self.assertEqual(captured[0]["op"], "capability_source_delete")
+        self.assertEqual(captured[0]["args"]["source_id"], "skillsmp_remote")
+        self.assertEqual(captured[0]["args"]["source_instance_key"], "k1")
+
+    def test_presentation_ops(self) -> None:
+        captured, client = self._capture({"presentation": {}})
+        client.presentation_get(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "presentation_get")
+
+        captured.clear()
+        client.presentation_publish(
+            group_id="g_1",
+            slot="slot-1",
+            title="Demo",
+            card_type="markdown",
+            content="# hi",
+        )
+        self.assertEqual(captured[0]["op"], "presentation_publish")
+        self.assertEqual(captured[0]["args"]["slot"], "slot-1")
+        self.assertEqual(captured[0]["args"]["card_type"], "markdown")
+        self.assertEqual(captured[0]["args"]["content"], "# hi")
+
+        captured.clear()
+        client.presentation_clear(group_id="g_1", slot="slot-1")
+        self.assertEqual(captured[0]["op"], "presentation_clear")
+        self.assertEqual(captured[0]["args"]["slot"], "slot-1")
+
+        captured.clear()
+        client.presentation_browser_open(
+            group_id="g_1", slot="slot-1", url="https://example.com", width=1024, height=768
+        )
+        self.assertEqual(captured[0]["op"], "presentation_browser_open")
+        self.assertEqual(captured[0]["args"]["url"], "https://example.com")
+        self.assertEqual(captured[0]["args"]["width"], 1024)
+
+        captured.clear()
+        client.presentation_browser_info(group_id="g_1", slot="slot-1")
+        self.assertEqual(captured[0]["op"], "presentation_browser_info")
+
+        captured.clear()
+        client.presentation_browser_close(group_id="g_1", slot="slot-1")
+        self.assertEqual(captured[0]["op"], "presentation_browser_close")
+
+    def test_assistant_ops(self) -> None:
+        captured, client = self._capture({"assistant": {}})
+        client.assistant_state(group_id="g_1", assistant_id="voice_secretary")
+        self.assertEqual(captured[0]["op"], "assistant_state")
+        self.assertEqual(captured[0]["args"]["assistant_id"], "voice_secretary")
+
+        captured.clear()
+        client.assistant_settings_update(
+            group_id="g_1",
+            assistant_id="voice_secretary",
+            patch={"enabled": True},
+        )
+        self.assertEqual(captured[0]["op"], "assistant_settings_update")
+        self.assertEqual(captured[0]["args"]["patch"], {"enabled": True})
+
+        captured.clear()
+        client.assistant_status_update(
+            group_id="g_1",
+            assistant_id="pet",
+            lifecycle="working",
+            health={"ok": True},
+        )
+        self.assertEqual(captured[0]["op"], "assistant_status_update")
+        self.assertEqual(captured[0]["args"]["lifecycle"], "working")
+        self.assertEqual(captured[0]["args"]["health"], {"ok": True})
+
+    def test_daemon_core_ops(self) -> None:
+        captured, client = self._capture({"observability": {}})
+        client.observability_get()
+        self.assertEqual(captured[0]["op"], "observability_get")
+
+        captured.clear()
+        client.observability_update(patch={"log_level": "info"})
+        self.assertEqual(captured[0]["op"], "observability_update")
+        self.assertEqual(captured[0]["args"]["patch"], {"log_level": "info"})
+
+        captured.clear()
+        client.branding_get()
+        self.assertEqual(captured[0]["op"], "branding_get")
+
+        captured.clear()
+        client.branding_update(patch={"product_name": "Demo"})
+        self.assertEqual(captured[0]["op"], "branding_update")
+        self.assertEqual(captured[0]["args"]["patch"], {"product_name": "Demo"})
+
+        captured.clear()
+        client.shutdown()
+        self.assertEqual(captured[0]["op"], "shutdown")
+
+    def test_diagnostics_ops(self) -> None:
+        captured, client = self._capture({"snapshot": {}})
+        client.debug_snapshot(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "debug_snapshot")
+
+        captured.clear()
+        client.debug_tail_logs(component="daemon", lines=50)
+        self.assertEqual(captured[0]["op"], "debug_tail_logs")
+        self.assertEqual(captured[0]["args"]["component"], "daemon")
+        self.assertEqual(captured[0]["args"]["lines"], 50)
+
+        captured.clear()
+        client.debug_clear_logs(component="web")
+        self.assertEqual(captured[0]["op"], "debug_clear_logs")
+
+        captured.clear()
+        client.terminal_tail(group_id="g_1", actor_id="a1", max_chars=4000)
+        self.assertEqual(captured[0]["op"], "terminal_tail")
+        self.assertEqual(captured[0]["args"]["max_chars"], 4000)
+        self.assertIs(captured[0]["args"]["strip_ansi"], True)
+
+        captured.clear()
+        client.terminal_clear(group_id="g_1", actor_id="a1")
+        self.assertEqual(captured[0]["op"], "terminal_clear")
+
+    def test_maintenance_ops(self) -> None:
+        captured, client = self._capture({"reason": "manual"})
+        client.ledger_snapshot(group_id="g_1", reason="manual")
+        self.assertEqual(captured[0]["op"], "ledger_snapshot")
+        self.assertEqual(captured[0]["args"]["reason"], "manual")
+
+        captured.clear()
+        client.ledger_compact(group_id="g_1", force=True)
+        self.assertEqual(captured[0]["op"], "ledger_compact")
+        self.assertIs(captured[0]["args"]["force"], True)
+
+    def test_stream_emit_and_system_notify(self) -> None:
+        captured, client = self._capture({"event": {}, "stream_id": "s1"})
+        client.stream_emit(group_id="g_1", op="start", by="a1", text="hello", seq=1)
+        self.assertEqual(captured[0]["op"], "stream_emit")
+        self.assertEqual(captured[0]["args"]["op"], "start")
+        self.assertEqual(captured[0]["args"]["seq"], 1)
+        self.assertEqual(captured[0]["args"]["format"], "plain")
+
+        captured.clear()
+        client.system_notify(
+            group_id="g_1",
+            message="hello",
+            title="Heads up",
+            kind="info",
+            requires_ack=True,
+            target_actor_id="a1",
+        )
+        self.assertEqual(captured[0]["op"], "system_notify")
+        self.assertEqual(captured[0]["args"]["title"], "Heads up")
+        self.assertIs(captured[0]["args"]["requires_ack"], True)
+        self.assertEqual(captured[0]["args"]["target_actor_id"], "a1")
+
+    def test_admin_and_pet_ops(self) -> None:
+        captured, client = self._capture({"removed_group_ids": []})
+        client.registry_reconcile(remove_missing=True)
+        self.assertEqual(captured[0]["op"], "registry_reconcile")
+        self.assertIs(captured[0]["args"]["remove_missing"], True)
+
+        captured.clear()
+        client.group_detach_scope(group_id="g_1", scope_key="scope_a")
+        self.assertEqual(captured[0]["op"], "group_detach_scope")
+        self.assertEqual(captured[0]["args"]["scope_key"], "scope_a")
+
+        captured.clear()
+        client.pet_decisions_get(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "pet_decisions_get")
+
+        captured.clear()
+        client.pet_decisions_replace(
+            group_id="g_1", actor_id="pet", decisions=[{"id": "d_1"}]
+        )
+        self.assertEqual(captured[0]["op"], "pet_decisions_replace")
+        self.assertEqual(captured[0]["args"]["decisions"], [{"id": "d_1"}])
+
+        captured.clear()
+        client.pet_decisions_clear(group_id="g_1", actor_id="pet")
+        self.assertEqual(captured[0]["op"], "pet_decisions_clear")
+
+    def test_cccc_0_4_18_runtime_and_voice_ops(self) -> None:
+        captured, client = self._capture({"ok": True})
+
+        client.runtime_hermes_status()
+        self.assertEqual(captured[0]["op"], "runtime_hermes_status")
+        self.assertEqual(captured[0]["args"], {})
+
+        captured.clear()
+        client.runtime_hermes_prepare(cwd="/repo", auto_enable_tools=True, force_mcp=True)
+        self.assertEqual(captured[0]["op"], "runtime_hermes_prepare")
+        self.assertEqual(
+            captured[0]["args"],
+            {"cwd": "/repo", "auto_enable_tools": True, "force_mcp": True},
+        )
+
+        captured.clear()
+        client.runtime_hermes_mcp_test(cwd="/repo", group_id="g_1", actor_id="hermes-1")
+        self.assertEqual(captured[0]["op"], "runtime_hermes_mcp_test")
+        self.assertEqual(
+            captured[0]["args"],
+            {"cwd": "/repo", "group_id": "g_1", "actor_id": "hermes-1"},
+        )
+
+        captured.clear()
+        client.assistant_voice_recording_lease(
+            group_id="g_1",
+            action="acquire",
+            owner_id="tab-1",
+            ttl_seconds=30,
+            capture_mode="push_to_talk",
+            recognition_backend="browser",
+        )
+        self.assertEqual(captured[0]["op"], "assistant_voice_recording_lease")
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "group_id": "g_1",
+                "action": "acquire",
+                "by": "user",
+                "owner_id": "tab-1",
+                "ttl_seconds": 30,
+                "capture_mode": "push_to_talk",
+                "recognition_backend": "browser",
+            },
+        )
 
 
 if __name__ == "__main__":

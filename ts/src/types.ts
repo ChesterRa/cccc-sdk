@@ -184,6 +184,30 @@ export interface CompatibilityOptions {
 // Operation argument types
 // ============================================================
 
+/**
+ * Structured chat-message reference (task_ref, presentation_ref, file/url/commit/text).
+ * Daemon accepts arbitrary `kind` values; the typed forms are the most common.
+ */
+export type MessageRef =
+  | { kind: 'file'; path: string; title?: string; sha?: string; bytes?: number; [extra: string]: unknown }
+  | { kind: 'url'; url: string; title?: string; [extra: string]: unknown }
+  | { kind: 'commit'; sha: string; title?: string; [extra: string]: unknown }
+  | { kind: 'text'; title?: string; [extra: string]: unknown }
+  | { kind: 'task_ref'; task_id: string; title?: string; status?: string; waiting_on?: string; handoff_to?: string; [extra: string]: unknown }
+  | { kind: 'presentation_ref'; slot_id?: string; title?: string; source_label?: string; source_ref?: string; [extra: string]: unknown }
+  | { kind: string; [extra: string]: unknown };
+
+/** Chat-message attachment metadata (payload stored under blobs/) */
+export interface MessageAttachment {
+  kind?: 'text' | 'image' | 'file';
+  path?: string;
+  title?: string;
+  mime_type?: string;
+  bytes?: number;
+  sha256?: string;
+  [extra: string]: unknown;
+}
+
 /** Send message options */
 export interface SendOptions {
   groupId: string;
@@ -193,6 +217,9 @@ export interface SendOptions {
   priority?: 'normal' | 'attention';
   replyRequired?: boolean;
   path?: string;
+  refs?: MessageRef[];
+  attachments?: MessageAttachment[];
+  clientId?: string;
 }
 
 /** Send-cross-group options */
@@ -204,17 +231,8 @@ export interface SendCrossGroupOptions {
   to?: string[];
   priority?: 'normal' | 'attention';
   replyRequired?: boolean;
-}
-
-/** Create a task and send a linked visible delegation message. */
-export interface TrackedSendOptions extends SendOptions {
-  title: string;
-  outcome?: string;
-  assignee?: string;
-  handoffTo?: string;
-  waitingOn?: 'none' | 'user' | 'actor' | 'external';
-  checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
-  notes?: string;
+  refs?: MessageRef[];
+  attachments?: MessageAttachment[];
 }
 
 /** Reply message options */
@@ -226,22 +244,89 @@ export interface ReplyOptions {
   to?: string[];
   priority?: 'normal' | 'attention';
   replyRequired?: boolean;
+  refs?: MessageRef[];
+  attachments?: MessageAttachment[];
+  clientId?: string;
 }
+
+/**
+ * Tracked-delegation: atomically create a task and send the linked chat message.
+ * Daemon ensures task.create + send happen as one unit with idempotency replay.
+ */
+export interface TrackedSendOptions {
+  groupId: string;
+  text: string;
+  /** Falls back to a compact derivation from text if omitted. */
+  title?: string;
+  by?: string;
+  to?: string[];
+  path?: string;
+  /** Top-level priority (default 'normal'). Applies to message unless messagePriority overrides. */
+  priority?: 'normal' | 'attention';
+  messagePriority?: 'normal' | 'attention';
+  taskPriority?: 'normal' | 'attention';
+  /** Defaults to true (a tracked delegation always expects a reply). */
+  replyRequired?: boolean;
+  /** Used to dedupe retries. Daemon caches the result of the first successful call. */
+  idempotencyKey?: string;
+  outcome?: string;
+  /** Initial task status. Default 'planned'. */
+  status?: string;
+  /** What the task is waiting on. Default 'actor' when assignee is set, else 'none'. */
+  waitingOn?: string;
+  /** 'free' | 'standard' | 'optimization'. Default 'standard'. */
+  taskType?: string;
+  checklist?: Array<Record<string, unknown>>;
+  notes?: string;
+  blockedBy?: string[];
+  handoffTo?: string;
+  assignee?: string;
+  refs?: MessageRef[];
+}
+
+/** Task list (returns either all tasks or one task plus its children). */
+export interface TaskListOptions {
+  groupId: string;
+  taskId?: string;
+}
+
+/** Built-in actor kind flag (PET / Voice Secretary). */
+export type ActorInternalKind = 'pet' | 'voice_secretary';
+
+/** Source of runtime activity state for an actor. */
+export type ActorRuntimeStateSource = 'terminal' | 'app_server';
+
+/** Known agent runtimes. Allow string for forward compatibility. */
+export type AgentRuntime =
+  | 'amp'
+  | 'auggie'
+  | 'claude'
+  | 'codex'
+  | 'droid'
+  | 'gemini'
+  | 'kimi'
+  | 'neovate'
+  | 'web_model'
+  | 'custom'
+  | (string & {});
 
 /** Add actor options */
 export interface ActorAddOptions {
   groupId: string;
   actorId?: string;
   title?: string;
-  runtime?: string;
-  runner?: string;
+  runtime?: AgentRuntime;
+  runner?: 'pty' | 'headless' | (string & {});
   command?: string[];
   env?: Record<string, string>;
   envPrivate?: Record<string, string>;
   capabilityAutoload?: string[];
+  capabilityHidden?: string[];
   profileId?: string;
+  profileScope?: 'global' | 'user';
+  profileOwner?: string;
   defaultScopeKey?: string;
-  submit?: string;
+  submit?: 'enter' | 'newline' | 'none' | (string & {});
   by?: string;
 }
 
@@ -253,6 +338,346 @@ export interface ActorUpdateOptions {
   profileId?: string;
   profileAction?: 'convert_to_custom';
   by?: string;
+}
+
+/** Headless-actor runtime status. */
+export type HeadlessStatus = 'idle' | 'working' | 'waiting' | 'stopped';
+
+/** Headless status read options */
+export interface HeadlessStatusOptions {
+  groupId: string;
+  actorId: string;
+}
+
+/** Headless set-status options */
+export interface HeadlessSetStatusOptions {
+  groupId: string;
+  actorId: string;
+  status: HeadlessStatus;
+  taskId?: string;
+}
+
+/** Headless ack-message options */
+export interface HeadlessAckMessageOptions {
+  groupId: string;
+  actorId: string;
+  messageId: string;
+}
+
+/** Group copy: export the current group as a portable package. */
+export interface GroupCopyExportOptions {
+  groupId: string;
+}
+
+/** Group copy: preview what would be imported from a package. */
+export interface GroupCopyPreviewImportOptions {
+  packageB64: string;
+}
+
+/** Group copy: apply a previously exported package as a new group. */
+export interface GroupCopyImportOptions {
+  packageB64: string;
+  workspaceRoot?: string;
+  title?: string;
+}
+
+/** Capability visibility (per-actor hide/show). */
+export interface CapabilityVisibilityOptions {
+  groupId: string;
+  capabilityId: string;
+  hidden?: boolean;
+  actorId?: string;
+  reason?: string;
+  by?: string;
+}
+
+/** Capability install target — accepts capability_id or a remote source URI. */
+export interface CapabilityInstallTargetOptions {
+  groupId: string;
+  target: string;
+  actorId?: string;
+  scope?: 'actor' | 'group' | 'session';
+  ttlSeconds?: number;
+  reason?: string;
+  by?: string;
+}
+
+/** Capability source delete. */
+export interface CapabilitySourceDeleteOptions {
+  groupId: string;
+  sourceId: string;
+  sourceInstanceKey?: string;
+  reason?: string;
+  actorId?: string;
+  by?: string;
+}
+
+/** Presentation table content. */
+export interface PresentationTableData {
+  columns: string[];
+  rows: string[][];
+}
+
+/** Presentation card types supported by the daemon. */
+export type PresentationCardType =
+  | 'markdown'
+  | 'table'
+  | 'image'
+  | 'pdf'
+  | 'file'
+  | 'web_preview';
+
+/** Presentation get. */
+export interface PresentationGetOptions {
+  groupId: string;
+}
+
+/** Presentation publish options. Pick one content source. */
+export interface PresentationPublishOptions {
+  groupId: string;
+  by?: string;
+  slot?: string;
+  title?: string;
+  summary?: string;
+  sourceLabel?: string;
+  sourceRef?: string;
+  cardType?: PresentationCardType;
+  content?: string;
+  path?: string;
+  url?: string;
+  blobRelPath?: string;
+  table?: PresentationTableData;
+}
+
+/** Presentation clear options. */
+export interface PresentationClearOptions {
+  groupId: string;
+  slot?: string;
+  by?: string;
+}
+
+/** Open a browser-backed presentation surface. */
+export interface PresentationBrowserOpenOptions {
+  groupId: string;
+  slot: string;
+  url: string;
+  width?: number;
+  height?: number;
+  by?: string;
+}
+
+export interface PresentationBrowserInfoOptions {
+  groupId: string;
+  slot?: string;
+}
+
+export interface PresentationBrowserCloseOptions {
+  groupId: string;
+  slot?: string;
+  by?: string;
+}
+
+/** Built-in assistant lifecycle. */
+export type AssistantLifecycle =
+  | 'disabled'
+  | 'idle'
+  | 'running'
+  | 'working'
+  | 'waiting'
+  | 'failed';
+
+/** Read assistant state. */
+export interface AssistantStateOptions {
+  groupId: string;
+  assistantId?: string;
+  promptRequestId?: string;
+}
+
+export type AssistantVoiceRecordingLeaseAction = 'acquire' | 'heartbeat' | 'release' | 'status';
+
+/** Acquire, refresh, release, or inspect the daemon-owned Voice Secretary recording lease. */
+export interface AssistantVoiceRecordingLeaseOptions {
+  groupId: string;
+  action: AssistantVoiceRecordingLeaseAction;
+  by?: string;
+  ownerId?: string;
+  leaseId?: string;
+  ttlSeconds?: number;
+  captureMode?: string;
+  recognitionBackend?: string;
+}
+
+/** Update assistant settings (patch). */
+export interface AssistantSettingsUpdateOptions {
+  groupId: string;
+  assistantId: string;
+  patch: Record<string, unknown>;
+  by?: string;
+}
+
+/** Update assistant runtime status. */
+export interface AssistantStatusUpdateOptions {
+  groupId: string;
+  assistantId: string;
+  lifecycle: AssistantLifecycle;
+  health?: Record<string, unknown>;
+  by?: string;
+}
+
+/** Global observability settings update. */
+export interface ObservabilityUpdateOptions {
+  patch: Record<string, unknown>;
+  by?: string;
+}
+
+/** Branding settings update. */
+export interface BrandingUpdateOptions {
+  patch: Record<string, unknown>;
+  by?: string;
+}
+
+/** Daemon-wide diagnostics snapshot. */
+export interface DebugSnapshotOptions {
+  groupId: string;
+  by?: string;
+}
+
+/** Tail logs from a daemon component. */
+export interface DebugTailLogsOptions {
+  component: string;
+  groupId?: string;
+  lines?: number;
+  by?: string;
+}
+
+/** Clear logs for a daemon component. */
+export interface DebugClearLogsOptions {
+  component: string;
+  groupId?: string;
+  by?: string;
+}
+
+/** Read PTY transcript tail. */
+export interface TerminalTailOptions {
+  groupId: string;
+  actorId: string;
+  maxChars?: number;
+  stripAnsi?: boolean;
+  compact?: boolean;
+  by?: string;
+}
+
+/** Clear PTY backlog. */
+export interface TerminalClearOptions {
+  groupId: string;
+  actorId: string;
+  by?: string;
+}
+
+/** Ledger snapshot (durable point-in-time). */
+export interface LedgerSnapshotOptions {
+  groupId: string;
+  by?: string;
+  reason?: string;
+}
+
+/** Ledger compaction. */
+export interface LedgerCompactOptions {
+  groupId: string;
+  by?: string;
+  reason?: string;
+  force?: boolean;
+}
+
+/** Emit a chat.stream event (start/update/end). */
+export interface StreamEmitOptions {
+  groupId: string;
+  op: 'start' | 'update' | 'end';
+  by: string;
+  streamId?: string;
+  text?: string;
+  format?: 'plain' | 'markdown';
+  seq?: number;
+  to?: string[];
+  replyTo?: string;
+  clientId?: string;
+}
+
+/** Write a system.notify event directly. */
+export interface SystemNotifyOptions {
+  groupId: string;
+  message?: string;
+  title?: string;
+  kind?: string;
+  priority?: 'normal' | 'attention';
+  targetActorId?: string;
+  requiresAck?: boolean;
+  context?: Record<string, unknown>;
+  by?: string;
+}
+
+/** Reconcile the group registry against on-disk state. */
+export interface RegistryReconcileOptions {
+  removeMissing?: boolean;
+}
+
+/** Detach a scope from a group. */
+export interface GroupDetachScopeOptions {
+  groupId: string;
+  scopeKey: string;
+  by?: string;
+}
+
+/** PET cached-decisions read. */
+export interface PetDecisionsGetOptions {
+  groupId: string;
+}
+
+/** PET cached-decisions replace. */
+export interface PetDecisionsReplaceOptions {
+  groupId: string;
+  actorId: string;
+  decisions: Array<Record<string, unknown>>;
+  by?: string;
+}
+
+/** PET cached-decisions clear. */
+export interface PetDecisionsClearOptions {
+  groupId: string;
+  actorId: string;
+  by?: string;
+}
+
+/** Prepare the selected Hermes profile with the CCCC MCP server. */
+export interface RuntimeHermesPrepareOptions {
+  cwd?: string;
+  autoEnableTools?: boolean;
+  forceMcp?: boolean;
+}
+
+/** Run Hermes' MCP probe for the configured CCCC server. */
+export interface RuntimeHermesMcpTestOptions {
+  cwd?: string;
+  groupId?: string;
+  actorId?: string;
+}
+
+/**
+ * Async-result envelope merged into many long-running ops' results.
+ *
+ * Consumers typically check `completed`; if `false`, the operation was accepted
+ * and clients should subscribe to `events_stream` for `completion_signal` rather
+ * than poll. See `spec/CCCC_DAEMON_IPC_V1.md` for details.
+ */
+export interface AsyncResultEnvelope {
+  accepted: boolean;
+  completed: boolean;
+  queued?: boolean;
+  background?: boolean;
+  completion_signal?: string;
+  recommended_next_action?: string;
+  polling_discouraged?: boolean;
+  wait_guidance?: string;
 }
 
 /** Actor private env vars (secrets, runtime-only) */
@@ -939,33 +1364,6 @@ export interface InboxListResult {
     event_id: string;
     ts: string;
   };
-}
-
-/** File send options */
-export interface FileSendOptions {
-  groupId: string;
-  path: string;
-  text?: string;
-  by?: string;
-  to?: string[];
-  priority?: 'normal' | 'attention';
-  replyRequired?: boolean;
-}
-
-/** Ledger tail options */
-export interface LedgerTailOptions {
-  groupId: string;
-  limit?: number;
-  maxChars?: number;
-  by?: string;
-}
-
-/** Terminal tail options */
-export interface TerminalTailOptions {
-  groupId: string;
-  actorId: string;
-  lines?: number;
-  by?: string;
 }
 
 export interface CapabilityUseOptions extends CapabilityEnableOptions {

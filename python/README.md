@@ -170,3 +170,84 @@ c.context_sync(
 ```
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
+
+## CCCC 0.4.18 surface — Hermes runtime and Voice Secretary lease
+
+```python
+# Hermes runtime setup diagnostics and MCP preparation
+status = c.runtime_hermes_status()
+c.runtime_hermes_prepare(cwd=".", auto_enable_tools=True)
+c.runtime_hermes_mcp_test(group_id="g_xxx", actor_id="hermes-1")
+
+# Cross-tab Voice Secretary recording guard
+lease = c.assistant_voice_recording_lease(
+    group_id="g_xxx",
+    action="acquire",
+    owner_id="browser-tab-1",
+    ttl_seconds=30,
+)
+```
+
+## CCCC 0.4.17 surface — new op families
+
+```python
+from cccc_sdk import CCCCClient
+
+c = CCCCClient()
+
+# Tracked delegation — atomic task.create + send with idempotent replay
+res = c.tracked_send(
+    group_id="g_xxx",
+    title="Fix login race",
+    text="Please pick this up — see issue link",
+    to=["alice"],
+    idempotency_key="fix-login-race-1",
+    refs=[{"kind": "url", "url": "https://example.com/issue/42"}],
+)
+task_id = res["task_id"]
+
+# Task list / per-task drill-down
+tasks = c.task_list(group_id="g_xxx")
+task = c.task_list(group_id="g_xxx", task_id=task_id)
+
+# Structured refs on chat
+c.send(
+    group_id="g_xxx",
+    text="Looking at the demo deck",
+    refs=[{"kind": "presentation_ref", "slot_id": "slot-1"}],
+)
+
+# Presentation workspace (slot-based viewer)
+c.presentation_publish(
+    group_id="g_xxx",
+    slot="slot-1",
+    title="Plan",
+    card_type="markdown",
+    content="# Sprint plan\n- ...",
+)
+
+# Built-in assistant lifecycle (PET / Voice Secretary)
+state = c.assistant_state(group_id="g_xxx", assistant_id="voice_secretary")
+c.assistant_settings_update(
+    group_id="g_xxx", assistant_id="voice_secretary", patch={"enabled": True}
+)
+
+# Copy a group for migration / backup
+pkg = c.group_copy_export(group_id="g_xxx")
+preview = c.group_copy_preview_import(package_b64=pkg["package_b64"])
+new_group = c.group_copy_import(package_b64=pkg["package_b64"])
+
+# Headless runtime control (Claude/Codex headless and beyond)
+c.headless_set_status(group_id="g_xxx", actor_id="reviewer", status="working", task_id=task_id)
+
+# Capability Center extensions
+c.capability_visibility(group_id="g_xxx", capability_id="skill:foo", hidden=True, actor_id="reviewer", by="reviewer")
+c.capability_install_target(group_id="g_xxx", target="github:owner/repo", actor_id="reviewer", scope="session", ttl_seconds=600)
+
+# Operator-side: terminal tail, ledger snapshot, branding/observability
+c.terminal_tail(group_id="g_xxx", actor_id="reviewer", max_chars=4000)
+c.ledger_snapshot(group_id="g_xxx", reason="manual")
+c.branding_update(patch={"product_name": "My CCCC"})
+```
+
+Not yet wrapped (use `call()` for now): remaining Voice Secretary document/transcribe/prompt ops, remaining Memory ReMe write/index/compaction ops, ChatGPT Web Model runtime, IM bridge management, Remote Access, and the streaming socket-special browser/PTY attach ops. See `spec/ADAPTATION_PLAN.md` for the roadmap.

@@ -7,8 +7,8 @@ from .errors import DaemonAPIError, IncompatibleDaemonError
 from .transport import DaemonEndpoint, call_daemon, discover_endpoint, open_events_stream
 
 
-def _compact(data: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: v for k, v in data.items() if v is not None}
+def _compact(args: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in args.items() if v is not None}
 
 
 class CCCCClient:
@@ -79,9 +79,24 @@ class CCCCClient:
             if bool(want) and not bool(caps.get(k)):
                 raise IncompatibleDaemonError(f"daemon capability missing: {k}=true is required")
 
+        _UNPROBABLE_OPS = {
+            "ping",
+            "shutdown",
+            "events_stream",
+            "term_attach",
+            "term_resize",
+            "presentation_browser_attach",
+            "presentation_browser_vnc_attach",
+            "web_model_browser_attach",
+            "web_model_browser_vnc_attach",
+            "space_provider_auth_browser_attach",
+            "space_provider_auth_browser_vnc_attach",
+            "runtime_hermes_prepare",
+            "runtime_hermes_mcp_test",
+        }
         for op in (require_ops or []):
             op_name = str(op or "").strip()
-            if not op_name or op_name in ("ping", "shutdown", "events_stream", "term_attach"):
+            if not op_name or op_name in _UNPROBABLE_OPS:
                 continue
             try:
                 # Use an empty args probe: a supported op should return a structured error
@@ -195,7 +210,10 @@ class CCCCClient:
         env: Optional[Dict[str, str]] = None,
         env_private: Optional[Dict[str, str]] = None,
         capability_autoload: Optional[List[str]] = None,
+        capability_hidden: Optional[List[str]] = None,
         profile_id: str = "",
+        profile_scope: str = "",
+        profile_owner: str = "",
         default_scope_key: str = "",
         submit: str = "",
         by: str = "user",
@@ -217,8 +235,14 @@ class CCCCClient:
             args["env_private"] = {str(k): str(v) for k, v in env_private.items()}
         if capability_autoload is not None:
             args["capability_autoload"] = [str(x) for x in capability_autoload]
+        if capability_hidden is not None:
+            args["capability_hidden"] = [str(x) for x in capability_hidden]
         if profile_id:
             args["profile_id"] = str(profile_id)
+        if profile_scope:
+            args["profile_scope"] = str(profile_scope)
+        if profile_owner:
+            args["profile_owner"] = str(profile_owner)
         if default_scope_key:
             args["default_scope_key"] = str(default_scope_key)
         if submit:
@@ -258,6 +282,41 @@ class CCCCClient:
 
     def actor_restart(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_restart", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)})
+
+    def runtime_hermes_status(self) -> Dict[str, Any]:
+        return self.call("runtime_hermes_status", {})
+
+    def runtime_hermes_prepare(
+        self,
+        *,
+        cwd: str = "",
+        auto_enable_tools: bool = False,
+        force_mcp: bool = False,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        if cwd:
+            args["cwd"] = str(cwd)
+        if auto_enable_tools:
+            args["auto_enable_tools"] = bool(auto_enable_tools)
+        if force_mcp:
+            args["force_mcp"] = bool(force_mcp)
+        return self.call("runtime_hermes_prepare", args)
+
+    def runtime_hermes_mcp_test(
+        self,
+        *,
+        cwd: str = "",
+        group_id: str = "",
+        actor_id: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        if cwd:
+            args["cwd"] = str(cwd)
+        if group_id:
+            args["group_id"] = str(group_id)
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("runtime_hermes_mcp_test", args)
 
     def actor_env_private_keys(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         """List configured private env keys for an actor (keys only; never returns values)."""
@@ -581,6 +640,84 @@ class CCCCClient:
             args["actor_id"] = str(actor_id)
         return self.call("capability_tool_call", args)
 
+    def capability_use(
+        self,
+        *,
+        group_id: str,
+        capability_id: str,
+        actor_id: str = "",
+        by: str = "user",
+        scope: str = "session",
+        reason: str = "",
+        ttl_seconds: Optional[int] = None,
+        tool_name: str = "",
+        tool_arguments: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        enable_result = self.capability_enable(
+            group_id=group_id,
+            capability_id=capability_id,
+            actor_id=actor_id,
+            by=by,
+            scope=scope,
+            reason=reason,
+            ttl_seconds=ttl_seconds,
+        )
+        if not tool_name:
+            return enable_result
+        return self.capability_tool_call(
+            group_id=group_id,
+            actor_id=actor_id,
+            by=by,
+            tool_name=tool_name,
+            arguments=tool_arguments or {},
+        )
+
+    def memory_search(
+        self,
+        *,
+        group_id: str,
+        query: str,
+        actor_id: str = "",
+        limit: Optional[int] = None,
+        max_results: Optional[int] = None,
+        vector_weight: Optional[float] = None,
+        candidate_multiplier: Optional[float] = None,
+        min_score: Optional[float] = None,
+        sources: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "query": str(query)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if max_results is not None or limit is not None:
+            args["max_results"] = int(max_results if max_results is not None else limit)
+        if vector_weight is not None:
+            args["vector_weight"] = float(vector_weight)
+        if candidate_multiplier is not None:
+            args["candidate_multiplier"] = float(candidate_multiplier)
+        if min_score is not None:
+            args["min_score"] = float(min_score)
+        if sources is not None:
+            args["sources"] = [str(x) for x in sources]
+        return self.call("memory_reme_search", args)
+
+    def memory_get(
+        self,
+        *,
+        group_id: str,
+        path: str,
+        actor_id: str = "",
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "path": str(path)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if offset is not None:
+            args["offset"] = int(offset)
+        if limit is not None:
+            args["limit"] = int(limit)
+        return self.call("memory_reme_get", args)
+
     def group_space_status(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
         return self.call("group_space_status", {"group_id": str(group_id), "provider": str(provider)})
 
@@ -817,6 +954,8 @@ class CCCCClient:
         to: Optional[List[str]] = None,
         priority: str = "normal",
         reply_required: bool = False,
+        refs: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
             "group_id": str(group_id),
@@ -828,43 +967,11 @@ class CCCCClient:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
+        if refs is not None:
+            args["refs"] = [dict(r) for r in refs]
+        if attachments is not None:
+            args["attachments"] = [dict(a) for a in attachments]
         return self.call("send_cross_group", args)
-
-    def tracked_send(
-        self,
-        *,
-        group_id: str,
-        title: str,
-        text: str,
-        by: str = "user",
-        to: Optional[List[str]] = None,
-        priority: str = "normal",
-        reply_required: bool = True,
-        outcome: Optional[str] = None,
-        assignee: Optional[str] = None,
-        handoff_to: Optional[str] = None,
-        waiting_on: Optional[str] = None,
-        checklist: Optional[List[Dict[str, Any]]] = None,
-        notes: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        args = _compact(
-            {
-                "group_id": str(group_id),
-                "title": str(title),
-                "text": str(text),
-                "outcome": outcome,
-                "assignee": assignee,
-                "handoff_to": handoff_to,
-                "waiting_on": waiting_on,
-                "checklist": [dict(x) for x in checklist] if checklist is not None else None,
-                "notes": notes,
-                "by": str(by),
-                "to": [str(x) for x in to] if to is not None else None,
-                "priority": str(priority),
-                "reply_required": bool(reply_required),
-            }
-        )
-        return self.call("tracked_send", args)
 
     def send(
         self,
@@ -876,6 +983,9 @@ class CCCCClient:
         priority: str = "normal",
         reply_required: bool = False,
         path: str = "",
+        refs: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        client_id: str = "",
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
             "group_id": str(group_id),
@@ -888,6 +998,12 @@ class CCCCClient:
             args["to"] = [str(x) for x in to]
         if path:
             args["path"] = str(path)
+        if refs is not None:
+            args["refs"] = [dict(r) for r in refs]
+        if attachments is not None:
+            args["attachments"] = [dict(a) for a in attachments]
+        if client_id:
+            args["client_id"] = str(client_id)
         return self.call("send", args)
 
     def reply(
@@ -900,6 +1016,9 @@ class CCCCClient:
         to: Optional[List[str]] = None,
         priority: str = "normal",
         reply_required: bool = False,
+        refs: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        client_id: str = "",
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {
             "group_id": str(group_id),
@@ -911,6 +1030,12 @@ class CCCCClient:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
+        if refs is not None:
+            args["refs"] = [dict(r) for r in refs]
+        if attachments is not None:
+            args["attachments"] = [dict(a) for a in attachments]
+        if client_id:
+            args["client_id"] = str(client_id)
         return self.call("reply", args)
 
     def chat_ack(self, *, group_id: str, actor_id: str, event_id: str, by: Optional[str] = None) -> Dict[str, Any]:
@@ -1172,158 +1297,634 @@ class CCCCClient:
     ) -> Dict[str, Any]:
         return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op={"op": "meta.merge", "data": dict(data)})
 
-    def capability_search(
+    # ---------------------------------------------------------------------
+    # Tracked delegation (daemon-owned task+message atomicity)
+    # ---------------------------------------------------------------------
+
+    def tracked_send(
         self,
         *,
-        query: str = "",
-        group_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        kind: Optional[str] = None,
-        source_id: Optional[str] = None,
-        trust_tier: Optional[str] = None,
-        qualification_status: Optional[str] = None,
-        include_external: Optional[bool] = None,
-        limit: Optional[int] = None,
+        group_id: str,
+        text: str,
+        title: str = "",
+        by: str = "user",
+        to: Optional[List[str]] = None,
+        path: str = "",
+        priority: str = "normal",
+        message_priority: str = "",
+        task_priority: str = "",
+        reply_required: bool = True,
+        idempotency_key: str = "",
+        outcome: str = "",
+        status: str = "",
+        waiting_on: str = "",
+        task_type: str = "",
+        checklist: Optional[List[Dict[str, Any]]] = None,
+        notes: str = "",
+        blocked_by: Optional[List[str]] = None,
+        handoff_to: str = "",
+        assignee: str = "",
+        refs: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
+        """Atomically create a tracked task and send the linked chat message."""
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "by": str(by),
+            "text": str(text),
+        }
+        if title:
+            args["title"] = str(title)
+        if to is not None:
+            args["to"] = [str(x) for x in to]
+        if path:
+            args["path"] = str(path)
+        if priority:
+            args["priority"] = str(priority)
+        if message_priority:
+            args["message_priority"] = str(message_priority)
+        if task_priority:
+            args["task_priority"] = str(task_priority)
+        args["reply_required"] = bool(reply_required)
+        if idempotency_key:
+            args["idempotency_key"] = str(idempotency_key)
+        if outcome:
+            args["outcome"] = str(outcome)
+        if status:
+            args["status"] = str(status)
+        if waiting_on:
+            args["waiting_on"] = str(waiting_on)
+        if task_type:
+            args["task_type"] = str(task_type)
+        if checklist is not None:
+            args["checklist"] = [dict(c) for c in checklist]
+        if notes:
+            args["notes"] = str(notes)
+        if blocked_by is not None:
+            args["blocked_by"] = [str(x) for x in blocked_by]
+        if handoff_to:
+            args["handoff_to"] = str(handoff_to)
+        if assignee:
+            args["assignee"] = str(assignee)
+        if refs is not None:
+            args["refs"] = [dict(r) for r in refs]
+        return self.call("tracked_send", args)
+
+    def task_list(self, *, group_id: str, task_id: str = "") -> Dict[str, Any]:
+        """List all tasks in a group, or fetch a single task (with children) by id."""
+        args: Dict[str, Any] = {"group_id": str(group_id)}
+        if task_id:
+            args["task_id"] = str(task_id)
+        return self.call("task_list", args)
+
+    # ---------------------------------------------------------------------
+    # Headless runtime control
+    # ---------------------------------------------------------------------
+
+    def headless_status(self, *, group_id: str, actor_id: str) -> Dict[str, Any]:
         return self.call(
-            "capability_search",
-            _compact(
-                {
-                    "query": str(query) if query else None,
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "kind": kind,
-                    "source_id": source_id,
-                    "trust_tier": trust_tier,
-                    "qualification_status": qualification_status,
-                    "include_external": include_external,
-                    "limit": int(limit) if limit is not None else None,
-                }
-            ),
+            "headless_status",
+            {"group_id": str(group_id), "actor_id": str(actor_id)},
         )
 
-    def capability_state(self, *, group_id: Optional[str] = None, actor_id: Optional[str] = None) -> Dict[str, Any]:
-        return self.call("capability_state", _compact({"group_id": group_id, "actor_id": actor_id}))
-
-    def capability_enable(
+    def headless_set_status(
         self,
         *,
+        group_id: str,
+        actor_id: str,
+        status: str,
+        task_id: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "actor_id": str(actor_id),
+            "status": str(status),
+        }
+        if task_id:
+            args["task_id"] = str(task_id)
+        return self.call("headless_set_status", args)
+
+    def headless_ack_message(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        message_id: str,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "headless_ack_message",
+            {
+                "group_id": str(group_id),
+                "actor_id": str(actor_id),
+                "message_id": str(message_id),
+            },
+        )
+
+    # ---------------------------------------------------------------------
+    # Group copy (export/import for duplication/migration)
+    # ---------------------------------------------------------------------
+
+    def group_copy_export(self, *, group_id: str) -> Dict[str, Any]:
+        return self.call("group_copy_export", {"group_id": str(group_id)})
+
+    def group_copy_preview_import(self, *, package_b64: str) -> Dict[str, Any]:
+        return self.call("group_copy_preview_import", {"package_b64": str(package_b64)})
+
+    def group_copy_import(
+        self,
+        *,
+        package_b64: str,
+        workspace_root: str = "",
+        title: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"package_b64": str(package_b64)}
+        if workspace_root:
+            args["workspace_root"] = str(workspace_root)
+        if title:
+            args["title"] = str(title)
+        return self.call("group_copy_import", args)
+
+    # ---------------------------------------------------------------------
+    # Capability Center extensions (visibility / install_target / source_delete)
+    # ---------------------------------------------------------------------
+
+    def capability_visibility(
+        self,
+        *,
+        group_id: str,
         capability_id: str,
-        group_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        by: Optional[str] = None,
-        scope: Optional[str] = None,
-        enabled: Optional[bool] = None,
-        reason: Optional[str] = None,
+        hidden: bool = True,
+        actor_id: str = "",
+        reason: str = "",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "capability_id": str(capability_id),
+            "hidden": bool(hidden),
+            "by": str(by),
+        }
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if reason:
+            args["reason"] = str(reason)
+        return self.call("capability_visibility", args)
+
+    def capability_install_target(
+        self,
+        *,
+        group_id: str,
+        target: str,
+        actor_id: str = "",
+        scope: str = "actor",
         ttl_seconds: Optional[int] = None,
-        cleanup: Optional[bool] = None,
+        reason: str = "",
+        by: str = "user",
     ) -> Dict[str, Any]:
-        return self.call(
-            "capability_enable",
-            _compact(
-                {
-                    "capability_id": str(capability_id),
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "by": by,
-                    "scope": scope,
-                    "enabled": enabled,
-                    "reason": reason,
-                    "ttl_seconds": int(ttl_seconds) if ttl_seconds is not None else None,
-                    "cleanup": cleanup,
-                }
-            ),
-        )
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "target": str(target),
+            "scope": str(scope),
+            "by": str(by),
+        }
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if ttl_seconds is not None:
+            args["ttl_seconds"] = int(ttl_seconds)
+        if reason:
+            args["reason"] = str(reason)
+        return self.call("capability_install_target", args)
 
-    def capability_use(
+    def capability_source_delete(
         self,
         *,
-        capability_id: str,
-        group_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        by: Optional[str] = None,
-        scope: Optional[str] = None,
-        reason: Optional[str] = None,
+        group_id: str,
+        source_id: str,
+        source_instance_key: str = "",
+        reason: str = "",
+        actor_id: str = "",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "source_id": str(source_id),
+            "by": str(by),
+        }
+        if source_instance_key:
+            args["source_instance_key"] = str(source_instance_key)
+        if reason:
+            args["reason"] = str(reason)
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        return self.call("capability_source_delete", args)
+
+    # ---------------------------------------------------------------------
+    # Presentation workspace
+    # ---------------------------------------------------------------------
+
+    def presentation_get(self, *, group_id: str) -> Dict[str, Any]:
+        return self.call("presentation_get", {"group_id": str(group_id)})
+
+    def presentation_publish(
+        self,
+        *,
+        group_id: str,
+        by: str = "user",
+        slot: str = "",
+        title: str = "",
+        summary: str = "",
+        source_label: str = "",
+        source_ref: str = "",
+        card_type: str = "",
+        content: str = "",
+        path: str = "",
+        url: str = "",
+        blob_rel_path: str = "",
+        table: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if slot:
+            args["slot"] = str(slot)
+        if title:
+            args["title"] = str(title)
+        if summary:
+            args["summary"] = str(summary)
+        if source_label:
+            args["source_label"] = str(source_label)
+        if source_ref:
+            args["source_ref"] = str(source_ref)
+        if card_type:
+            args["card_type"] = str(card_type)
+        if content:
+            args["content"] = str(content)
+        if path:
+            args["path"] = str(path)
+        if url:
+            args["url"] = str(url)
+        if blob_rel_path:
+            args["blob_rel_path"] = str(blob_rel_path)
+        if table is not None:
+            args["table"] = dict(table)
+        return self.call("presentation_publish", args)
+
+    def presentation_clear(self, *, group_id: str, slot: str = "", by: str = "user") -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if slot:
+            args["slot"] = str(slot)
+        return self.call("presentation_clear", args)
+
+    def presentation_browser_open(
+        self,
+        *,
+        group_id: str,
+        slot: str,
+        url: str,
+        width: int = 1280,
+        height: int = 800,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "presentation_browser_open",
+            {
+                "group_id": str(group_id),
+                "slot": str(slot),
+                "url": str(url),
+                "width": int(width),
+                "height": int(height),
+                "by": str(by),
+            },
+        )
+
+    def presentation_browser_info(self, *, group_id: str, slot: str = "") -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id)}
+        if slot:
+            args["slot"] = str(slot)
+        return self.call("presentation_browser_info", args)
+
+    def presentation_browser_close(
+        self, *, group_id: str, slot: str = "", by: str = "user"
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if slot:
+            args["slot"] = str(slot)
+        return self.call("presentation_browser_close", args)
+
+    # ---------------------------------------------------------------------
+    # Built-in assistant (PET / Voice Secretary) lifecycle
+    # ---------------------------------------------------------------------
+
+    def assistant_state(
+        self,
+        *,
+        group_id: str,
+        assistant_id: str = "",
+        prompt_request_id: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"group_id": str(group_id)}
+        if assistant_id:
+            args["assistant_id"] = str(assistant_id)
+        if prompt_request_id:
+            args["prompt_request_id"] = str(prompt_request_id)
+        return self.call("assistant_state", args)
+
+    def assistant_voice_recording_lease(
+        self,
+        *,
+        group_id: str,
+        action: str,
+        by: str = "user",
+        owner_id: str = "",
+        lease_id: str = "",
         ttl_seconds: Optional[int] = None,
-        tool_name: Optional[str] = None,
-        tool_arguments: Optional[Dict[str, Any]] = None,
+        capture_mode: str = "",
+        recognition_backend: str = "",
     ) -> Dict[str, Any]:
-        enable_result = self.capability_enable(
-            capability_id=capability_id,
-            group_id=group_id,
-            actor_id=actor_id,
-            by=by,
-            scope=scope,
-            reason=reason,
-            ttl_seconds=ttl_seconds,
-        )
-        if not tool_name:
-            return enable_result
-        return self.call(
-            "capability_tool_call",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "by": by,
-                    "tool_name": tool_name,
-                    "arguments": dict(tool_arguments or {}),
-                }
-            ),
-        )
+        args: Dict[str, Any] = {"group_id": str(group_id), "action": str(action), "by": str(by)}
+        if owner_id:
+            args["owner_id"] = str(owner_id)
+        if lease_id:
+            args["lease_id"] = str(lease_id)
+        if ttl_seconds is not None:
+            args["ttl_seconds"] = int(ttl_seconds)
+        if capture_mode:
+            args["capture_mode"] = str(capture_mode)
+        if recognition_backend:
+            args["recognition_backend"] = str(recognition_backend)
+        return self.call("assistant_voice_recording_lease", args)
 
-    def memory_search(
+    def assistant_settings_update(
         self,
         *,
-        query: str,
-        group_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        max_results: Optional[int] = None,
-        vector_weight: Optional[float] = None,
-        candidate_multiplier: Optional[float] = None,
-        min_score: Optional[float] = None,
-        sources: Optional[List[str]] = None,
+        group_id: str,
+        assistant_id: str,
+        patch: Dict[str, Any],
+        by: str = "user",
     ) -> Dict[str, Any]:
         return self.call(
-            "memory_reme_search",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "query": str(query),
-                    "max_results": int(max_results if max_results is not None else limit)
-                    if (max_results is not None or limit is not None)
-                    else None,
-                    "vector_weight": float(vector_weight) if vector_weight is not None else None,
-                    "candidate_multiplier": float(candidate_multiplier) if candidate_multiplier is not None else None,
-                    "min_score": float(min_score) if min_score is not None else None,
-                    "sources": [str(x) for x in sources] if sources is not None else None,
-                }
-            ),
+            "assistant_settings_update",
+            {
+                "group_id": str(group_id),
+                "assistant_id": str(assistant_id),
+                "patch": dict(patch),
+                "by": str(by),
+            },
         )
 
-    def memory_get(
+    def assistant_status_update(
         self,
         *,
-        group_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        path: str,
-        offset: Optional[int] = None,
-        limit: Optional[int] = None,
+        group_id: str,
+        assistant_id: str,
+        lifecycle: str,
+        health: Optional[Dict[str, Any]] = None,
+        by: str = "",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "assistant_id": str(assistant_id),
+            "lifecycle": str(lifecycle),
+        }
+        if health is not None:
+            args["health"] = dict(health)
+        if by:
+            args["by"] = str(by)
+        return self.call("assistant_status_update", args)
+
+    # ---------------------------------------------------------------------
+    # Daemon core (shutdown / observability / branding)
+    # ---------------------------------------------------------------------
+
+    def shutdown(self) -> Dict[str, Any]:
+        return self.call("shutdown", {})
+
+    def observability_get(self) -> Dict[str, Any]:
+        return self.call("observability_get", {})
+
+    def observability_update(self, *, patch: Dict[str, Any], by: str = "user") -> Dict[str, Any]:
+        return self.call(
+            "observability_update",
+            {"patch": dict(patch), "by": str(by)},
+        )
+
+    def branding_get(self) -> Dict[str, Any]:
+        return self.call("branding_get", {})
+
+    def branding_update(self, *, patch: Dict[str, Any], by: str = "user") -> Dict[str, Any]:
+        return self.call(
+            "branding_update",
+            {"patch": dict(patch), "by": str(by)},
+        )
+
+    # ---------------------------------------------------------------------
+    # Diagnostics (admin/operator)
+    # ---------------------------------------------------------------------
+
+    def debug_snapshot(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call(
+            "debug_snapshot",
+            {"group_id": str(group_id), "by": str(by)},
+        )
+
+    def debug_tail_logs(
+        self,
+        *,
+        component: str,
+        group_id: str = "",
+        lines: int = 200,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"component": str(component), "by": str(by), "lines": int(lines)}
+        if group_id:
+            args["group_id"] = str(group_id)
+        return self.call("debug_tail_logs", args)
+
+    def debug_clear_logs(
+        self,
+        *,
+        component: str,
+        group_id: str = "",
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"component": str(component), "by": str(by)}
+        if group_id:
+            args["group_id"] = str(group_id)
+        return self.call("debug_clear_logs", args)
+
+    def terminal_tail(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        max_chars: int = 8000,
+        strip_ansi: bool = True,
+        compact: bool = True,
+        by: str = "user",
     ) -> Dict[str, Any]:
         return self.call(
-            "memory_reme_get",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "path": str(path),
-                    "offset": int(offset) if offset is not None else None,
-                    "limit": int(limit) if limit is not None else None,
-                }
-            ),
+            "terminal_tail",
+            {
+                "group_id": str(group_id),
+                "actor_id": str(actor_id),
+                "max_chars": int(max_chars),
+                "strip_ansi": bool(strip_ansi),
+                "compact": bool(compact),
+                "by": str(by),
+            },
         )
+
+    def terminal_clear(
+        self, *, group_id: str, actor_id: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        return self.call(
+            "terminal_clear",
+            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
+        )
+
+    # ---------------------------------------------------------------------
+    # Maintenance (ledger)
+    # ---------------------------------------------------------------------
+
+    def ledger_snapshot(
+        self, *, group_id: str, by: str = "user", reason: str = "manual"
+    ) -> Dict[str, Any]:
+        return self.call(
+            "ledger_snapshot",
+            {"group_id": str(group_id), "by": str(by), "reason": str(reason)},
+        )
+
+    def ledger_compact(
+        self,
+        *,
+        group_id: str,
+        by: str = "user",
+        reason: str = "auto",
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "ledger_compact",
+            {
+                "group_id": str(group_id),
+                "by": str(by),
+                "reason": str(reason),
+                "force": bool(force),
+            },
+        )
+
+    # ---------------------------------------------------------------------
+    # Stream / system notify (low-level)
+    # ---------------------------------------------------------------------
+
+    def stream_emit(
+        self,
+        *,
+        group_id: str,
+        op: str,
+        by: str,
+        stream_id: str = "",
+        text: str = "",
+        format: str = "plain",  # noqa: A002 - match IPC field name
+        seq: int = 0,
+        to: Optional[List[str]] = None,
+        reply_to: str = "",
+        client_id: str = "",
+    ) -> Dict[str, Any]:
+        """Emit a chat.stream event (op = 'start' | 'update' | 'end')."""
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "by": str(by),
+            "op": str(op),
+            "format": str(format),
+            "seq": int(seq),
+        }
+        if stream_id:
+            args["stream_id"] = str(stream_id)
+        if text:
+            args["text"] = str(text)
+        if to is not None:
+            args["to"] = [str(x) for x in to]
+        if reply_to:
+            args["reply_to"] = str(reply_to)
+        if client_id:
+            args["client_id"] = str(client_id)
+        return self.call("stream_emit", args)
+
+    def system_notify(
+        self,
+        *,
+        group_id: str,
+        message: str = "",
+        title: str = "",
+        kind: str = "info",
+        priority: str = "normal",
+        target_actor_id: str = "",
+        requires_ack: bool = False,
+        context: Optional[Dict[str, Any]] = None,
+        by: str = "system",
+    ) -> Dict[str, Any]:
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "by": str(by),
+            "kind": str(kind),
+            "priority": str(priority),
+            "requires_ack": bool(requires_ack),
+        }
+        if message:
+            args["message"] = str(message)
+        if title:
+            args["title"] = str(title)
+        if target_actor_id:
+            args["target_actor_id"] = str(target_actor_id)
+        if context is not None:
+            args["context"] = dict(context)
+        return self.call("system_notify", args)
+
+    # ---------------------------------------------------------------------
+    # Registry / group admin
+    # ---------------------------------------------------------------------
+
+    def registry_reconcile(self, *, remove_missing: bool = False) -> Dict[str, Any]:
+        return self.call("registry_reconcile", {"remove_missing": bool(remove_missing)})
+
+    def group_detach_scope(
+        self, *, group_id: str, scope_key: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        return self.call(
+            "group_detach_scope",
+            {"group_id": str(group_id), "scope_key": str(scope_key), "by": str(by)},
+        )
+
+    # ---------------------------------------------------------------------
+    # PET assistant decisions
+    # ---------------------------------------------------------------------
+
+    def pet_decisions_get(self, *, group_id: str) -> Dict[str, Any]:
+        return self.call("pet_decisions_get", {"group_id": str(group_id)})
+
+    def pet_decisions_replace(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        decisions: List[Dict[str, Any]],
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "pet_decisions_replace",
+            {
+                "group_id": str(group_id),
+                "actor_id": str(actor_id),
+                "decisions": [dict(d) for d in decisions],
+                "by": str(by),
+            },
+        )
+
+    def pet_decisions_clear(
+        self, *, group_id: str, actor_id: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        return self.call(
+            "pet_decisions_clear",
+            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
+        )
+
 
     # ---------------------------------------------------------------------
     # events_stream (push stream)

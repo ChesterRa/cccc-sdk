@@ -2,7 +2,9 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **contract-first SDK for current CCCC daemon IPC v1**. Baseline 0.4.x compatibility is retained while newer workflow APIs are added as daemon contracts evolve.
+> Status: **contract-first SDK for current CCCC daemon IPC v1**. Package
+> versions track `cccc` core (currently 0.4.18). See `CHANGELOG.md` for the
+> per-version op surface, and `spec/ADAPTATION_PLAN.md` for remaining work.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
 

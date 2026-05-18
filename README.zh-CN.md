@@ -2,7 +2,8 @@
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**面向当前 CCCC Daemon IPC v1 的契约优先 SDK**。保留 0.4.x 基础兼容，同时随 daemon 合约演进补充新版工作流 API。
+> 状态：**面向当前 CCCC Daemon IPC v1 的契约优先 SDK**。包版本跟随 `cccc`
+> 本体（当前 0.4.18），同时随 daemon 合约演进补充新版工作流 API。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
