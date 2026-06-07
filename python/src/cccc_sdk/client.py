@@ -675,48 +675,105 @@ class CCCCClient:
     def memory_search(
         self,
         *,
-        group_id: str,
         query: str,
-        actor_id: str = "",
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
         limit: Optional[int] = None,
-        max_results: Optional[int] = None,
-        vector_weight: Optional[float] = None,
-        candidate_multiplier: Optional[float] = None,
-        min_score: Optional[float] = None,
-        sources: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        target: Optional[str] = None,
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {"group_id": str(group_id), "query": str(query)}
-        if actor_id:
-            args["actor_id"] = str(actor_id)
-        if max_results is not None or limit is not None:
-            args["max_results"] = int(max_results if max_results is not None else limit)
-        if vector_weight is not None:
-            args["vector_weight"] = float(vector_weight)
-        if candidate_multiplier is not None:
-            args["candidate_multiplier"] = float(candidate_multiplier)
-        if min_score is not None:
-            args["min_score"] = float(min_score)
-        if sources is not None:
-            args["sources"] = [str(x) for x in sources]
-        return self.call("memory_reme_search", args)
+        return self.call(
+            "memory_search",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "query": str(query),
+                    "limit": int(limit) if limit is not None else None,
+                    "tags": [str(x) for x in tags] if tags is not None else None,
+                    "target": str(target) if target is not None else None,
+                }
+            ),
+        )
 
     def memory_get(
         self,
         *,
-        group_id: str,
-        path: str,
-        actor_id: str = "",
+        group_id: Optional[str] = None,
+        path: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        target: Optional[str] = None,
+        date: Optional[str] = None,
         offset: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {"group_id": str(group_id), "path": str(path)}
-        if actor_id:
-            args["actor_id"] = str(actor_id)
-        if offset is not None:
-            args["offset"] = int(offset)
-        if limit is not None:
-            args["limit"] = int(limit)
-        return self.call("memory_reme_get", args)
+        return self.call(
+            "memory_get",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "path": path,
+                    "target": str(target) if target is not None else None,
+                    "date": date,
+                    "offset": int(offset) if offset is not None else None,
+                    "limit": int(limit) if limit is not None else None,
+                }
+            ),
+        )
+
+    def memory_write(
+        self,
+        *,
+        target: str,
+        content: str,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        source_refs: Optional[List[str]] = None,
+        idempotency_key: Optional[str] = None,
+        dedup_intent: Optional[str] = None,
+        dedup_query: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "memory_write",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "target": str(target),
+                    "content": str(content),
+                    "tags": [str(x) for x in tags] if tags is not None else None,
+                    "source_refs": [str(x) for x in source_refs] if source_refs is not None else None,
+                    "idempotency_key": idempotency_key,
+                    "dedup_intent": dedup_intent,
+                    "dedup_query": dedup_query,
+                }
+            ),
+        )
+
+    def memory_health(self, *, group_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.call("memory_health", _compact({"group_id": group_id}))
+
+    def memory_profile_get(
+        self,
+        *,
+        group_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return self.call(
+            "memory_profile_get",
+            _compact(
+                {
+                    "group_id": group_id,
+                    "actor_id": actor_id,
+                    "user_id": user_id,
+                    "tags": [str(x) for x in tags] if tags is not None else None,
+                }
+            ),
+        )
 
     def group_space_status(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
         return self.call("group_space_status", {"group_id": str(group_id), "provider": str(provider)})

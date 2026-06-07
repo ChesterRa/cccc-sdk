@@ -2939,6 +2939,168 @@ Result:
 }
 ```
 
+### 8.15.1 First-Class Local Memory API
+
+These operations expose the same local CCCC memory index and persistence layer used
+by `cccc_memory` to non-MCP clients such as SDK-based local workers. They MUST NOT
+route through Group Space / NotebookLM bindings.
+
+All successful results SHOULD include:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-index" | "local-file"
+  latencyMs: number
+}
+```
+
+Common error codes:
+- `memory_index_missing`
+- `memory_write_failed`
+- `memory_group_missing`
+- `memory_permission_denied`
+
+#### `memory_search`
+
+Args:
+```ts
+{
+  group_id: string
+  actor_id?: string
+  query: string
+  limit?: number
+  tags?: string[]
+  target?: "memory" | "daily"
+}
+```
+
+Result:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-index"
+  latencyMs: number
+  hits: Array<{
+    path: string
+    startLine: number
+    score: number
+    snippet: string
+    content?: string
+    tags?: string[]
+    sourceRefs?: string[]
+  }>
+}
+```
+
+The daemon SHOULD reuse `memory_reme_search` index/ranking behavior and adapt field
+names for SDK consumers; it MUST NOT maintain a second memory index.
+
+#### `memory_get`
+
+Args:
+```ts
+{
+  group_id: string
+  actor_id?: string
+  path?: string
+  target?: "memory" | "daily"
+  date?: string
+  offset?: number
+  limit?: number
+}
+```
+
+Result:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-file"
+  latencyMs: number
+  path: string
+  offset: number
+  limit: number
+  content: string
+}
+```
+
+#### `memory_write`
+
+Args:
+```ts
+{
+  group_id: string
+  actor_id?: string
+  target: "memory" | "daily"
+  content: string
+  tags?: string[]
+  source_refs?: string[]
+  idempotency_key?: string
+  dedup_intent?: "new" | "update" | "supersede" | "silent"
+  dedup_query?: string
+}
+```
+
+Result:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-file"
+  latencyMs: number
+  status: "written" | "silent"
+  path: string
+  contentHash?: string
+  dedup?: Record<string, unknown>
+}
+```
+
+`idempotency_key` MUST prevent duplicate writes from polling workers.
+
+#### `memory_profile_get`
+
+Args:
+```ts
+{
+  group_id: string
+  actor_id?: string
+  user_id?: string
+  tags?: string[]
+}
+```
+
+Result:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-index"
+  latencyMs: number
+  profile: string
+  hits: Array<{ path: string; startLine: number; score: number; snippet: string }>
+}
+```
+
+This operation MAY be implemented as a stable tagged `memory_search` wrapper.
+
+#### `memory_health`
+
+Args:
+```ts
+{ group_id: string }
+```
+
+Result:
+```ts
+{
+  provider: "cccc-memory"
+  source: "local-index"
+  latencyMs: number
+  status: "ok" | "degraded" | "error"
+  indexReady: boolean
+  writable: boolean
+  memoryRoot: string
+  lastIndexedAt?: string
+}
+```
+
 #### `task_list`
 
 Args:

@@ -153,37 +153,94 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     });
   });
 
-  it('memorySearch maps to memory_reme_search', async () => {
+  it('memorySearch maps to first-class memory_search', async () => {
     const call = await captureCall((client) => client.memorySearch({
       groupId: 'g1',
+      actorId: 'worker',
       query: 'recent decisions',
       limit: 3,
-      vectorWeight: 0.2,
+      tags: ['reply-style'],
+      target: 'memory',
     }));
 
-    assert.equal(call.op, 'memory_reme_search');
+    assert.equal(call.op, 'memory_search');
     assert.deepEqual(call.args, {
       group_id: 'g1',
+      actor_id: 'worker',
       query: 'recent decisions',
-      max_results: 3,
-      vector_weight: 0.2,
+      limit: 3,
+      tags: ['reply-style'],
+      target: 'memory',
     });
   });
 
-  it('memoryGet maps to memory_reme_get with path pagination', async () => {
+  it('memoryGet maps to first-class memory_get with path pagination', async () => {
     const call = await captureCall((client) => client.memoryGet({
       groupId: 'g1',
+      actorId: 'worker',
       path: 'state/memory/MEMORY.md',
       offset: 10,
       limit: 25,
     }));
 
-    assert.equal(call.op, 'memory_reme_get');
+    assert.equal(call.op, 'memory_get');
     assert.deepEqual(call.args, {
       group_id: 'g1',
+      actor_id: 'worker',
       path: 'state/memory/MEMORY.md',
       offset: 10,
       limit: 25,
+    });
+  });
+
+  it('memoryWrite maps to first-class memory_write', async () => {
+    const call = await captureCall((client) => client.memoryWrite({
+      groupId: 'g1',
+      actorId: 'worker',
+      target: 'daily',
+      content: 'user: hi\nassistant: hello',
+      tags: ['dingtalk-auto-reply'],
+      sourceRefs: ['message:m1'],
+      idempotencyKey: 'reply:m1',
+      dedupIntent: 'update',
+      dedupQuery: 'message m1',
+    }));
+
+    assert.equal(call.op, 'memory_write');
+    assert.deepEqual(call.args, {
+      group_id: 'g1',
+      actor_id: 'worker',
+      target: 'daily',
+      content: 'user: hi\nassistant: hello',
+      tags: ['dingtalk-auto-reply'],
+      source_refs: ['message:m1'],
+      idempotency_key: 'reply:m1',
+      dedup_intent: 'update',
+      dedup_query: 'message m1',
+    });
+  });
+
+  it('memoryHealth maps to first-class memory_health', async () => {
+    const call = await captureCall((client) => client.memoryHealth({ groupId: 'g1' }));
+
+    assert.equal(call.op, 'memory_health');
+    assert.deepEqual(call.args, { group_id: 'g1' });
+  });
+
+  it('memoryProfileGet maps to tagged memory_profile_get', async () => {
+    const call = await captureCall((client) => client.memoryProfileGet({
+      groupId: 'g1',
+      actorId: 'worker',
+      userId: 'waterbang',
+      tags: ['dingtalk-profile', 'reply-style'],
+    }));
+
+    assert.equal(call.op, 'memory_profile_get');
+    assert.deepEqual(call.args, {
+      group_id: 'g1',
+      actor_id: 'worker',
+      user_id: 'waterbang',
+      tags: ['dingtalk-profile', 'reply-style'],
     });
   });
 

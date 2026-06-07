@@ -1371,25 +1371,47 @@ export interface CapabilityUseOptions extends CapabilityEnableOptions {
   toolArguments?: Record<string, unknown>;
 }
 
-/** ReMe memory operation options. */
+/** Local CCCC memory operation options. */
 export interface MemorySearchOptions {
   groupId?: string;
   actorId?: string;
   query: string;
   limit?: number;
-  maxResults?: number;
-  vectorWeight?: number;
-  candidateMultiplier?: number;
-  minScore?: number;
-  sources?: string[];
+  tags?: string[];
+  target?: 'memory' | 'daily';
+}
+
+export interface MemoryWriteOptions {
+  groupId?: string;
+  actorId?: string;
+  target: 'memory' | 'daily';
+  content: string;
+  tags?: string[];
+  sourceRefs?: string[];
+  idempotencyKey?: string;
+  dedupIntent?: 'new' | 'update' | 'supersede' | 'silent';
+  dedupQuery?: string;
 }
 
 export interface MemoryGetOptions {
   groupId?: string;
   actorId?: string;
-  path: string;
+  path?: string;
+  target?: 'memory' | 'daily';
+  date?: string;
   offset?: number;
   limit?: number;
+}
+
+export interface MemoryHealthOptions {
+  groupId?: string;
+}
+
+export interface MemoryProfileGetOptions {
+  groupId?: string;
+  actorId?: string;
+  userId?: string;
+  tags?: string[];
 }
 
 /** Result of context_get */

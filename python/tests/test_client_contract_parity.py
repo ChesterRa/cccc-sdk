@@ -209,7 +209,14 @@ class TestClientContractParity(unittest.TestCase):
                 trust_tier="local",
                 limit=5,
             )
-            client.memory_search(group_id="g_1", query="recent decisions", limit=3, vector_weight=0.2)
+            client.memory_search(
+                group_id="g_1",
+                actor_id="worker",
+                query="recent decisions",
+                limit=3,
+                tags=["reply-style"],
+                target="memory",
+            )
 
         self.assertEqual(captured[0]["op"], "capability_search")
         self.assertEqual(
@@ -224,14 +231,16 @@ class TestClientContractParity(unittest.TestCase):
                 "limit": 5,
             },
         )
-        self.assertEqual(captured[1]["op"], "memory_reme_search")
+        self.assertEqual(captured[1]["op"], "memory_search")
         self.assertEqual(
             captured[1]["args"],
             {
                 "group_id": "g_1",
+                "actor_id": "worker",
                 "query": "recent decisions",
-                "max_results": 3,
-                "vector_weight": 0.2,
+                "limit": 3,
+                "tags": ["reply-style"],
+                "target": "memory",
             },
         )
 
@@ -244,7 +253,13 @@ class TestClientContractParity(unittest.TestCase):
 
         with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
             client = self._client()
-            client.memory_get(group_id="g_1", path="state/memory/MEMORY.md", offset=10, limit=25)
+            client.memory_get(
+                group_id="g_1",
+                actor_id="worker",
+                path="state/memory/MEMORY.md",
+                offset=10,
+                limit=25,
+            )
             client.capability_use(
                 group_id="g_1",
                 actor_id="foreman",
@@ -255,10 +270,16 @@ class TestClientContractParity(unittest.TestCase):
                 by="foreman",
             )
 
-        self.assertEqual(captured[0]["op"], "memory_reme_get")
+        self.assertEqual(captured[0]["op"], "memory_get")
         self.assertEqual(
             captured[0]["args"],
-            {"group_id": "g_1", "path": "state/memory/MEMORY.md", "offset": 10, "limit": 25},
+            {
+                "group_id": "g_1",
+                "actor_id": "worker",
+                "path": "state/memory/MEMORY.md",
+                "offset": 10,
+                "limit": 25,
+            },
         )
         self.assertEqual(captured[1]["op"], "capability_enable")
         self.assertEqual(
@@ -282,6 +303,62 @@ class TestClientContractParity(unittest.TestCase):
                 "by": "foreman",
                 "tool_name": "docs_search",
                 "arguments": {"q": "memory"},
+            },
+        )
+
+    def test_memory_write_health_and_profile_get_match_daemon_contract(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.memory_write(
+                group_id="g_1",
+                actor_id="worker",
+                target="daily",
+                content="user: hi\nassistant: hello",
+                tags=["dingtalk-auto-reply"],
+                source_refs=["message:m1"],
+                idempotency_key="reply:m1",
+                dedup_intent="update",
+                dedup_query="message m1",
+            )
+            client.memory_health(group_id="g_1")
+            client.memory_profile_get(
+                group_id="g_1",
+                actor_id="worker",
+                user_id="waterbang",
+                tags=["dingtalk-profile", "reply-style"],
+            )
+
+        self.assertEqual(captured[0]["op"], "memory_write")
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "group_id": "g_1",
+                "actor_id": "worker",
+                "target": "daily",
+                "content": "user: hi\nassistant: hello",
+                "tags": ["dingtalk-auto-reply"],
+                "source_refs": ["message:m1"],
+                "idempotency_key": "reply:m1",
+                "dedup_intent": "update",
+                "dedup_query": "message m1",
+            },
+        )
+        self.assertEqual(captured[1]["op"], "memory_health")
+        self.assertEqual(captured[1]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[2]["op"], "memory_profile_get")
+        self.assertEqual(
+            captured[2]["args"],
+            {
+                "group_id": "g_1",
+                "actor_id": "worker",
+                "user_id": "waterbang",
+                "tags": ["dingtalk-profile", "reply-style"],
             },
         )
 

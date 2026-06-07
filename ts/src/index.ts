@@ -184,6 +184,9 @@ export type {
   CapabilityUseOptions,
   MemorySearchOptions,
   MemoryGetOptions,
+  MemoryWriteOptions,
+  MemoryHealthOptions,
+  MemoryProfileGetOptions,
   // Result types.
   SendResult,
   SendAndWaitOptions,

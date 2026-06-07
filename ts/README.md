@@ -77,8 +77,32 @@ await client.coordinationBriefUpdate({
 await client.taskMove({ groupId, taskId: 't_xxx', status: 'done' });
 await client.agentStateUpdate({ groupId, actorId: 'peer-impl', focus: 'testing' });
 await client.capabilitySearch({ groupId, query: 'docs' });
-await client.memorySearch({ groupId, query: 'recent decisions' });
+await client.memoryHealth({ groupId });
+const profile = await client.memoryProfileGet({
+  groupId,
+  actorId: 'dingtalk-worker',
+  tags: ['dingtalk-profile', 'reply-style'],
+});
+const hits = await client.memorySearch({
+  groupId,
+  actorId: 'dingtalk-worker',
+  query: 'How should I reply to this message?',
+  limit: 5,
+  target: 'memory',
+});
+await client.memoryWrite({
+  groupId,
+  actorId: 'dingtalk-worker',
+  target: 'daily',
+  content: 'user: ...\nassistant: ...',
+  tags: ['dingtalk-auto-reply'],
+  sourceRefs: ['dingtalk:message:m1'],
+  idempotencyKey: 'dingtalk-reply:m1',
+});
 ```
+
+Local memory helpers use daemon `memory_*` ops and are intended for fast local
+CCCC memory access. They do not depend on Group Space / NotebookLM bindings.
 
 ## Automation semantics
 

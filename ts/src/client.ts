@@ -79,6 +79,9 @@ import type {
   CapabilityUseOptions,
   MemorySearchOptions,
   MemoryGetOptions,
+  MemoryWriteOptions,
+  MemoryHealthOptions,
+  MemoryProfileGetOptions,
   TrackedSendOptions,
   TaskListOptions,
   HeadlessStatusOptions,
@@ -855,25 +858,54 @@ export class CCCCClient {
   }
 
   async memorySearch(options: MemorySearchOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_reme_search', compactRecord({
+    return this.call('memory_search', compactRecord({
       group_id: options.groupId,
       actor_id: options.actorId,
       query: options.query,
-      max_results: options.maxResults ?? options.limit,
-      vector_weight: options.vectorWeight,
-      candidate_multiplier: options.candidateMultiplier,
-      min_score: options.minScore,
-      sources: options.sources,
+      limit: options.limit,
+      tags: options.tags,
+      target: options.target,
     }));
   }
 
   async memoryGet(options: MemoryGetOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_reme_get', compactRecord({
+    return this.call('memory_get', compactRecord({
       group_id: options.groupId,
       actor_id: options.actorId,
       path: options.path,
+      target: options.target,
+      date: options.date,
       offset: options.offset,
       limit: options.limit,
+    }));
+  }
+
+  async memoryWrite(options: MemoryWriteOptions): Promise<Record<string, unknown>> {
+    return this.call('memory_write', compactRecord({
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      target: options.target,
+      content: options.content,
+      tags: options.tags,
+      source_refs: options.sourceRefs,
+      idempotency_key: options.idempotencyKey,
+      dedup_intent: options.dedupIntent,
+      dedup_query: options.dedupQuery,
+    }));
+  }
+
+  async memoryHealth(options: MemoryHealthOptions = {}): Promise<Record<string, unknown>> {
+    return this.call('memory_health', compactRecord({
+      group_id: options.groupId,
+    }));
+  }
+
+  async memoryProfileGet(options: MemoryProfileGetOptions): Promise<Record<string, unknown>> {
+    return this.call('memory_profile_get', compactRecord({
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      user_id: options.userId,
+      tags: options.tags,
     }));
   }
 
