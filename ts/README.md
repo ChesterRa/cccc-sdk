@@ -16,6 +16,8 @@ npm install cccc-sdk
 
 Compatibility is determined by Daemon IPC v1 contracts and operation probing, not by strict package-version matching.
 
+Omitting the optional `insight` property remains compatible with older IPC v1 daemons. Supplying it requires a daemon whose `chat.message` contract includes `insight`; upgrade the SDK and daemon together when adopting this field.
+
 ## Quick start
 
 ```typescript
@@ -48,12 +50,16 @@ main().catch(console.error);
 
 - `priority`: `'normal' | 'attention'`
 - `replyRequired`: `boolean` (maps to daemon `reply_required`)
+- `insight`: optional visible, provisional sender perspective for independent recipient judgment
+- `suggestedUserMessage`: optional proposed next human message; stored visibly and never auto-sent
 
 Supported in:
 - `send(options)`
 - `reply(options)`
 - `sendCrossGroup(options)`
 - `trackedSend(options)`
+
+`suggestedUserMessage` is supported by `send(options)` and `reply(options)`.
 
 ## Workflow helpers
 
@@ -64,6 +70,7 @@ await client.trackedSend({
   groupId,
   title: 'Update SDK',
   text: 'Please handle the compatibility update.',
+  insight: 'The compatibility plan may preserve an obsolete boundary.',
   outcome: 'Tests and live compat pass',
   assignee: 'peer-impl',
 });
@@ -88,6 +95,7 @@ const hits = await client.memorySearch({
   actorId: 'dingtalk-worker',
   query: 'How should I reply to this message?',
   limit: 5,
+  minScore: 0.2,
   target: 'memory',
 });
 await client.memoryWrite({
@@ -103,6 +111,8 @@ await client.memoryWrite({
 
 Local memory helpers use daemon `memory_*` ops and are intended for fast local
 CCCC memory access. They do not depend on Group Space / NotebookLM bindings.
+For raw ReMe result shapes or source selection, use `memoryRemeSearch` and
+`memoryRemeGet`. See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 ## Automation semantics
 
@@ -193,6 +203,34 @@ await client.contextSync({
 
 If you need a daemon op that does not have a dedicated helper yet, you can always fall back to `call()` / `callRaw()`.
 
+## CCCC 0.4.32 compatibility delta
+
+```typescript
+// Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
+await client.actorNewSession(groupId, 'reviewer');
+
+// Page through retained PTY output by cursor.
+const page = await client.terminalHistory({
+  groupId,
+  actorId: 'reviewer',
+  limitBytes: 64_000,
+});
+
+// Large group copies use a daemon-local package path instead of base64 IPC.
+const exported = await client.groupCopyExportFile({ groupId });
+const packagePath = String(exported.package_path);
+const preview = await client.groupCopyPreviewImport({ packagePath });
+const copied = await client.groupCopyImport({ packagePath });
+```
+
+`groupReset` is destructive: it creates a clean replacement and removes the
+old group after copying selected configuration. `confirmGroupId` must equal
+`groupId`:
+
+```typescript
+await client.groupReset({ groupId, confirmGroupId: groupId });
+```
+
 ## CCCC 0.4.18 surface — Hermes runtime and Voice Secretary lease
 
 ```typescript
@@ -220,6 +258,7 @@ const tracked = await client.trackedSend({
   groupId,
   title: 'Fix login race',
   text: 'Please pick this up — see issue link',
+  insight: 'The proposed fix may target the symptom rather than the ownership boundary.',
   to: ['alice'],
   idempotencyKey: 'fix-login-race-1',
   refs: [{ kind: 'url', url: 'https://example.com/issue/42' }],
@@ -232,6 +271,7 @@ const task = await client.taskList({ groupId, taskId: String(tracked.task_id) })
 await client.send({
   groupId,
   text: 'Looking at the demo deck',
+  insight: 'The deck may make the current option set look more settled than it is.',
   refs: [{ kind: 'presentation_ref', slot_id: 'slot-1' }],
 });
 
@@ -244,7 +284,7 @@ await client.presentationPublish({
   content: '# Sprint plan\n- ...',
 });
 
-// Built-in assistant lifecycle (PET / Voice Secretary)
+// Built-in Voice Secretary lifecycle
 await client.assistantSettingsUpdate({
   groupId,
   assistantId: 'voice_secretary',

@@ -2,8 +2,9 @@
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**面向当前 CCCC Daemon IPC v1 的契约优先 SDK**。包版本跟随 `cccc`
-> 本体（当前 0.4.18），同时随 daemon 合约演进补充新版工作流 API。
+> 状态：**面向 CCCC Daemon IPC v1 的契约优先 SDK**。`main` 上的源码包面向
+> CCCC 0.4.32；发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
+> 与 `spec/ADAPTATION_PLAN.md`。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
@@ -27,7 +28,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
 - 以编程方式创建/管理 group、actors、共享 context、capability 策略与 Group Space 的内部工具
-- 使用 `tracked_send`、Context Ops v3 任务/agent state、capability discovery、ReMe memory search 的工作流集成
+- 使用 `tracked_send`、Context Ops v3 任务/agent state、capability discovery、本地 memory API 的工作流集成
 
 语言细分文档：
 - Python SDK：`python/README.md`

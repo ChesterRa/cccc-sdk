@@ -14,7 +14,13 @@ It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 
 This SDK follows daemon contracts rather than strict daemon version strings:
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
-- Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, capability discovery, and ReMe memory search.
+- Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, capability discovery, and first-class local memory.
+
+Omitting the optional `insight` argument remains compatible with older IPC v1 daemons. Supplying it requires a daemon whose `chat.message` contract includes `insight`; upgrade the SDK and daemon together when adopting this field.
+
+`send` and `reply` also accept `suggested_user_message`: a visible proposed
+next message for the human user. The daemon stores it as message metadata and
+never sends it automatically.
 
 ## Daemon endpoint discovery
 
@@ -161,6 +167,16 @@ preview = c.capability_allowlist_validate(
 # Group Space / Notebook status
 space = c.group_space_status(group_id="g_xxx")
 
+# First-class group-local memory
+health = c.memory_health(group_id="g_xxx")
+hits = c.memory_search(
+    group_id="g_xxx",
+    query="recent decisions",
+    limit=5,
+    min_score=0.2,
+    target="memory",
+)
+
 # Context v3: add a compact shared decision or handoff
 c.context_sync(
     group_id="g_xxx",
@@ -169,7 +185,40 @@ c.context_sync(
 )
 ```
 
+The first-class helpers call `memory_search`, `memory_get`, `memory_write`,
+`memory_profile_get`, and `memory_health`. For raw ReMe result shapes or source
+selection, use the explicit `memory_reme_search` / `memory_reme_get` helpers.
+See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
+
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
+
+## CCCC 0.4.32 compatibility delta
+
+```python
+# Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
+c.actor_new_session(group_id="g_xxx", actor_id="reviewer")
+
+# Page through retained PTY output by cursor.
+page = c.terminal_history(
+    group_id="g_xxx",
+    actor_id="reviewer",
+    before=None,
+    limit_bytes=64_000,
+)
+
+# Large group copies use a daemon-local package path instead of base64 IPC.
+exported = c.group_copy_export_file(group_id="g_xxx")
+preview = c.group_copy_preview_import(package_path=exported["package_path"])
+copied = c.group_copy_import(package_path=exported["package_path"])
+```
+
+`group_reset` is destructive: it creates a clean replacement and removes the
+old group after copying selected configuration. The explicit confirmation must
+equal the source group id:
+
+```python
+c.group_reset(group_id="g_xxx", confirm="g_xxx")
+```
 
 ## CCCC 0.4.18 surface — Hermes runtime and Voice Secretary lease
 
@@ -200,6 +249,7 @@ res = c.tracked_send(
     group_id="g_xxx",
     title="Fix login race",
     text="Please pick this up — see issue link",
+    insight="The proposed fix may target the symptom rather than the ownership boundary.",
     to=["alice"],
     idempotency_key="fix-login-race-1",
     refs=[{"kind": "url", "url": "https://example.com/issue/42"}],
@@ -214,6 +264,7 @@ task = c.task_list(group_id="g_xxx", task_id=task_id)
 c.send(
     group_id="g_xxx",
     text="Looking at the demo deck",
+    insight="The deck may make the current option set look more settled than it is.",
     refs=[{"kind": "presentation_ref", "slot_id": "slot-1"}],
 )
 
@@ -226,7 +277,7 @@ c.presentation_publish(
     content="# Sprint plan\n- ...",
 )
 
-# Built-in assistant lifecycle (PET / Voice Secretary)
+# Built-in Voice Secretary lifecycle
 state = c.assistant_state(group_id="g_xxx", assistant_id="voice_secretary")
 c.assistant_settings_update(
     group_id="g_xxx", assistant_id="voice_secretary", patch={"enabled": True}

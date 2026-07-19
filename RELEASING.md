@@ -6,8 +6,8 @@ This repo is a monorepo with two deliverables:
 
 ## Versioning policy
 
-- SDK major/minor tracks CCCC: `0.4.18`.
-- RC sequence is SDK-owned (`0.4.18rcN` for Python, `0.4.18-rc.N` for npm).
+- SDK version tracks the supported CCCC line: currently `0.4.32`.
+- RC sequence is SDK-owned (`0.4.32rcN` for Python, `0.4.32-rc.N` for npm).
 - Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
 
 ## 0) Sync specs (recommended)
@@ -33,13 +33,14 @@ Edit `python/pyproject.toml` (`project.version`).
 
 ```bash
 ./.venv/bin/python -m unittest discover -s python/tests -p "test_*.py" -v
+./.venv/bin/python -m build python
 ```
 
 ### Publish RC to TestPyPI
 
 ```bash
-git tag v0.4.18rcN
-git push origin v0.4.18rcN
+git tag v0.4.32rcN
+git push origin v0.4.32rcN
 ```
 
 This triggers `.github/workflows/python-publish-testpypi.yml`.
@@ -49,14 +50,14 @@ Install check:
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.18rcN
+  cccc-sdk==0.4.32rcN
 ```
 
 ### Publish stable to PyPI
 
 ```bash
-git tag v0.4.18
-git push origin v0.4.18
+git tag v0.4.32
+git push origin v0.4.32
 ```
 
 This triggers `.github/workflows/python-publish.yml`.
@@ -68,14 +69,15 @@ This triggers `.github/workflows/python-publish.yml`.
 Edit `ts/package.json` (`version`).
 
 Examples:
-- RC: `0.4.18-rc.N`
-- Stable: `0.4.18`
+- RC: `0.4.32-rc.N`
+- Stable: `0.4.32`
 
 ### Local checks
 
 ```bash
 cd ts
 npm ci
+npm test
 npm run typecheck
 npm run build
 ```

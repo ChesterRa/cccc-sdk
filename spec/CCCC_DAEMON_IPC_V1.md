@@ -1380,7 +1380,7 @@ process; heavy ASR runtimes remain behind an explicit local command adapter.
 
 Args:
 ```ts
-{ group_id: string; assistant_id?: "pet" | "voice_secretary" }
+{ group_id: string; assistant_id?: "voice_secretary" }
 ```
 
 Result:
@@ -1400,13 +1400,24 @@ Result:
   active_document_id?: string                    // daemon sidecar/internal compatibility only
   capture_target_document_id?: string            // daemon sidecar/internal compatibility only
   new_input_available?: boolean
+  service_runtime?: Record<string, unknown>
+  service_runtimes_by_id?: Record<string, unknown>
+  service_models?: Array<Record<string, unknown>>
+  service_models_by_id?: Record<string, unknown>
 }
 ```
 
+Voice service runtime records may include `primary_package`, `package_versions`,
+`installed_version`, `latest_version`, `latest_checked_at`,
+`latest_check_error`, and `update_available` so local ASR settings can show the
+installed sherpa-onnx version and whether a newer official PyPI release is
+available. Voice model records may include `installed_manifest_sha256`,
+`update_available`, `last_update_error`, and artifact source fields (`url`,
+`sha256`, `archive`) so model updates remain explicit and inspectable.
+
 #### `assistant_settings_update`
 
-Update group-scoped built-in assistant settings. `pet` is read-only in M0 and
-mirrors `group_settings_update.patch.desktop_pet_enabled`.
+Update group-scoped built-in assistant settings.
 
 When `voice_secretary.enabled=true`, the daemon also materializes a hidden
 internal actor with `internal_kind="voice_secretary"` and `actor_id="voice-secretary"`.
@@ -1492,7 +1503,8 @@ Download and verify a daemon-managed local Voice Secretary ASR model into
 CCCC-owned cache storage. Built-in releases include a default model manifest;
 tests and local development may add a local overlay at
 `CCCC_HOME/config/voice-models.json`. Each artifact entry must include a fixed
-URL and `sha256`.
+URL and `sha256`. Reinstalling/updating a model downloads into staging storage
+and replaces the active model only after all artifacts verify successfully.
 
 Args:
 ```ts
@@ -1515,6 +1527,8 @@ Result:
     installed_at?: string
     updated_at?: string
     error?: Record<string, unknown>
+    update_available?: boolean
+    installed_manifest_sha256?: string
   }
 }
 ```
@@ -1870,7 +1884,7 @@ update it for control-plane repair.
 
 Args:
 ```ts
-{ group_id: string; by?: string; assistant_id: "voice_secretary" | "pet"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
+{ group_id: string; by?: string; assistant_id: "voice_secretary"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
 ```
 
 Result:
@@ -2138,6 +2152,23 @@ Result:
 Notes:
 - For linked actors (`profile_id` set), `actor_start` and `actor_restart` first resolve profile runtime config and profile secrets.
 - If the linked profile includes `capability_defaults`, daemon applies baseline capability enables through capability control plane before launch.
+
+#### `actor_new_session`
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string }
+```
+
+Result:
+```ts
+{ actor: Record<string, unknown>; event: CCCSEventV1; new_session: true }
+```
+
+Notes:
+- Supported for `claude`, `codex`, and Grok PTY actors.
+- Stops the current actor runtime if present, clears CCCC's saved runtime session metadata for that actor, then starts the actor with the same runtime settings.
+- Does not delete provider-side conversation/session history.
 
 #### `runtime_hermes_status`
 
@@ -2442,6 +2473,8 @@ Args (core):
   path?: string                 // optional filesystem path to attribute scope_key
   attachments?: unknown[]       // attachment refs (implementation-defined)
   refs?: ReferenceV1[]          // structured message refs, e.g. presentation_ref/task_ref
+  insight?: string              // optional provisional sender perspective; max 1200 characters
+  require_peer_insight?: boolean // profile gate; default false
   src_group_id?: string         // relay provenance (both required if either is set)
   src_event_id?: string
   dst_group_id?: string         // optional "send record" metadata (source messages)
@@ -2469,6 +2502,8 @@ Args:
   priority?: "normal" | "attention"
   attachments?: unknown[]
   refs?: ReferenceV1[]
+  insight?: string
+  require_peer_insight?: boolean // profile gate; default false
 }
 ```
 
@@ -2500,6 +2535,8 @@ Args:
   reply_required?: boolean      // default true
   idempotency_key?: string
   refs?: ReferenceV1[]
+  insight?: string
+  require_peer_insight?: boolean // profile gate; default false
 }
 ```
 
@@ -2531,7 +2568,7 @@ Cross-group send implemented as:
 
 Args:
 ```ts
-{ group_id: string; dst_group_id: string; text: string; by?: string; to?: string[]; priority?: "normal" | "attention" }
+{ group_id: string; dst_group_id: string; text: string; by?: string; to?: string[]; priority?: "normal" | "attention"; insight?: string; require_peer_insight?: boolean }
 ```
 
 Result:
@@ -2541,6 +2578,14 @@ Result:
 
 Notes:
 - Attachments are not supported in cross-group send in v1.
+
+#### Agent Insight Profile marker
+
+`require_peer_insight` is an internal request-profile marker, not a global message-validity rule. It defaults to `false`. When `true`, the daemon resolves the operation's real audience and rejects a new peer-facing message whose normalized `insight` is empty. User-only sends remain valid without Insight.
+
+The check MUST occur after routing and successful-idempotency lookup, but before this request creates a new message, task, actor wake, or remote outbox entry. The recommended error code is `peer_insight_required`, with `details.delivery_state="not_sent"` and `details.new_side_effects=false`. Invalid Insight type or length SHOULD use `invalid_insight` instead. Existing accepted idempotent operations MUST replay their original result without being reinterpreted by a newer profile requirement.
+
+For a legacy Group Bridge wire that does not advertise structured Insight, an implementation MAY flatten the perspective into remote text with an explicit sender-perspective label. It MUST NOT infer structured `insight` back from that text.
 
 #### `chat_ack`
 
@@ -2642,7 +2687,6 @@ Result:
       environment_summary?: string | null
       user_model?: string | null
       persona_notes?: string | null
-      resume_hint?: string | null
     }
     updated_at?: string | null
   }>
@@ -2939,168 +2983,6 @@ Result:
 }
 ```
 
-### 8.15.1 First-Class Local Memory API
-
-These operations expose the same local CCCC memory index and persistence layer used
-by `cccc_memory` to non-MCP clients such as SDK-based local workers. They MUST NOT
-route through Group Space / NotebookLM bindings.
-
-All successful results SHOULD include:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index" | "local-file"
-  latencyMs: number
-}
-```
-
-Common error codes:
-- `memory_index_missing`
-- `memory_write_failed`
-- `memory_group_missing`
-- `memory_permission_denied`
-
-#### `memory_search`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  query: string
-  limit?: number
-  tags?: string[]
-  target?: "memory" | "daily"
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  hits: Array<{
-    path: string
-    startLine: number
-    score: number
-    snippet: string
-    content?: string
-    tags?: string[]
-    sourceRefs?: string[]
-  }>
-}
-```
-
-The daemon SHOULD reuse `memory_reme_search` index/ranking behavior and adapt field
-names for SDK consumers; it MUST NOT maintain a second memory index.
-
-#### `memory_get`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  path?: string
-  target?: "memory" | "daily"
-  date?: string
-  offset?: number
-  limit?: number
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-file"
-  latencyMs: number
-  path: string
-  offset: number
-  limit: number
-  content: string
-}
-```
-
-#### `memory_write`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  target: "memory" | "daily"
-  content: string
-  tags?: string[]
-  source_refs?: string[]
-  idempotency_key?: string
-  dedup_intent?: "new" | "update" | "supersede" | "silent"
-  dedup_query?: string
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-file"
-  latencyMs: number
-  status: "written" | "silent"
-  path: string
-  contentHash?: string
-  dedup?: Record<string, unknown>
-}
-```
-
-`idempotency_key` MUST prevent duplicate writes from polling workers.
-
-#### `memory_profile_get`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  user_id?: string
-  tags?: string[]
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  profile: string
-  hits: Array<{ path: string; startLine: number; score: number; snippet: string }>
-}
-```
-
-This operation MAY be implemented as a stable tagged `memory_search` wrapper.
-
-#### `memory_health`
-
-Args:
-```ts
-{ group_id: string }
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  status: "ok" | "degraded" | "error"
-  indexReady: boolean
-  writable: boolean
-  memoryRoot: string
-  lastIndexedAt?: string
-}
-```
-
 #### `task_list`
 
 Args:
@@ -3222,6 +3104,28 @@ Args:
 Result:
 ```ts
 { group_id: string; actor_id: string; warning: string; hint: string; text: string }
+```
+
+#### `terminal_history`
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string; before?: number; limit_bytes?: number; strip_ansi?: boolean; compact?: boolean }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  actor_id: string
+  warning: string
+  hint: string
+  text: string
+  start_cursor: number
+  end_cursor: number
+  has_more: boolean
+  cursor_expired: boolean
+}
 ```
 
 #### `terminal_clear`
@@ -4332,6 +4236,46 @@ Notes:
 - Export MUST exclude live runtime state, browser profiles, credentials, connector secrets, lock files, and rebuildable caches.
 - Export MUST scrub actor environment secrets from packaged `group.yaml`.
 - `contains_secrets: false` means CCCC-managed live credentials and auth sessions are excluded. The package can still contain user-provided sensitive content such as ledger history, memory, blobs, and attachments.
+- This compatibility operation is intended for small packages. Large packages SHOULD use `group_copy_export_file` and pass the returned `package_path` to preview/import.
+
+#### `group_copy_export_file`
+
+Export one group as a zip package stored on the daemon host filesystem.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+}
+```
+
+Result:
+```ts
+{
+  package_path: string
+  package_size_bytes: number
+  filename: string
+  manifest: {
+    kind: "cccc.group_copy"
+    version: number
+    source_group_id: string
+    source_title?: string
+    exported_at: string
+    cccc_version?: string
+    source_platform?: string
+    export_mode: "group_state_only"
+    workspace_included: false
+    contains_secrets: false
+    content_digest?: string
+    content?: Record<string, unknown>
+  }
+}
+```
+
+Notes:
+- The package path is a temporary daemon-local file path intended for local download flows.
+- This operation uses the large package limit. Secret-scrubbing requirements match `group_copy_export`.
 
 #### `group_copy_preview_import`
 
@@ -4340,10 +4284,13 @@ Validate a copy package and return an import preview without writing group state
 Args:
 ```ts
 {
-  package_b64: string
+  package_b64?: string
+  package_path?: string
   by?: string
 }
 ```
+
+Exactly one of `package_b64` or `package_path` is required. `package_b64` is a small-package compatibility path; large local flows SHOULD use `package_path`.
 
 Result:
 ```ts
@@ -4377,12 +4324,15 @@ Import a group copy into the current `CCCC_HOME`.
 Args:
 ```ts
 {
-  package_b64: string
+  package_b64?: string
+  package_path?: string
   workspace_root?: string
   title?: string
   by?: string
 }
 ```
+
+Exactly one of `package_b64` or `package_path` is required. `package_b64` is a small-package compatibility path; large local flows SHOULD use `package_path`.
 
 Result:
 ```ts

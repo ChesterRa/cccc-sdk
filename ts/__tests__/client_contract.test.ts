@@ -159,6 +159,10 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       actorId: 'worker',
       query: 'recent decisions',
       limit: 3,
+      maxResults: 7,
+      vectorWeight: 0.6,
+      candidateMultiplier: 4,
+      minScore: 0.2,
       tags: ['reply-style'],
       target: 'memory',
     }));
@@ -169,6 +173,10 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       actor_id: 'worker',
       query: 'recent decisions',
       limit: 3,
+      max_results: 7,
+      vector_weight: 0.6,
+      candidate_multiplier: 4,
+      min_score: 0.2,
       tags: ['reply-style'],
       target: 'memory',
     });
@@ -241,6 +249,46 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       actor_id: 'worker',
       user_id: 'waterbang',
       tags: ['dingtalk-profile', 'reply-style'],
+    });
+  });
+
+  it('explicit ReMe helpers preserve low-level controls', async () => {
+    const search = await captureCall((client) => client.memoryRemeSearch({
+      groupId: 'g1',
+      actorId: 'worker',
+      query: 'recent decisions',
+      limit: 3,
+      vectorWeight: 0.6,
+      candidateMultiplier: 4,
+      minScore: 0.2,
+      sources: ['memory'],
+    }));
+    assert.equal(search.op, 'memory_reme_search');
+    assert.deepEqual(search.args, {
+      group_id: 'g1',
+      actor_id: 'worker',
+      query: 'recent decisions',
+      max_results: 3,
+      vector_weight: 0.6,
+      candidate_multiplier: 4,
+      min_score: 0.2,
+      sources: ['memory'],
+    });
+
+    const get = await captureCall((client) => client.memoryRemeGet({
+      groupId: 'g1',
+      actorId: 'worker',
+      path: 'state/memory/MEMORY.md',
+      offset: 10,
+      limit: 25,
+    }));
+    assert.equal(get.op, 'memory_reme_get');
+    assert.deepEqual(get.args, {
+      group_id: 'g1',
+      actor_id: 'worker',
+      path: 'state/memory/MEMORY.md',
+      offset: 10,
+      limit: 25,
     });
   });
 

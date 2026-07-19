@@ -27,6 +27,10 @@ jobs:
         working-directory: ts
         run: npm ci
 
+      - name: Unit tests
+        working-directory: ts
+        run: npm test
+
       - name: Typecheck
         working-directory: ts
         run: npm run typecheck
@@ -116,7 +120,21 @@ jobs:
           await client.assertCompatible({
             requireIpcV: 1,
             requireCapabilities: { events_stream: true },
-            requireOps: ['groups', 'group_create', 'send', 'events_stream'],
+            requireOps: [
+              'groups',
+              'group_create',
+              'send',
+              'events_stream',
+              'memory_search',
+              'memory_get',
+              'memory_write',
+              'memory_profile_get',
+              'memory_health',
+              'actor_new_session',
+              'group_reset',
+              'group_copy_export_file',
+              'terminal_history',
+            ],
           });
 
           const created = await client.groupCreate({ title: 'ts-integration' });

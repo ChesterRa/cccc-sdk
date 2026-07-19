@@ -98,26 +98,50 @@ export interface CCCSEvent {
 /** Data payload for `chat.message` events */
 export interface ChatMessageEventData {
   text: string;
+  insight?: string | null;
   format?: string;
   priority?: 'normal' | 'attention';
   reply_required?: boolean;
   to?: string[];
   reply_to?: string | null;
   quote_text?: string | null;
+  source_platform?: string | null;
+  source_user_name?: string | null;
+  source_user_id?: string | null;
+  mention_user_ids?: string[] | null;
+  sender_title?: string | null;
+  sender_runtime?: string | null;
+  sender_avatar_path?: string | null;
   src_group_id?: string | null;
   src_event_id?: string | null;
+  src_by?: string | null;
+  remote_reply_to?: string[] | null;
   dst_group_id?: string | null;
   dst_to?: string[] | null;
   refs?: unknown[];
   attachments?: unknown[];
   thread?: string;
+  stream_id?: string | null;
+  pending_event_id?: string | null;
   client_id?: string | null;
+  suggested_user_message?: string | null;
 }
 
 /** Data payload for `chat.read` events */
 export interface ChatReadEventData {
   actor_id: string;
   event_id: string;
+}
+
+/** Data payload for `chat.cross_group_receipt` events. */
+export interface ChatCrossGroupReceiptEventData {
+  source_event_id: string;
+  dst_group_id: string;
+  dst_event_id?: string;
+  remote_event_id?: string;
+  registration_id?: string;
+  idempotency_key?: string;
+  status?: string;
 }
 
 /** Data payload for `notify.reminder` events */
@@ -142,6 +166,12 @@ export interface ChatReadEvent extends CCCSEvent {
   data: ChatReadEventData & Record<string, unknown>;
 }
 
+/** A cross-group delivery receipt with strongly-typed data. */
+export interface ChatCrossGroupReceiptEvent extends CCCSEvent {
+  kind: 'chat.cross_group_receipt';
+  data: ChatCrossGroupReceiptEventData & Record<string, unknown>;
+}
+
 /** Type guard: is this event a chat.message? */
 export function isChatMessageEvent(event: CCCSEvent): event is ChatMessageEvent {
   return event.kind === 'chat.message';
@@ -150,6 +180,11 @@ export function isChatMessageEvent(event: CCCSEvent): event is ChatMessageEvent 
 /** Type guard: is this event a chat.read? */
 export function isChatReadEvent(event: CCCSEvent): event is ChatReadEvent {
   return event.kind === 'chat.read';
+}
+
+/** Type guard: is this event a chat.cross_group_receipt? */
+export function isChatCrossGroupReceiptEvent(event: CCCSEvent): event is ChatCrossGroupReceiptEvent {
+  return event.kind === 'chat.cross_group_receipt';
 }
 
 /** Type guard: is this stream item an event? */
@@ -212,6 +247,8 @@ export interface MessageAttachment {
 export interface SendOptions {
   groupId: string;
   text: string;
+  insight?: string;
+  suggestedUserMessage?: string;
   by?: string;
   to?: string[];
   priority?: 'normal' | 'attention';
@@ -227,6 +264,7 @@ export interface SendCrossGroupOptions {
   groupId: string;
   dstGroupId: string;
   text: string;
+  insight?: string;
   by?: string;
   to?: string[];
   priority?: 'normal' | 'attention';
@@ -240,6 +278,8 @@ export interface ReplyOptions {
   groupId: string;
   replyTo: string;
   text: string;
+  insight?: string;
+  suggestedUserMessage?: string;
   by?: string;
   to?: string[];
   priority?: 'normal' | 'attention';
@@ -256,6 +296,7 @@ export interface ReplyOptions {
 export interface TrackedSendOptions {
   groupId: string;
   text: string;
+  insight?: string;
   /** Falls back to a compact derivation from text if omitted. */
   title?: string;
   by?: string;
@@ -290,8 +331,8 @@ export interface TaskListOptions {
   taskId?: string;
 }
 
-/** Built-in actor kind flag (PET / Voice Secretary). */
-export type ActorInternalKind = 'pet' | 'voice_secretary';
+/** Built-in actor kind flag. */
+export type ActorInternalKind = 'voice_secretary';
 
 /** Source of runtime activity state for an actor. */
 export type ActorRuntimeStateSource = 'terminal' | 'app_server';
@@ -299,13 +340,20 @@ export type ActorRuntimeStateSource = 'terminal' | 'app_server';
 /** Known agent runtimes. Allow string for forward compatibility. */
 export type AgentRuntime =
   | 'amp'
+  | 'antigravity'
   | 'auggie'
   | 'claude'
   | 'codex'
+  | 'copilot'
+  | 'cursor'
+  | 'devin'
+  | 'kiro'
+  | 'kilo'
   | 'droid'
-  | 'gemini'
+  | 'grok'
+  | 'hermes'
   | 'kimi'
-  | 'neovate'
+  | 'opencode'
   | 'web_model'
   | 'custom'
   | (string & {});
@@ -340,6 +388,13 @@ export interface ActorUpdateOptions {
   by?: string;
 }
 
+/** Destructive clean replacement of a group; confirmation must equal groupId. */
+export interface GroupResetOptions {
+  groupId: string;
+  confirmGroupId: string;
+  by?: string;
+}
+
 /** Headless-actor runtime status. */
 export type HeadlessStatus = 'idle' | 'working' | 'waiting' | 'stopped';
 
@@ -370,16 +425,17 @@ export interface GroupCopyExportOptions {
 }
 
 /** Group copy: preview what would be imported from a package. */
-export interface GroupCopyPreviewImportOptions {
-  packageB64: string;
-}
+export type GroupCopyPackageInput =
+  | { packageB64: string; packagePath?: never }
+  | { packageB64?: never; packagePath: string };
+
+export type GroupCopyPreviewImportOptions = GroupCopyPackageInput;
 
 /** Group copy: apply a previously exported package as a new group. */
-export interface GroupCopyImportOptions {
-  packageB64: string;
+export type GroupCopyImportOptions = GroupCopyPackageInput & {
   workspaceRoot?: string;
   title?: string;
-}
+};
 
 /** Capability visibility (per-actor hide/show). */
 export interface CapabilityVisibilityOptions {
@@ -486,10 +542,13 @@ export type AssistantLifecycle =
   | 'waiting'
   | 'failed';
 
+/** Built-in assistant id supported by CCCC v0.4.32. */
+export type AssistantId = 'voice_secretary';
+
 /** Read assistant state. */
 export interface AssistantStateOptions {
   groupId: string;
-  assistantId?: string;
+  assistantId?: AssistantId;
   promptRequestId?: string;
 }
 
@@ -510,7 +569,7 @@ export interface AssistantVoiceRecordingLeaseOptions {
 /** Update assistant settings (patch). */
 export interface AssistantSettingsUpdateOptions {
   groupId: string;
-  assistantId: string;
+  assistantId: AssistantId;
   patch: Record<string, unknown>;
   by?: string;
 }
@@ -518,7 +577,7 @@ export interface AssistantSettingsUpdateOptions {
 /** Update assistant runtime status. */
 export interface AssistantStatusUpdateOptions {
   groupId: string;
-  assistantId: string;
+  assistantId: AssistantId;
   lifecycle: AssistantLifecycle;
   health?: Record<string, unknown>;
   by?: string;
@@ -562,6 +621,17 @@ export interface TerminalTailOptions {
   groupId: string;
   actorId: string;
   maxChars?: number;
+  stripAnsi?: boolean;
+  compact?: boolean;
+  by?: string;
+}
+
+/** Read a cursor-paginated PTY transcript page. */
+export interface TerminalHistoryOptions {
+  groupId: string;
+  actorId: string;
+  before?: number;
+  limitBytes?: number;
   stripAnsi?: boolean;
   compact?: boolean;
   by?: string;
@@ -625,26 +695,6 @@ export interface RegistryReconcileOptions {
 export interface GroupDetachScopeOptions {
   groupId: string;
   scopeKey: string;
-  by?: string;
-}
-
-/** PET cached-decisions read. */
-export interface PetDecisionsGetOptions {
-  groupId: string;
-}
-
-/** PET cached-decisions replace. */
-export interface PetDecisionsReplaceOptions {
-  groupId: string;
-  actorId: string;
-  decisions: Array<Record<string, unknown>>;
-  by?: string;
-}
-
-/** PET cached-decisions clear. */
-export interface PetDecisionsClearOptions {
-  groupId: string;
-  actorId: string;
   by?: string;
 }
 
@@ -1240,7 +1290,6 @@ export interface AgentStateUpdateOptions extends ContextWrapperOptions {
   environmentSummary?: string;
   userModel?: string;
   personaNotes?: string;
-  resumeHint?: string;
 }
 
 export interface AgentStateClearOptions extends ContextWrapperOptions {
@@ -1373,16 +1422,20 @@ export interface CapabilityUseOptions extends CapabilityEnableOptions {
 
 /** Local CCCC memory operation options. */
 export interface MemorySearchOptions {
-  groupId?: string;
+  groupId: string;
   actorId?: string;
   query: string;
   limit?: number;
+  maxResults?: number;
+  vectorWeight?: number;
+  candidateMultiplier?: number;
+  minScore?: number;
   tags?: string[];
   target?: 'memory' | 'daily';
 }
 
 export interface MemoryWriteOptions {
-  groupId?: string;
+  groupId: string;
   actorId?: string;
   target: 'memory' | 'daily';
   content: string;
@@ -1394,7 +1447,7 @@ export interface MemoryWriteOptions {
 }
 
 export interface MemoryGetOptions {
-  groupId?: string;
+  groupId: string;
   actorId?: string;
   path?: string;
   target?: 'memory' | 'daily';
@@ -1404,14 +1457,35 @@ export interface MemoryGetOptions {
 }
 
 export interface MemoryHealthOptions {
-  groupId?: string;
+  groupId: string;
 }
 
 export interface MemoryProfileGetOptions {
-  groupId?: string;
+  groupId: string;
   actorId?: string;
   userId?: string;
   tags?: string[];
+}
+
+/** Lower-level ReMe options retained for callers that need source controls. */
+export interface MemoryRemeSearchOptions {
+  groupId: string;
+  actorId?: string;
+  query: string;
+  limit?: number;
+  maxResults?: number;
+  vectorWeight?: number;
+  candidateMultiplier?: number;
+  minScore?: number;
+  sources?: string[];
+}
+
+export interface MemoryRemeGetOptions {
+  groupId: string;
+  actorId?: string;
+  path: string;
+  offset?: number;
+  limit?: number;
 }
 
 /** Result of context_get */

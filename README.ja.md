@@ -2,8 +2,9 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
-> ステータス：**現在の CCCC Daemon IPC v1 向けの contract-first SDK**。パッケージ
-> バージョンは `cccc` 本体（現在 0.4.18）に追従し、daemon contract の進化に合わせて新しい workflow API を追加します。
+> ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。`main` の
+> ソースパッケージは CCCC 0.4.32 を対象とします。公開は別の release 手順です。
+> 範囲は `CHANGELOG.md` と `spec/ADAPTATION_PLAN.md` を参照してください。
 
 CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。
 
@@ -27,7 +28,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 - リアルタイム更新が必要な Web/IDE プラグイン（`events_stream`）
 - Working Group を監視して自動応答する bot/service
 - group / actors / shared context / capability ポリシー / Group Space をプログラムから管理する社内ツール
-- `tracked_send`、Context Ops v3 task/agent state、capability discovery、ReMe memory search を使う workflow 連携
+- `tracked_send`、Context Ops v3 task/agent state、capability discovery、ローカル memory API を使う workflow 連携
 
 言語別の詳細:
 - Python SDK: `python/README.md`

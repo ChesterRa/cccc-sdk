@@ -7,6 +7,7 @@ import type { ErrorCode } from '../src/errors.js';
 import {
   isChatMessageEvent,
   isChatReadEvent,
+  isChatCrossGroupReceiptEvent,
   isStreamEvent,
   isStreamHeartbeat,
 } from '../src/types.js';
@@ -110,6 +111,21 @@ describe('isChatReadEvent', () => {
       group_id: 'g1', data: { text: 'hi' },
     };
     assert.ok(!isChatReadEvent(event));
+  });
+});
+
+describe('isChatCrossGroupReceiptEvent', () => {
+  it('narrows chat.cross_group_receipt data', () => {
+    const event: CCCSEvent = {
+      id: 'e3', ts: '2024-01-01T00:00:00Z', kind: 'chat.cross_group_receipt',
+      group_id: 'g1', data: { source_event_id: 'e1', dst_group_id: 'g2', status: 'sent' },
+    };
+    assert.ok(isChatCrossGroupReceiptEvent(event));
+    if (isChatCrossGroupReceiptEvent(event)) {
+      assert.equal(event.data.source_event_id, 'e1');
+      assert.equal(event.data.dst_group_id, 'g2');
+      assert.equal(event.data.status, 'sent');
+    }
   });
 });
 

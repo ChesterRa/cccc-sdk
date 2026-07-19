@@ -214,6 +214,10 @@ class TestClientContractParity(unittest.TestCase):
                 actor_id="worker",
                 query="recent decisions",
                 limit=3,
+                max_results=7,
+                vector_weight=0.6,
+                candidate_multiplier=4.0,
+                min_score=0.2,
                 tags=["reply-style"],
                 target="memory",
             )
@@ -239,6 +243,10 @@ class TestClientContractParity(unittest.TestCase):
                 "actor_id": "worker",
                 "query": "recent decisions",
                 "limit": 3,
+                "max_results": 7,
+                "vector_weight": 0.6,
+                "candidate_multiplier": 4.0,
+                "min_score": 0.2,
                 "tags": ["reply-style"],
                 "target": "memory",
             },
@@ -303,6 +311,59 @@ class TestClientContractParity(unittest.TestCase):
                 "by": "foreman",
                 "tool_name": "docs_search",
                 "arguments": {"q": "memory"},
+            },
+        )
+
+    def test_explicit_reme_helpers_preserve_low_level_controls(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.memory_reme_search(
+                group_id="g_1",
+                actor_id="worker",
+                query="recent decisions",
+                limit=3,
+                vector_weight=0.6,
+                candidate_multiplier=4.0,
+                min_score=0.2,
+                sources=["memory"],
+            )
+            client.memory_reme_get(
+                group_id="g_1",
+                actor_id="worker",
+                path="state/memory/MEMORY.md",
+                offset=10,
+                limit=25,
+            )
+
+        self.assertEqual(captured[0]["op"], "memory_reme_search")
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "group_id": "g_1",
+                "actor_id": "worker",
+                "query": "recent decisions",
+                "max_results": 3,
+                "vector_weight": 0.6,
+                "candidate_multiplier": 4.0,
+                "min_score": 0.2,
+                "sources": ["memory"],
+            },
+        )
+        self.assertEqual(captured[1]["op"], "memory_reme_get")
+        self.assertEqual(
+            captured[1]["args"],
+            {
+                "group_id": "g_1",
+                "actor_id": "worker",
+                "path": "state/memory/MEMORY.md",
+                "offset": 10,
+                "limit": 25,
             },
         )
 
@@ -707,11 +768,15 @@ class TestClientContractParity(unittest.TestCase):
             refs=[{"kind": "task_ref", "task_id": "t_42"}],
             attachments=[{"kind": "file", "path": "blobs/a.txt"}],
             client_id="cl_1",
+            insight="Rollback remains unverified.",
+            suggested_user_message="Please confirm the rollback evidence.",
         )
         args = captured[0]["args"]
         self.assertEqual(args["refs"], [{"kind": "task_ref", "task_id": "t_42"}])
         self.assertEqual(args["attachments"], [{"kind": "file", "path": "blobs/a.txt"}])
         self.assertEqual(args["client_id"], "cl_1")
+        self.assertEqual(args["insight"], "Rollback remains unverified.")
+        self.assertEqual(args["suggested_user_message"], "Please confirm the rollback evidence.")
 
     def test_reply_includes_refs(self) -> None:
         captured, client = self._capture({"event": {"id": "e_r"}})
@@ -720,9 +785,13 @@ class TestClientContractParity(unittest.TestCase):
             reply_to="e_origin",
             text="roger",
             refs=[{"kind": "presentation_ref", "slot_id": "slot-1"}],
+            insight="The current frame may be too narrow.",
+            suggested_user_message="Should we widen the frame?",
         )
         args = captured[0]["args"]
         self.assertEqual(args["refs"], [{"kind": "presentation_ref", "slot_id": "slot-1"}])
+        self.assertEqual(args["insight"], "The current frame may be too narrow.")
+        self.assertEqual(args["suggested_user_message"], "Should we widen the frame?")
 
     def test_send_cross_group_includes_refs(self) -> None:
         captured, client = self._capture({"src_event": {"id": "s"}, "dst_event": {"id": "d"}})
@@ -731,9 +800,11 @@ class TestClientContractParity(unittest.TestCase):
             dst_group_id="g_dst",
             text="cross",
             refs=[{"kind": "url", "url": "https://example.com"}],
+            insight="The destination should challenge this plan independently.",
         )
         args = captured[0]["args"]
         self.assertEqual(args["refs"], [{"kind": "url", "url": "https://example.com"}])
+        self.assertEqual(args["insight"], "The destination should challenge this plan independently.")
 
     def test_actor_add_supports_capability_hidden_and_profile_scope(self) -> None:
         captured, client = self._capture({"actor": {"id": "a1"}})
@@ -764,6 +835,7 @@ class TestClientContractParity(unittest.TestCase):
         client.tracked_send(
             group_id="g_1",
             text="please fix bug",
+            insight="We may be optimizing the wrong layer.",
             title="Fix bug",
             to=["@alice"],
             priority="attention",
@@ -787,6 +859,7 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args["priority"], "attention")
         self.assertEqual(args["task_priority"], "attention")
         self.assertEqual(args["idempotency_key"], "idem-1")
+        self.assertEqual(args["insight"], "We may be optimizing the wrong layer.")
         self.assertEqual(args["outcome"], "bug closed")
         self.assertEqual(args["status"], "planned")
         self.assertEqual(args["waiting_on"], "actor")
@@ -846,15 +919,48 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
 
         captured.clear()
+        client.group_copy_export_file(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "group_copy_export_file")
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+
+        captured.clear()
         client.group_copy_preview_import(package_b64="ZZZ=")
         self.assertEqual(captured[0]["op"], "group_copy_preview_import")
         self.assertEqual(captured[0]["args"], {"package_b64": "ZZZ="})
+
+        captured.clear()
+        client.group_copy_preview_import(package_path="/tmp/group.zip")
+        self.assertEqual(captured[0]["args"], {"package_path": "/tmp/group.zip"})
 
         captured.clear()
         client.group_copy_import(package_b64="ZZZ=", workspace_root="/tmp/x", title="Restored")
         self.assertEqual(captured[0]["op"], "group_copy_import")
         self.assertEqual(captured[0]["args"]["workspace_root"], "/tmp/x")
         self.assertEqual(captured[0]["args"]["title"], "Restored")
+
+        captured.clear()
+        client.group_copy_import(package_path="/tmp/group.zip", title="Restored from file")
+        self.assertEqual(captured[0]["args"]["package_path"], "/tmp/group.zip")
+        self.assertEqual(captured[0]["args"]["title"], "Restored from file")
+
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            client.group_copy_preview_import()
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            client.group_copy_import(package_b64="A", package_path="/tmp/group.zip")
+
+    def test_cccc_0_4_32_lifecycle_delta_maps_args(self) -> None:
+        captured, client = self._capture({"ok": True})
+        client.actor_new_session(group_id="g_1", actor_id="grok-1", by="user")
+        self.assertEqual(captured[0]["op"], "actor_new_session")
+        self.assertEqual(captured[0]["args"]["actor_id"], "grok-1")
+
+        captured.clear()
+        client.group_reset(group_id="g_1", confirm="g_1", by="user")
+        self.assertEqual(captured[0]["op"], "group_reset")
+        self.assertEqual(captured[0]["args"]["confirm"], "g_1")
+
+        with self.assertRaisesRegex(ValueError, "confirm"):
+            client.group_reset(group_id="g_1", confirm="g_wrong")
 
     def test_capability_extensions(self) -> None:
         captured, client = self._capture({"action_id": "cv_1"})
@@ -950,7 +1056,7 @@ class TestClientContractParity(unittest.TestCase):
         captured.clear()
         client.assistant_status_update(
             group_id="g_1",
-            assistant_id="pet",
+            assistant_id="voice_secretary",
             lifecycle="working",
             health={"ok": True},
         )
@@ -1003,6 +1109,20 @@ class TestClientContractParity(unittest.TestCase):
         self.assertIs(captured[0]["args"]["strip_ansi"], True)
 
         captured.clear()
+        client.terminal_history(
+            group_id="g_1",
+            actor_id="a1",
+            before=12_000,
+            limit_bytes=32_000,
+            strip_ansi=True,
+            compact=True,
+        )
+        self.assertEqual(captured[0]["op"], "terminal_history")
+        self.assertEqual(captured[0]["args"]["before"], 12_000)
+        self.assertEqual(captured[0]["args"]["limit_bytes"], 32_000)
+        self.assertIs(captured[0]["args"]["strip_ansi"], True)
+
+        captured.clear()
         client.terminal_clear(group_id="g_1", actor_id="a1")
         self.assertEqual(captured[0]["op"], "terminal_clear")
 
@@ -1039,7 +1159,7 @@ class TestClientContractParity(unittest.TestCase):
         self.assertIs(captured[0]["args"]["requires_ack"], True)
         self.assertEqual(captured[0]["args"]["target_actor_id"], "a1")
 
-    def test_admin_and_pet_ops(self) -> None:
+    def test_admin_ops(self) -> None:
         captured, client = self._capture({"removed_group_ids": []})
         client.registry_reconcile(remove_missing=True)
         self.assertEqual(captured[0]["op"], "registry_reconcile")
@@ -1049,21 +1169,6 @@ class TestClientContractParity(unittest.TestCase):
         client.group_detach_scope(group_id="g_1", scope_key="scope_a")
         self.assertEqual(captured[0]["op"], "group_detach_scope")
         self.assertEqual(captured[0]["args"]["scope_key"], "scope_a")
-
-        captured.clear()
-        client.pet_decisions_get(group_id="g_1")
-        self.assertEqual(captured[0]["op"], "pet_decisions_get")
-
-        captured.clear()
-        client.pet_decisions_replace(
-            group_id="g_1", actor_id="pet", decisions=[{"id": "d_1"}]
-        )
-        self.assertEqual(captured[0]["op"], "pet_decisions_replace")
-        self.assertEqual(captured[0]["args"]["decisions"], [{"id": "d_1"}])
-
-        captured.clear()
-        client.pet_decisions_clear(group_id="g_1", actor_id="pet")
-        self.assertEqual(captured[0]["op"], "pet_decisions_clear")
 
     def test_cccc_0_4_18_runtime_and_voice_ops(self) -> None:
         captured, client = self._capture({"ok": True})

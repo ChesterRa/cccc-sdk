@@ -2,9 +2,9 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **contract-first SDK for current CCCC daemon IPC v1**. Package
-> versions track `cccc` core (currently 0.4.18). See `CHANGELOG.md` for the
-> per-version op surface, and `spec/ADAPTATION_PLAN.md` for remaining work.
+> Status: **contract-first SDK for CCCC daemon IPC v1**. Source packages on
+> `main` target CCCC 0.4.32; publishing remains a separate release step. See
+> `CHANGELOG.md` and `spec/ADAPTATION_PLAN.md` for exact scope.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
 
@@ -22,13 +22,14 @@ If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared imme
 
 - `python/` — Python package (`cccc-sdk`, import name `cccc_sdk`)
 - `ts/` — TypeScript package (`cccc-sdk`)
-- `spec/` — mirrored contract docs used for SDK development
+- `spec/CCCC_*.md` and `spec/CCCS_V1.md` — mirrored CCCC contract docs
+- `spec/SDK_*.md` — SDK-owned surface notes that are not yet core standards
 
 Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
 - Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
-- Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and ReMe memory search
+- Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and first-class local memory
 
 For language-specific details:
 - Python SDK: `python/README.md`
@@ -107,6 +108,10 @@ This repo keeps a mirror under `spec/`:
 ```bash
 ./scripts/sync_specs_from_cccc.sh ../cccc
 ```
+
+The sync command intentionally replaces only the three mirrored standards.
+SDK-specific surfaces are documented separately, for example in
+`spec/SDK_LOCAL_MEMORY_API.md`.
 
 ---
 

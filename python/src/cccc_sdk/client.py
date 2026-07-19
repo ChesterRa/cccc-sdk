@@ -136,6 +136,19 @@ class CCCCClient:
     def group_delete(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("group_delete", {"group_id": str(group_id), "by": str(by)})
 
+    def group_reset(
+        self,
+        *,
+        group_id: str,
+        confirm: str,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        """Replace a group with a clean group while preserving selected configuration."""
+        gid = str(group_id)
+        if str(confirm) != gid:
+            raise ValueError("group_reset requires confirm to equal group_id")
+        return self.call("group_reset", {"group_id": gid, "confirm": gid, "by": str(by)})
+
     def group_use(self, *, group_id: str, path: str, by: str = "user") -> Dict[str, Any]:
         return self.call("group_use", {"group_id": str(group_id), "path": str(path), "by": str(by)})
 
@@ -282,6 +295,12 @@ class CCCCClient:
 
     def actor_restart(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_restart", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)})
+
+    def actor_new_session(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call(
+            "actor_new_session",
+            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
+        )
 
     def runtime_hermes_status(self) -> Dict[str, Any]:
         return self.call("runtime_hermes_status", {})
@@ -675,10 +694,14 @@ class CCCCClient:
     def memory_search(
         self,
         *,
+        group_id: str,
         query: str,
-        group_id: Optional[str] = None,
         actor_id: Optional[str] = None,
         limit: Optional[int] = None,
+        max_results: Optional[int] = None,
+        vector_weight: Optional[float] = None,
+        candidate_multiplier: Optional[float] = None,
+        min_score: Optional[float] = None,
         tags: Optional[List[str]] = None,
         target: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -690,6 +713,10 @@ class CCCCClient:
                     "actor_id": actor_id,
                     "query": str(query),
                     "limit": int(limit) if limit is not None else None,
+                    "max_results": int(max_results) if max_results is not None else None,
+                    "vector_weight": float(vector_weight) if vector_weight is not None else None,
+                    "candidate_multiplier": float(candidate_multiplier) if candidate_multiplier is not None else None,
+                    "min_score": float(min_score) if min_score is not None else None,
                     "tags": [str(x) for x in tags] if tags is not None else None,
                     "target": str(target) if target is not None else None,
                 }
@@ -699,7 +726,7 @@ class CCCCClient:
     def memory_get(
         self,
         *,
-        group_id: Optional[str] = None,
+        group_id: str,
         path: Optional[str] = None,
         actor_id: Optional[str] = None,
         target: Optional[str] = None,
@@ -725,9 +752,9 @@ class CCCCClient:
     def memory_write(
         self,
         *,
+        group_id: str,
         target: str,
         content: str,
-        group_id: Optional[str] = None,
         actor_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
         source_refs: Optional[List[str]] = None,
@@ -752,13 +779,13 @@ class CCCCClient:
             ),
         )
 
-    def memory_health(self, *, group_id: Optional[str] = None) -> Dict[str, Any]:
-        return self.call("memory_health", _compact({"group_id": group_id}))
+    def memory_health(self, *, group_id: str) -> Dict[str, Any]:
+        return self.call("memory_health", {"group_id": str(group_id)})
 
     def memory_profile_get(
         self,
         *,
-        group_id: Optional[str] = None,
+        group_id: str,
         actor_id: Optional[str] = None,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -774,6 +801,54 @@ class CCCCClient:
                 }
             ),
         )
+
+    def memory_reme_search(
+        self,
+        *,
+        group_id: str,
+        query: str,
+        actor_id: str = "",
+        limit: Optional[int] = None,
+        max_results: Optional[int] = None,
+        vector_weight: Optional[float] = None,
+        candidate_multiplier: Optional[float] = None,
+        min_score: Optional[float] = None,
+        sources: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Call the lower-level ReMe search operation explicitly."""
+        args: Dict[str, Any] = {"group_id": str(group_id), "query": str(query)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if max_results is not None or limit is not None:
+            args["max_results"] = int(max_results if max_results is not None else limit)
+        if vector_weight is not None:
+            args["vector_weight"] = float(vector_weight)
+        if candidate_multiplier is not None:
+            args["candidate_multiplier"] = float(candidate_multiplier)
+        if min_score is not None:
+            args["min_score"] = float(min_score)
+        if sources is not None:
+            args["sources"] = [str(x) for x in sources]
+        return self.call("memory_reme_search", args)
+
+    def memory_reme_get(
+        self,
+        *,
+        group_id: str,
+        path: str,
+        actor_id: str = "",
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Call the lower-level ReMe file-slice operation explicitly."""
+        args: Dict[str, Any] = {"group_id": str(group_id), "path": str(path)}
+        if actor_id:
+            args["actor_id"] = str(actor_id)
+        if offset is not None:
+            args["offset"] = int(offset)
+        if limit is not None:
+            args["limit"] = int(limit)
+        return self.call("memory_reme_get", args)
 
     def group_space_status(self, *, group_id: str, provider: str = "notebooklm") -> Dict[str, Any]:
         return self.call("group_space_status", {"group_id": str(group_id), "provider": str(provider)})
@@ -1007,6 +1082,7 @@ class CCCCClient:
         group_id: str,
         dst_group_id: str,
         text: str,
+        insight: str = "",
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
@@ -1024,6 +1100,8 @@ class CCCCClient:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
+        if insight:
+            args["insight"] = str(insight)
         if refs is not None:
             args["refs"] = [dict(r) for r in refs]
         if attachments is not None:
@@ -1035,6 +1113,8 @@ class CCCCClient:
         *,
         group_id: str,
         text: str,
+        insight: str = "",
+        suggested_user_message: str = "",
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
@@ -1053,6 +1133,10 @@ class CCCCClient:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
+        if insight:
+            args["insight"] = str(insight)
+        if suggested_user_message:
+            args["suggested_user_message"] = str(suggested_user_message)
         if path:
             args["path"] = str(path)
         if refs is not None:
@@ -1069,6 +1153,8 @@ class CCCCClient:
         group_id: str,
         reply_to: str,
         text: str,
+        insight: str = "",
+        suggested_user_message: str = "",
         by: str = "user",
         to: Optional[List[str]] = None,
         priority: str = "normal",
@@ -1087,6 +1173,10 @@ class CCCCClient:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
+        if insight:
+            args["insight"] = str(insight)
+        if suggested_user_message:
+            args["suggested_user_message"] = str(suggested_user_message)
         if refs is not None:
             args["refs"] = [dict(r) for r in refs]
         if attachments is not None:
@@ -1318,7 +1408,6 @@ class CCCCClient:
         environment_summary: Optional[str] = None,
         user_model: Optional[str] = None,
         persona_notes: Optional[str] = None,
-        resume_hint: Optional[str] = None,
     ) -> Dict[str, Any]:
         op = _compact(
             {
@@ -1334,7 +1423,6 @@ class CCCCClient:
                 "environment_summary": environment_summary,
                 "user_model": user_model,
                 "persona_notes": persona_notes,
-                "resume_hint": resume_hint,
             }
         )
         return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
@@ -1363,6 +1451,7 @@ class CCCCClient:
         *,
         group_id: str,
         text: str,
+        insight: str = "",
         title: str = "",
         by: str = "user",
         to: Optional[List[str]] = None,
@@ -1391,6 +1480,8 @@ class CCCCClient:
         }
         if title:
             args["title"] = str(title)
+        if insight:
+            args["insight"] = str(insight)
         if to is not None:
             args["to"] = [str(x) for x in to]
         if path:
@@ -1483,17 +1574,33 @@ class CCCCClient:
     def group_copy_export(self, *, group_id: str) -> Dict[str, Any]:
         return self.call("group_copy_export", {"group_id": str(group_id)})
 
-    def group_copy_preview_import(self, *, package_b64: str) -> Dict[str, Any]:
-        return self.call("group_copy_preview_import", {"package_b64": str(package_b64)})
+    def group_copy_export_file(self, *, group_id: str) -> Dict[str, Any]:
+        return self.call("group_copy_export_file", {"group_id": str(group_id)})
+
+    def group_copy_preview_import(
+        self,
+        *,
+        package_b64: str = "",
+        package_path: str = "",
+    ) -> Dict[str, Any]:
+        if bool(package_b64) == bool(package_path):
+            raise ValueError("exactly one of package_b64 or package_path is required")
+        args = {"package_b64": str(package_b64)} if package_b64 else {"package_path": str(package_path)}
+        return self.call("group_copy_preview_import", args)
 
     def group_copy_import(
         self,
         *,
-        package_b64: str,
+        package_b64: str = "",
+        package_path: str = "",
         workspace_root: str = "",
         title: str = "",
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {"package_b64": str(package_b64)}
+        if bool(package_b64) == bool(package_path):
+            raise ValueError("exactly one of package_b64 or package_path is required")
+        args: Dict[str, Any] = (
+            {"package_b64": str(package_b64)} if package_b64 else {"package_path": str(package_path)}
+        )
         if workspace_root:
             args["workspace_root"] = str(workspace_root)
         if title:
@@ -1836,6 +1943,32 @@ class CCCCClient:
             {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
         )
 
+    def terminal_history(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        before: Optional[int] = None,
+        limit_bytes: int = 64_000,
+        strip_ansi: bool = False,
+        compact: bool = False,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        return self.call(
+            "terminal_history",
+            _compact(
+                {
+                    "group_id": str(group_id),
+                    "actor_id": str(actor_id),
+                    "before": int(before) if before is not None else None,
+                    "limit_bytes": int(limit_bytes),
+                    "strip_ansi": bool(strip_ansi),
+                    "compact": bool(compact),
+                    "by": str(by),
+                }
+            ),
+        )
+
     # ---------------------------------------------------------------------
     # Maintenance (ledger)
     # ---------------------------------------------------------------------
@@ -1948,40 +2081,6 @@ class CCCCClient:
             "group_detach_scope",
             {"group_id": str(group_id), "scope_key": str(scope_key), "by": str(by)},
         )
-
-    # ---------------------------------------------------------------------
-    # PET assistant decisions
-    # ---------------------------------------------------------------------
-
-    def pet_decisions_get(self, *, group_id: str) -> Dict[str, Any]:
-        return self.call("pet_decisions_get", {"group_id": str(group_id)})
-
-    def pet_decisions_replace(
-        self,
-        *,
-        group_id: str,
-        actor_id: str,
-        decisions: List[Dict[str, Any]],
-        by: str = "user",
-    ) -> Dict[str, Any]:
-        return self.call(
-            "pet_decisions_replace",
-            {
-                "group_id": str(group_id),
-                "actor_id": str(actor_id),
-                "decisions": [dict(d) for d in decisions],
-                "by": str(by),
-            },
-        )
-
-    def pet_decisions_clear(
-        self, *, group_id: str, actor_id: str, by: str = "user"
-    ) -> Dict[str, Any]:
-        return self.call(
-            "pet_decisions_clear",
-            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
-        )
-
 
     # ---------------------------------------------------------------------
     # events_stream (push stream)

@@ -23,6 +23,15 @@ def main() -> int:
             "chat_ack",
             "notify_ack",
             "send_cross_group",
+            "memory_search",
+            "memory_get",
+            "memory_write",
+            "memory_profile_get",
+            "memory_health",
+            "actor_new_session",
+            "group_reset",
+            "group_copy_export_file",
+            "terminal_history",
         ],
     )
     print(json.dumps({"ok": True, "daemon": info}, ensure_ascii=False, indent=2))
@@ -31,4 +40,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

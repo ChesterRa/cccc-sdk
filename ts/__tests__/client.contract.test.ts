@@ -299,11 +299,15 @@ describe('message ops (cccc 0.4.17)', () => {
       refs: [{ kind: 'task_ref', task_id: 't_42' }],
       attachments: [{ kind: 'file', path: 'blobs/a.txt' }],
       clientId: 'cl_1',
+      insight: 'Rollback remains unverified.',
+      suggestedUserMessage: 'Please confirm the rollback evidence.',
     });
     assert.equal(calls[0]?.op, 'send');
     assert.deepEqual(calls[0]?.args?.['refs'], [{ kind: 'task_ref', task_id: 't_42' }]);
     assert.deepEqual(calls[0]?.args?.['attachments'], [{ kind: 'file', path: 'blobs/a.txt' }]);
     assert.equal(calls[0]?.args?.['client_id'], 'cl_1');
+    assert.equal(calls[0]?.args?.['insight'], 'Rollback remains unverified.');
+    assert.equal(calls[0]?.args?.['suggested_user_message'], 'Please confirm the rollback evidence.');
   });
 
   it('reply forwards refs', async () => {
@@ -314,9 +318,13 @@ describe('message ops (cccc 0.4.17)', () => {
       replyTo: 'e_origin',
       text: 'roger',
       refs: [{ kind: 'presentation_ref', slot_id: 'slot-1' }],
+      insight: 'The current frame may be too narrow.',
+      suggestedUserMessage: 'Should we widen the frame?',
     });
     assert.equal(calls[0]?.op, 'reply');
     assert.deepEqual(calls[0]?.args?.['refs'], [{ kind: 'presentation_ref', slot_id: 'slot-1' }]);
+    assert.equal(calls[0]?.args?.['insight'], 'The current frame may be too narrow.');
+    assert.equal(calls[0]?.args?.['suggested_user_message'], 'Should we widen the frame?');
   });
 
   it('sendCrossGroup forwards refs', async () => {
@@ -327,9 +335,14 @@ describe('message ops (cccc 0.4.17)', () => {
       dstGroupId: 'g_dst',
       text: 'relay',
       refs: [{ kind: 'url', url: 'https://example.com' }],
+      insight: 'The destination should challenge this plan independently.',
     });
     assert.equal(calls[0]?.op, 'send_cross_group');
     assert.deepEqual(calls[0]?.args?.['refs'], [{ kind: 'url', url: 'https://example.com' }]);
+    assert.equal(
+      calls[0]?.args?.['insight'],
+      'The destination should challenge this plan independently.',
+    );
   });
 });
 
@@ -363,6 +376,27 @@ describe('actor fields (cccc 0.4.17)', () => {
   });
 });
 
+describe('cccc 0.4.32 lifecycle delta', () => {
+  it('maps actorNewSession and guarded groupReset', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.actorNewSession('g_1', 'grok-1');
+    assert.equal(calls[0]?.op, 'actor_new_session');
+    assert.equal(calls[0]?.args?.['actor_id'], 'grok-1');
+
+    await client.groupReset({ groupId: 'g_1', confirmGroupId: 'g_1' });
+    assert.equal(calls[1]?.op, 'group_reset');
+    assert.equal(calls[1]?.args?.['confirm'], 'g_1');
+
+    await assert.rejects(
+      client.groupReset({ groupId: 'g_1', confirmGroupId: 'g_wrong' }),
+      /confirmGroupId/,
+    );
+    assert.equal(calls.length, 2);
+  });
+});
+
 describe('tracked delegation', () => {
   it('trackedSend maps all fields', async () => {
     const calls: CallCapture[] = [];
@@ -385,6 +419,7 @@ describe('tracked delegation', () => {
       handoffTo: 'alice',
       assignee: 'alice',
       refs: [{ kind: 'url', url: 'https://example.com/issue/1' }],
+      insight: 'We may be optimizing the wrong layer.',
     });
     assert.equal(calls[0]?.op, 'tracked_send');
     const args = calls[0]?.args ?? {};
@@ -395,6 +430,7 @@ describe('tracked delegation', () => {
     assert.deepEqual(args['checklist'], [{ label: 'repro' }, { label: 'patch' }]);
     assert.deepEqual(args['blocked_by'], ['t_0']);
     assert.equal(args['handoff_to'], 'alice');
+    assert.equal(args['insight'], 'We may be optimizing the wrong layer.');
   });
 
   it('trackedSend omits unset optionals', async () => {
@@ -447,14 +483,24 @@ describe('group copy', () => {
     await client.groupCopyExport({ groupId: 'g_1' });
     assert.equal(calls[0]?.op, 'group_copy_export');
 
+    await client.groupCopyExportFile({ groupId: 'g_1' });
+    assert.equal(calls[1]?.op, 'group_copy_export_file');
+
     await client.groupCopyPreviewImport({ packageB64: 'ZZZ=' });
-    assert.equal(calls[1]?.op, 'group_copy_preview_import');
-    assert.equal(calls[1]?.args?.['package_b64'], 'ZZZ=');
+    assert.equal(calls[2]?.op, 'group_copy_preview_import');
+    assert.equal(calls[2]?.args?.['package_b64'], 'ZZZ=');
+
+    await client.groupCopyPreviewImport({ packagePath: '/tmp/group.zip' });
+    assert.equal(calls[3]?.args?.['package_path'], '/tmp/group.zip');
 
     await client.groupCopyImport({ packageB64: 'ZZZ=', workspaceRoot: '/tmp/x', title: 'Restored' });
-    assert.equal(calls[2]?.op, 'group_copy_import');
-    assert.equal(calls[2]?.args?.['workspace_root'], '/tmp/x');
-    assert.equal(calls[2]?.args?.['title'], 'Restored');
+    assert.equal(calls[4]?.op, 'group_copy_import');
+    assert.equal(calls[4]?.args?.['workspace_root'], '/tmp/x');
+    assert.equal(calls[4]?.args?.['title'], 'Restored');
+
+    await client.groupCopyImport({ packagePath: '/tmp/group.zip', title: 'Restored from file' });
+    assert.equal(calls[5]?.args?.['package_path'], '/tmp/group.zip');
+    assert.equal(calls[5]?.args?.['title'], 'Restored from file');
   });
 });
 
@@ -564,7 +610,7 @@ describe('assistant', () => {
 
     await client.assistantStatusUpdate({
       groupId: 'g_1',
-      assistantId: 'pet',
+      assistantId: 'voice_secretary',
       lifecycle: 'working',
       health: { ok: true },
     });
@@ -613,21 +659,33 @@ describe('diagnostics & maintenance', () => {
     assert.equal(calls[3]?.op, 'terminal_tail');
     assert.equal(calls[3]?.args?.['max_chars'], 4000);
 
+    await client.terminalHistory({
+      groupId: 'g_1',
+      actorId: 'a1',
+      before: 12_000,
+      limitBytes: 32_000,
+      stripAnsi: true,
+      compact: true,
+    });
+    assert.equal(calls[4]?.op, 'terminal_history');
+    assert.equal(calls[4]?.args?.['before'], 12_000);
+    assert.equal(calls[4]?.args?.['limit_bytes'], 32_000);
+
     await client.terminalClear({ groupId: 'g_1', actorId: 'a1' });
-    assert.equal(calls[4]?.op, 'terminal_clear');
+    assert.equal(calls[5]?.op, 'terminal_clear');
 
     await client.ledgerSnapshot({ groupId: 'g_1', reason: 'manual' });
-    assert.equal(calls[5]?.op, 'ledger_snapshot');
-    assert.equal(calls[5]?.args?.['reason'], 'manual');
+    assert.equal(calls[6]?.op, 'ledger_snapshot');
+    assert.equal(calls[6]?.args?.['reason'], 'manual');
 
     await client.ledgerCompact({ groupId: 'g_1', force: true });
-    assert.equal(calls[6]?.op, 'ledger_compact');
-    assert.equal(calls[6]?.args?.['force'], true);
+    assert.equal(calls[7]?.op, 'ledger_compact');
+    assert.equal(calls[7]?.args?.['force'], true);
   });
 });
 
-describe('stream / notify / admin / pet', () => {
-  it('streamEmit + systemNotify + registry + detach + pet decisions', async () => {
+describe('stream / notify / admin', () => {
+  it('streamEmit + systemNotify + registry + detach', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
     await client.streamEmit({ groupId: 'g_1', op: 'start', by: 'a1', text: 'hello', seq: 1 });
@@ -653,20 +711,6 @@ describe('stream / notify / admin / pet', () => {
     await client.groupDetachScope({ groupId: 'g_1', scopeKey: 'scope_a' });
     assert.equal(calls[3]?.op, 'group_detach_scope');
     assert.equal(calls[3]?.args?.['scope_key'], 'scope_a');
-
-    await client.petDecisionsGet({ groupId: 'g_1' });
-    assert.equal(calls[4]?.op, 'pet_decisions_get');
-
-    await client.petDecisionsReplace({
-      groupId: 'g_1',
-      actorId: 'pet',
-      decisions: [{ id: 'd_1' }],
-    });
-    assert.equal(calls[5]?.op, 'pet_decisions_replace');
-    assert.deepEqual(calls[5]?.args?.['decisions'], [{ id: 'd_1' }]);
-
-    await client.petDecisionsClear({ groupId: 'g_1', actorId: 'pet' });
-    assert.equal(calls[6]?.op, 'pet_decisions_clear');
   });
 });
 

@@ -32,7 +32,11 @@ jobs:
 
       - name: Install dependencies
         working-directory: ts
-        run: npm install
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: ts
+        run: npm test
 
       - name: Type check
         working-directory: ts

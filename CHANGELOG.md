@@ -3,6 +3,48 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [0.4.32] — Unreleased
+
+### Added
+
+- First-class Python and TypeScript wrappers for `memory_search`, `memory_get`,
+  `memory_write`, `memory_profile_get`, and `memory_health`.
+- Explicit `memory_reme_search` / `memory_reme_get` compatibility helpers
+  (TypeScript: `memoryRemeSearch` / `memoryRemeGet`) for lower-level ReMe
+  result shapes and source controls.
+- Optional structured `insight` support on send, reply, cross-group send, and
+  tracked send operations.
+- Fresh-session control for Claude, Codex, and Grok actors via
+  `actor_new_session`; guarded clean group replacement via `group_reset`.
+- Cursor-paginated `terminal_history` diagnostics and file-backed
+  `group_copy_export_file` for large copy packages.
+- TypeScript event typing for `chat.cross_group_receipt` and current runtime
+  literals (`antigravity`, `copilot`, `cursor`, `devin`, `kiro`, `kilo`,
+  `grok`, and `opencode`).
+- `suggested_user_message` support on send/reply (TypeScript:
+  `suggestedUserMessage`).
+
+### Changed
+
+- Local-memory `group_id` / `groupId` is required, matching the daemon's real
+  validation behavior.
+- First-class memory search preserves the daemon's recall and threshold
+  controls instead of dropping them.
+- Resynced the three mirrored standards files from current CCCC core; SDK-only
+  local-memory notes now live in `spec/SDK_LOCAL_MEMORY_API.md`.
+- Group-copy preview/import now accept exactly one of an inline base64 package
+  or a daemon-local package path.
+
+### Removed
+
+- Removed the defunct PET decision wrappers and PET internal-actor literal;
+  CCCC removed the PET mechanism in 0.4.27 and now returns `unknown_op` for
+  those operations.
+- Removed `gemini` and `neovate` from the documented known-runtime catalog;
+  arbitrary runtime strings remain forward-compatible in TypeScript.
+- Removed `resume_hint` / `resumeHint` from agent-state updates. Current
+  Context Ops uses `open_loops` for unfinished-work and resume notes.
+
 ## [0.4.18] — Aligned with CCCC 0.4.18
 
 Focused compatibility release for the CCCC 0.4.18 daemon line.

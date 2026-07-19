@@ -13,6 +13,7 @@ import type {
   ReplyOptions,
   ActorAddOptions,
   ActorUpdateOptions,
+  GroupResetOptions,
   ActorEnvPrivateUpdateOptions,
   ActorProfileUpsertOptions,
   ActorProfileSecretUpdateOptions,
@@ -82,6 +83,8 @@ import type {
   MemoryWriteOptions,
   MemoryHealthOptions,
   MemoryProfileGetOptions,
+  MemoryRemeSearchOptions,
+  MemoryRemeGetOptions,
   TrackedSendOptions,
   TaskListOptions,
   HeadlessStatusOptions,
@@ -106,6 +109,7 @@ import type {
   DebugTailLogsOptions,
   DebugClearLogsOptions,
   TerminalTailOptions,
+  TerminalHistoryOptions,
   TerminalClearOptions,
   LedgerSnapshotOptions,
   LedgerCompactOptions,
@@ -113,9 +117,6 @@ import type {
   SystemNotifyOptions,
   RegistryReconcileOptions,
   GroupDetachScopeOptions,
-  PetDecisionsGetOptions,
-  PetDecisionsReplaceOptions,
-  PetDecisionsClearOptions,
   RuntimeHermesPrepareOptions,
   RuntimeHermesMcpTestOptions,
 } from './types.js';
@@ -337,6 +338,22 @@ export class CCCCClient {
     return this.call('group_delete', { group_id: groupId, by });
   }
 
+  /** Replace a group with a clean group while preserving selected configuration. */
+  async groupReset(options: GroupResetOptions): Promise<Record<string, unknown>> {
+    if (options.confirmGroupId !== options.groupId) {
+      throw new DaemonAPIError(
+        'invalid_args',
+        'groupReset requires confirmGroupId to equal groupId',
+        {},
+      );
+    }
+    return this.call('group_reset', {
+      group_id: options.groupId,
+      confirm: options.confirmGroupId,
+      by: options.by ?? 'user',
+    });
+  }
+
   /**
    * Use group (set active scope)
    */
@@ -525,6 +542,11 @@ export class CCCCClient {
    */
   async actorRestart(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_restart', { group_id: groupId, actor_id: actorId, by });
+  }
+
+  /** Start a fresh provider session for a supported Claude, Codex, or Grok PTY actor. */
+  async actorNewSession(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
+    return this.call('actor_new_session', { group_id: groupId, actor_id: actorId, by });
   }
 
   async runtimeHermesStatus(): Promise<Record<string, unknown>> {
@@ -863,6 +885,10 @@ export class CCCCClient {
       actor_id: options.actorId,
       query: options.query,
       limit: options.limit,
+      max_results: options.maxResults,
+      vector_weight: options.vectorWeight,
+      candidate_multiplier: options.candidateMultiplier,
+      min_score: options.minScore,
       tags: options.tags,
       target: options.target,
     }));
@@ -894,7 +920,7 @@ export class CCCCClient {
     }));
   }
 
-  async memoryHealth(options: MemoryHealthOptions = {}): Promise<Record<string, unknown>> {
+  async memoryHealth(options: MemoryHealthOptions): Promise<Record<string, unknown>> {
     return this.call('memory_health', compactRecord({
       group_id: options.groupId,
     }));
@@ -906,6 +932,31 @@ export class CCCCClient {
       actor_id: options.actorId,
       user_id: options.userId,
       tags: options.tags,
+    }));
+  }
+
+  /** Call the lower-level ReMe search operation explicitly. */
+  async memoryRemeSearch(options: MemoryRemeSearchOptions): Promise<Record<string, unknown>> {
+    return this.call('memory_reme_search', compactRecord({
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      query: options.query,
+      max_results: options.maxResults ?? options.limit,
+      vector_weight: options.vectorWeight,
+      candidate_multiplier: options.candidateMultiplier,
+      min_score: options.minScore,
+      sources: options.sources,
+    }));
+  }
+
+  /** Call the lower-level ReMe file-slice operation explicitly. */
+  async memoryRemeGet(options: MemoryRemeGetOptions): Promise<Record<string, unknown>> {
+    return this.call('memory_reme_get', compactRecord({
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      path: options.path,
+      offset: options.offset,
+      limit: options.limit,
     }));
   }
 
@@ -929,6 +980,8 @@ export class CCCCClient {
     };
 
     if (options.to) args['to'] = options.to;
+    if (options.insight) args['insight'] = options.insight;
+    if (options.suggestedUserMessage) args['suggested_user_message'] = options.suggestedUserMessage;
     if (options.path) args['path'] = options.path;
     if (options.refs) args['refs'] = options.refs;
     if (options.attachments) args['attachments'] = options.attachments;
@@ -951,6 +1004,7 @@ export class CCCCClient {
     };
 
     if (options.to) args['to'] = options.to;
+    if (options.insight) args['insight'] = options.insight;
     if (options.refs) args['refs'] = options.refs;
     if (options.attachments) args['attachments'] = options.attachments;
 
@@ -971,6 +1025,8 @@ export class CCCCClient {
     };
 
     if (options.to) args['to'] = options.to;
+    if (options.insight) args['insight'] = options.insight;
+    if (options.suggestedUserMessage) args['suggested_user_message'] = options.suggestedUserMessage;
     if (options.refs) args['refs'] = options.refs;
     if (options.attachments) args['attachments'] = options.attachments;
     if (options.clientId) args['client_id'] = options.clientId;
@@ -1225,7 +1281,6 @@ export class CCCCClient {
       environment_summary: options.environmentSummary,
       user_model: options.userModel,
       persona_notes: options.personaNotes,
-      resume_hint: options.resumeHint,
     }), options.by, options.dryRun);
   }
 
@@ -1259,6 +1314,7 @@ export class CCCCClient {
       by: options.by ?? 'user',
     };
     if (options.title) args['title'] = options.title;
+    if (options.insight) args['insight'] = options.insight;
     if (options.to) args['to'] = options.to;
     if (options.path) args['path'] = options.path;
     if (options.priority) args['priority'] = options.priority;
@@ -1325,14 +1381,42 @@ export class CCCCClient {
     return this.call('group_copy_export', { group_id: options.groupId });
   }
 
+  async groupCopyExportFile(options: GroupCopyExportOptions): Promise<Record<string, unknown>> {
+    return this.call('group_copy_export_file', { group_id: options.groupId });
+  }
+
   async groupCopyPreviewImport(
     options: GroupCopyPreviewImportOptions
   ): Promise<Record<string, unknown>> {
-    return this.call('group_copy_preview_import', { package_b64: options.packageB64 });
+    const packageB64 = options.packageB64;
+    const packagePath = options.packagePath;
+    if (Boolean(packageB64) === Boolean(packagePath)) {
+      throw new DaemonAPIError(
+        'invalid_args',
+        'exactly one of packageB64 or packagePath is required',
+        {},
+      );
+    }
+    return this.call('group_copy_preview_import', compactRecord({
+      package_b64: packageB64,
+      package_path: packagePath,
+    }));
   }
 
   async groupCopyImport(options: GroupCopyImportOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = { package_b64: options.packageB64 };
+    const packageB64 = options.packageB64;
+    const packagePath = options.packagePath;
+    if (Boolean(packageB64) === Boolean(packagePath)) {
+      throw new DaemonAPIError(
+        'invalid_args',
+        'exactly one of packageB64 or packagePath is required',
+        {},
+      );
+    }
+    const args: Record<string, unknown> = compactRecord({
+      package_b64: packageB64,
+      package_path: packagePath,
+    });
     if (options.workspaceRoot) args['workspace_root'] = options.workspaceRoot;
     if (options.title) args['title'] = options.title;
     return this.call('group_copy_import', args);
@@ -1575,6 +1659,18 @@ export class CCCCClient {
     });
   }
 
+  async terminalHistory(options: TerminalHistoryOptions): Promise<Record<string, unknown>> {
+    return this.call('terminal_history', compactRecord({
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      before: options.before,
+      limit_bytes: options.limitBytes ?? 64_000,
+      strip_ansi: options.stripAnsi ?? false,
+      compact: options.compact ?? false,
+      by: options.by ?? 'user',
+    }));
+  }
+
   async terminalClear(options: TerminalClearOptions): Promise<Record<string, unknown>> {
     return this.call('terminal_clear', {
       group_id: options.groupId,
@@ -1660,33 +1756,6 @@ export class CCCCClient {
     return this.call('group_detach_scope', {
       group_id: options.groupId,
       scope_key: options.scopeKey,
-      by: options.by ?? 'user',
-    });
-  }
-
-  // ============================================================
-  // Convenience methods: PET assistant decisions
-  // ============================================================
-
-  async petDecisionsGet(options: PetDecisionsGetOptions): Promise<Record<string, unknown>> {
-    return this.call('pet_decisions_get', { group_id: options.groupId });
-  }
-
-  async petDecisionsReplace(
-    options: PetDecisionsReplaceOptions
-  ): Promise<Record<string, unknown>> {
-    return this.call('pet_decisions_replace', {
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      decisions: options.decisions,
-      by: options.by ?? 'user',
-    });
-  }
-
-  async petDecisionsClear(options: PetDecisionsClearOptions): Promise<Record<string, unknown>> {
-    return this.call('pet_decisions_clear', {
-      group_id: options.groupId,
-      actor_id: options.actorId,
       by: options.by ?? 'user',
     });
   }
