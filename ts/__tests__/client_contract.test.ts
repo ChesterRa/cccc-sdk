@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CCCCClient } from '../src/client.js';
+import { DaemonAPIError, IncompatibleDaemonError } from '../src/errors.js';
 
 async function captureCall(
   invoke: (client: CCCCClient) => Promise<unknown>
@@ -34,6 +35,8 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       priority: 'attention',
       replyRequired: true,
       waitingOn: 'actor',
+      insight: 'This task closes the release gap.',
+      requirePeerInsight: true,
     }));
 
     assert.equal(call.op, 'tracked_send');
@@ -49,6 +52,8 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       priority: 'attention',
       reply_required: true,
       waiting_on: 'actor',
+      insight: 'This task closes the release gap.',
+      require_peer_insight: true,
     });
   });
 
@@ -324,6 +329,11 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
     });
     const order: string[] = [];
+    client.callRaw = async (op) => {
+      assert.equal(op, 'events_stream');
+      order.push('probe');
+      return { ok: true, result: {} };
+    };
     client.eventsStream = async function* () {
       order.push('stream-start');
       yield {
@@ -358,6 +368,42 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     });
 
     assert.equal(reply.id, 'reply-1');
-    assert.deepEqual(order, ['stream-start', 'send']);
+    assert.deepEqual(order, ['probe', 'stream-start', 'send']);
+  });
+
+  it('sendAndWaitForReply does not send when events_stream is unavailable', async () => {
+    const client = await CCCCClient.create({
+      endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
+    });
+    let sent = false;
+    client.callRaw = async () => {
+      throw new DaemonAPIError('unknown_op', 'unknown operation: events_stream');
+    };
+    client.send = async () => {
+      sent = true;
+      return {};
+    };
+
+    await assert.rejects(
+      client.sendAndWaitForReply({ groupId: 'g1', listenAs: 'user', text: 'question' }),
+      DaemonAPIError
+    );
+    assert.equal(sent, false);
+  });
+
+  it('assertCompatible probes events_stream instead of trusting the capability flag', async () => {
+    const client = await CCCCClient.create({
+      endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
+    });
+    client.ping = async () => ({ ipc_v: 1, capabilities: { events_stream: true } });
+    client.callRaw = async (op) => {
+      assert.equal(op, 'events_stream');
+      throw new DaemonAPIError('unknown_op', 'unknown operation: events_stream');
+    };
+
+    await assert.rejects(
+      client.assertCompatible({ requireOps: ['events_stream'] }),
+      IncompatibleDaemonError
+    );
   });
 });

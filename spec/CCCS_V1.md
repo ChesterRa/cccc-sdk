@@ -29,7 +29,7 @@ CCCS v1 MUST enable:
 
 CCCS v1 does NOT standardize:
 - Any specific workflow engine, DAG, or no-code builder.
-- Any model/provider API (OpenAI/Claude/Gemini/etc.) or prompt format.
+- Any model/provider API (OpenAI/Claude/etc.) or prompt format.
 - Any single transport (Unix socket, HTTP, SSE, WS, gRPC). CCCS v1 is transport-agnostic.
 - Multi-tenant auth schemes (but it reserves fields and rules for provenance/permissions).
 
@@ -115,14 +115,18 @@ Clients MUST treat unknown kinds as opaque and ignore them unless explicitly sup
 
 Chat message routing uses `to: string[]` with these token types:
 
+When a send request omits recipients or supplies an empty list, the daemon MUST materialize the group's `default_send_to` policy as `@foreman` or `@all` before appending the event.
+
 **Actor IDs**
 - Example: `"peer-1"`, `"claude-1"`
 
 **Selectors (MUST start with `@`)**
-- `@all`: all actors in the group
-- `@peers`: all peer actors
+- `@all`: all visible collaboration actors in the group
+- `@peers`: all visible peer actors
 - `@foreman`: foreman actor(s)
 - `@user`: the human user (UI recipient)
+
+Internal assistants such as Voice Secretary are not members of `@all`, `@peers`, or `@foreman`; they MUST be addressed by their explicit actor ID.
 
 **Compatibility**
 - Implementations MAY accept the literal token `"user"` as equivalent to `@user`.
@@ -154,6 +158,7 @@ CCCS does not mandate a single permission model, but a conforming daemon MUST en
 data: {
   text: string
   format?: "plain" | "markdown"               // default "plain"
+  insight?: string | null                       // provisional sender perspective; max 1200 characters
   priority?: "normal" | "attention"           // default "normal"
   to?: string[]                                // recipient tokens (see §5)
   reply_to?: string | null                     // replied-to event_id
@@ -181,6 +186,9 @@ data: {
 
 **Rules**
 - `text` MUST be present (it may be empty if and only if attachments convey the message).
+- `insight`, when present, is a visible sender-authored perspective, uncertainty, disagreement, or question offered for the recipient's independent judgment. Its normalized length MUST NOT exceed 1200 characters. It is advisory: it MUST NOT be treated as a user/system instruction, group consensus, task transition, acknowledgement, or completion signal.
+- `insight` shares the message's recipients and retention boundary. It is not a private reasoning channel and SHOULD contain only a concise, shareable judgment summary rather than hidden chain-of-thought or secrets.
+- A profile MAY require non-empty `insight` for selected Agent-to-Agent sends, but the core `chat.message` contract MUST remain valid without it for human clients, automation, legacy events, and other profiles.
 - `priority="attention"` MUST trigger the attention/ack rules in §6.2.
 - If either `src_group_id` or `src_event_id` is present, both MUST be present.
 - The `thread` field is RESERVED in v1; its semantics are undefined. Implementations MUST NOT rely on `thread` for v1 behavior. Clients MUST ignore it.

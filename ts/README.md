@@ -26,7 +26,6 @@ async function main() {
 
   await client.assertCompatible({
     requireIpcV: 1,
-    requireCapabilities: { events_stream: true },
     requireOps: ['groups', 'send', 'reply', 'tracked_send', 'context_sync'],
   });
 
@@ -48,6 +47,8 @@ main().catch(console.error);
 
 - `priority`: `'normal' | 'attention'`
 - `replyRequired`: `boolean` (maps to daemon `reply_required`)
+- `insight`: visible provisional perspective for peer-facing messages
+- `requirePeerInsight`: opt-in daemon profile gate for peer-facing messages
 
 Supported in:
 - `send(options)`
@@ -193,7 +194,7 @@ await client.contextSync({
 
 If you need a daemon op that does not have a dedicated helper yet, you can always fall back to `call()` / `callRaw()`.
 
-## CCCC 0.4.18 surface — Hermes runtime and Voice Secretary lease
+## CCCC 0.4.33 JSON alignment
 
 ```typescript
 // Hermes runtime setup diagnostics and MCP preparation
@@ -208,6 +209,24 @@ const lease = await client.assistantVoiceRecordingLease({
   ownerId: 'browser-tab-1',
   ttlSeconds: 30,
 });
+
+// Current request/response JSON helpers
+await client.send({
+  groupId,
+  text: 'Next step',
+  suggestedUserMessage: 'Run the checks',
+  insight: 'The compatibility gate is the release-critical part.',
+});
+await client.actorNewSession({ groupId, actorId: 'codex-1', clearSavedSession: true });
+await client.groupCopyExportFile({ groupId, includeBlobs: true });
+await client.groupPreambleSet({ groupId, content: 'Project-specific startup guidance' });
+await client.terminalHistory({ groupId, actorId: 'codex-1', limitBytes: 64_000 });
+await client.terminalSince({ groupId, actorId: 'codex-1', after: 0 });
+await client.termResize({ groupId, actorId: 'codex-1', cols: 120, rows: 40 });
+await client.blueprintGenerate({ groupId, taskId: 'task-1' });
+await client.memoryRemeSearch({ groupId, query: 'release notes' });
+await client.imListAuthorized({ platform: 'dingtalk' });
+await client.remoteAccessState({ groupId });
 ```
 
 ## CCCC 0.4.17 surface — new op families
@@ -273,17 +292,33 @@ await client.ledgerSnapshot({ groupId, reason: 'manual' });
 await client.brandingUpdate({ patch: { product_name: 'My CCCC' } });
 ```
 
-Not yet wrapped (use `call()` for now): remaining Voice Secretary document/transcribe/prompt ops, remaining Memory ReMe write/index/compaction ops, ChatGPT Web Model runtime, IM bridge management, Remote Access, and the streaming socket-special browser/PTY attach ops. See `spec/ADAPTATION_PLAN.md` for the roadmap.
+The current request/response JSON ops are wrapped in the Python and TypeScript
+clients. Still deferred: streaming socket-special attach ops such as PTY,
+browser, VNC, and web-model attach flows; those need a shared duplex transport
+instead of a plain `call()` / `callRaw()` wrapper. See
+`spec/ADAPTATION_PLAN.md` for the roadmap.
 
 ## Events stream
 
+Require the operation explicitly before relying on it. This probes the daemon
+instead of trusting a capability flag that may be stale or incorrect:
+
 ```typescript
+await client.assertCompatible({ requireOps: ['events_stream'] });
+
 for await (const item of client.eventsStream({ groupId })) {
   if (item.t === 'event') {
     console.log(item.event.kind, item.event.id);
   }
 }
 ```
+
+`sendAndWaitForReply()` performs the same probe before sending, so an unavailable
+stream cannot produce a sent message followed by an `unknown_op` failure.
+
+Voice transcription is no longer a daemon JSON operation in Rust CCCC. Use the
+HTTP Voice Secretary transcription endpoint; the deprecated
+`assistantVoiceTranscribe()` helper now fails locally with a migration message.
 
 ## Build and checks
 

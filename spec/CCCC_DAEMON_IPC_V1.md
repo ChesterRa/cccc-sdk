@@ -1,6 +1,6 @@
 # CCCC Daemon API/IPC Contract v1
 
-Status: Draft (for CCCC v0.4.x ecosystem)
+Status: Draft (for CCCC v0.5.x ecosystem)
 
 This document defines the **daemon-facing client contract** for CCCC: how a client (CLI/Web/MCP bridge/SDK) discovers the daemon endpoint, frames requests, and calls daemon operations.
 
@@ -106,15 +106,11 @@ For all non-streaming operations, requests and responses are framed as:
 - **One JSON object per line**, delimited by a single `\n` (newline).
 - Encoding MUST be UTF‑8.
 
-Baseline behavior (implemented by CCCC v0.4.x):
-- Each connection processes exactly **one** request line and produces exactly **one** response line.
-- The daemon then closes the connection.
-
-Clients MUST assume the daemon may close the connection after any successful response and MUST NOT rely on persistent connections.
-
-Forward-compatible extension (not required for v1):
-- A daemon MAY accept multiple request lines over a single connection (strictly serial, no pipelining).
+Baseline behavior (implemented by CCCC v0.5.x):
+- A connection accepts multiple request lines and produces one response line for each request.
+- Requests on one connection are processed strictly serially.
 - Clients MUST NOT pipeline requests (there is no request id / multiplexing in v1).
+- Clients SHOULD reuse successful connections, but MUST tolerate the daemon closing a connection after any response and reconnect through endpoint discovery.
 
 ### 4.3 Size Limits
 
@@ -122,7 +118,10 @@ Implementations MUST respect practical line limits to avoid truncation:
 - **Request line limit (daemon receive):** the daemon MAY stop reading after ~2,000,000 bytes without a newline; clients MUST keep request lines comfortably below this bound.
 - **Response line limit (typical clients):** the reference client reader MAY cap a response line at ~4,000,000 bytes; daemons SHOULD keep single-response payloads below this bound.
 
-Clients SHOULD treat truncated/invalid JSON as a transport failure.
+Clients SHOULD treat truncated/invalid JSON as a transport failure. Once any request bytes
+have been written, clients MUST NOT automatically replay the request after a send, read, or
+decode failure unless the operation carries a daemon-enforced idempotency key. Retrying a
+failure that occurred while establishing the connection is safe because no request was sent.
 
 ### 4.4 Streaming Upgrade: `term_attach`
 
@@ -334,12 +333,15 @@ Args: none
 
 Result:
 ```ts
-{ version: string; pid: number; ts: string; ipc_v?: 1; capabilities?: Record<string, unknown> }
+{ version: string; pid: number; ts: string; ipc_v: 1; capabilities: Record<string, unknown> }
 ```
 
 Notes:
-- `ipc_v` is RECOMMENDED for SDK compatibility checks.
-- `capabilities` is RECOMMENDED as a best-effort feature map (e.g., `{ "events_stream": true }`).
+- SDK-compatible daemons MUST return `ipc_v: 1`; omitting it is interpreted as IPC version `0`.
+- SDK-compatible daemons MUST return a `capabilities` feature map. Python and Rust daemons advertise supported `events_stream` and `remote_access` features here.
+- Clients SHOULD probe operation support independently; a recognized operation may reject empty probe arguments, but MUST NOT return `unknown_op`.
+- Clients MUST use protocol, compatibility, and capability fields instead of exact product-version equality.
+- Ordinary business commands MUST NOT stop, signal, or replace a reachable daemon. Implementation replacement is restricted to explicit daemon lifecycle commands.
 
 #### `shutdown`
 
@@ -1274,6 +1276,59 @@ Result:
 { group: Record<string, unknown> } // group.yaml content, redacted
 ```
 
+#### `group_preamble_get`
+
+Read the effective group startup preamble. A non-empty group override replaces
+the built-in preamble body on the next preamble delivery; the fixed CCCC
+identity and protocol frame remains in place.
+
+Args:
+```ts
+{ group_id: string }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  source: "builtin" | "home"
+  filename: "CCCC_PREAMBLE.md"
+  overridden: boolean
+  content: string
+}
+```
+
+#### `group_preamble_set`
+
+Create or replace the non-empty group preamble override. The UTF-8 encoded
+content must not exceed 512 KiB. Existing sessions that have already received
+their preamble are not reinjected; start a fresh session when the new guidance
+must apply immediately. `group_reset` creates a new group id and does not carry
+this override forward, so provisioners must set the desired preamble on the
+replacement group before starting its actors. This operation manages prompt
+content only; consumers requiring a distinct standby turn must observe the
+actor return to `waiting` or `idle` before sending the authoritative mission.
+
+Args:
+```ts
+{ group_id: string; content: string; by?: string }
+```
+
+Result: the `group_preamble_get` result plus `changed: boolean`. When `changed`
+is false, the stored override is not rewritten.
+
+#### `group_preamble_reset`
+
+Delete the group override and restore the built-in preamble body. The explicit
+confirmation avoids accidental removal.
+
+Args:
+```ts
+{ group_id: string; confirm: "preamble"; by?: string }
+```
+
+Result: the `group_preamble_get` result plus `changed: boolean`.
+
 #### `group_create`
 
 Args:
@@ -1375,12 +1430,13 @@ Result:
 #### `assistant_state`
 
 Read the group-scoped state for first-party built-in assistants. Voice
-Secretary service-local ASR runs in a daemon-managed first-party service
-process; heavy ASR runtimes remain behind an explicit local command adapter.
+Secretary service-local ASR runs in-process through the Rust `sherpa-onnx`
+binding. The native runtime is linked into the CCCC binary; model weights remain
+explicit, checksummed downloads under `CCCC_HOME/cache/voice-models`.
 
 Args:
 ```ts
-{ group_id: string; assistant_id?: "pet" | "voice_secretary" }
+{ group_id: string; assistant_id?: "voice_secretary" }
 ```
 
 Result:
@@ -1400,13 +1456,26 @@ Result:
   active_document_id?: string                    // daemon sidecar/internal compatibility only
   capture_target_document_id?: string            // daemon sidecar/internal compatibility only
   new_input_available?: boolean
+  service_runtime?: Record<string, unknown>
+  service_runtimes_by_id?: Record<string, unknown>
+  service_models?: Array<Record<string, unknown>>
+  service_models_by_id?: Record<string, unknown>
 }
 ```
 
+Voice service runtime records may include `primary_package`, `package_versions`,
+`installed_version`, `latest_version`, `latest_checked_at`,
+`latest_check_error`, and `update_available` so local ASR settings can show the
+linked sherpa-onnx version. Rust reports the stable runtime ID
+`sherpa_onnx_streaming` for Web/API compatibility and `implementation="rust"`;
+runtime install/remove calls are idempotent compatibility operations because the
+linked runtime cannot be removed independently. Voice model records may include `installed_manifest_sha256`,
+`update_available`, `last_update_error`, and artifact source fields (`url`,
+`sha256`, `archive`) so model updates remain explicit and inspectable.
+
 #### `assistant_settings_update`
 
-Update group-scoped built-in assistant settings. `pet` is read-only in M0 and
-mirrors `group_settings_update.patch.desktop_pet_enabled`.
+Update group-scoped built-in assistant settings.
 
 When `voice_secretary.enabled=true`, the daemon also materializes a hidden
 internal actor with `internal_kind="voice_secretary"` and `actor_id="voice-secretary"`.
@@ -1446,8 +1515,8 @@ Args:
 
 `browser_asr` means browser-managed speech recognition and does not guarantee
 browser-device-local model execution. `assistant_service_local_asr` means ASR
-runs on the daemon host through the first-party Voice Secretary service and uses
-an installed local ASR model. The returned assistant health may include `health.service` with
+runs on the daemon host through native Rust and uses an installed local ASR
+model. The returned assistant health may include `health.service` with
 `status`, `alive`, `asr_command_configured`, `asr_mock_configured`,
 `selected_model_id`, `managed_model`, and `last_error` so Web can show whether
 service-local ASR is actually usable. `service_model_id` is optional and
@@ -1492,7 +1561,8 @@ Download and verify a daemon-managed local Voice Secretary ASR model into
 CCCC-owned cache storage. Built-in releases include a default model manifest;
 tests and local development may add a local overlay at
 `CCCC_HOME/config/voice-models.json`. Each artifact entry must include a fixed
-URL and `sha256`.
+URL and `sha256`. Reinstalling/updating a model downloads into staging storage
+and replaces the active model only after all artifacts verify successfully.
 
 Args:
 ```ts
@@ -1515,36 +1585,40 @@ Result:
     installed_at?: string
     updated_at?: string
     error?: Record<string, unknown>
+    update_available?: boolean
+    installed_manifest_sha256?: string
   }
 }
 ```
 
-#### `assistant_voice_transcribe`
+#### HTTP Voice Secretary transcription
 
 Transcribe a push-to-talk audio payload through the daemon-managed first-party
-Voice Secretary service. This endpoint only returns transcript text and service
+Voice Secretary runtime. Python is the default distribution and Rust implements
+the same HTTP contract. This endpoint only returns transcript text and service
 health; it does not create a chat message, proposal, or working document by
 itself. Call `assistant_voice_transcript_append` after transcription so the
 daemon can append stable transcript source material and update the current
 working document.
 
-Args:
+Request:
 ```ts
-{
-  group_id: string
-  by?: string
-  audio_base64: string
-  mime_type?: string
-  language?: string
-}
+POST /api/v1/groups/{group_id}/assistants/voice_secretary/transcriptions
+  ?language={language}&by={actor_id}
+Content-Type: audio/pcm | audio/wav | application/octet-stream
+
+<streamed binary audio body>
 ```
 
 Preconditions:
 - `voice_secretary` is enabled for the group.
 - `recognition_backend` is `assistant_service_local_asr`.
-- The selected `service_model_id` is installed and exposes a managed command via
-  the manifest. The effective command receives the audio path as the final
-  argument unless it includes `{audio_path}` / `{input_path}` / `{input}`.
+- The selected offline `service_model_id` is installed and its manifest exposes
+  a supported sherpa-onnx model configuration. HTTP transcription accepts mono
+  PCM16 or WAV up to 100 MiB. The HTTP body and WebSocket PCM16 frames are
+  streamed to auto-deleted temporary files; browser service capture sends binary
+  PCM16 WebSocket frames. Python also accepts the former JSON/Base64 HTTP body
+  for compatibility, but clients should send the binary form above.
 
 Result:
 ```ts
@@ -1569,6 +1643,13 @@ daemon lease is the final cross-tab / cross-browser / cross-device guard that
 prevents two Voice Secretary recording streams from running at the same time.
 The lease is TTL-based so a crashed tab or disconnected browser eventually
 expires without manual cleanup.
+
+The service-local ASR WebSocket requires the active `owner_id` and `lease_id` as
+query parameters and revalidates them while audio is streaming. Opening the
+transcription WebSocket directly cannot bypass the daemon lease.
+Lease mutations match `group_id`, `owner_id`, and `lease_id`; public status and
+conflict payloads redact `lease_id`. The stable browser owner identifies the
+lease holder, while every recording uses a fresh `session_id`.
 
 Args:
 ```ts
@@ -1634,10 +1715,30 @@ created while the actor was stopped, the daemon re-dispatches that same notify:
 headless runtimes receive it as a control turn, and PTY runtimes receive it
 through the pending delivery queue so lazy preamble delivery is triggered.
 
+Rust commits an input under the group lock in this order: validate or create the
+Markdown target, append the stable segment log, append the semantic input log,
+then advance group session/cursor state. Retrying the same `session_id` and
+`segment_id` is idempotent. Document paths must be repository-relative `.md`
+paths and must not traverse symbolic links.
+
+Idempotency is checked against the complete semantic input log, not the bounded
+session display window. If the input log was committed but its ledger input or
+notify event was interrupted, retrying the same segment reuses the canonical
+input record and completes only the missing delivery work.
+
 The public document identity for Voice Secretary APIs is `document_path`, a
 repository-relative markdown path. `document_id` may exist in daemon sidecar
 state as an implementation detail, but runtime actors and Web clients should
 route by `document_path`.
+
+`assistant_index`, `assistant_voice_document_list`, and
+`assistant_voice_document_select` reconcile repository Markdown edits into the
+daemon document index before returning. Reconciliation updates content, hash,
+character count, and revision only when file content changed. Missing files do
+not clear indexed content, and path/symbolic-link validation is applied before
+reading. The emitted `assistant.voice.document` reconciliation event is an
+auxiliary signal; index persistence and ledger append are not one atomic
+transaction.
 
 Args:
 ```ts
@@ -1808,6 +1909,72 @@ Result:
 }
 ```
 
+#### `assistant_voice_input_append` (`kind="prompt_refine"`)
+
+Create or update a composer refinement request. The daemon persists the request
+before emitting one targeted `voice_secretary_input` notification. Its canonical
+`input_envelope` carries `request_id`, `operation`, `composer_snapshot_hash`, and
+matching composer metadata. This operation creates work for Voice Secretary; it
+does not create a prompt draft.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  kind: "prompt_refine"
+  request_id?: string
+  voice_transcript?: string
+  composer_text?: string
+  operation?: "append_to_composer_end" | "replace_with_refined_prompt" | string
+  composer_context?: Record<string, unknown>
+  composer_snapshot_hash?: string
+}
+```
+
+At least one of `voice_transcript` or `composer_text` must be non-empty.
+
+#### `assistant_voice_prompt_draft_submit`
+
+Submit the Voice Secretary result for an existing prompt refinement request.
+Only `voice-secretary` / `assistant:voice_secretary` may call this operation.
+The daemon inherits a missing operation and composer snapshot hash from the
+request, stores the result as `pending`, and emits
+`assistant.voice.prompt_draft`. `no_op=true` stores `no_change` with empty draft
+text. Submission MUST NOT append another semantic input or emit another
+`voice_secretary_input` notification.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: "voice-secretary" | "assistant:voice_secretary"
+  request_id: string
+  draft_text?: string
+  no_op?: boolean
+  summary?: string
+  operation?: string
+  composer_snapshot_hash?: string
+}
+```
+
+`draft_text` is required unless `no_op=true`.
+
+#### `assistant_voice_prompt_draft_ack`
+
+Mark a submitted draft as `applied`, `dismissed`, or `stale`. Acknowledgement
+removes it from the active `prompt_draft` projection while retaining bounded
+request history.
+
+Args:
+```ts
+{
+  group_id: string
+  request_id: string
+  status: "applied" | "dismissed" | "stale"
+}
+```
+
 #### `assistant_voice_request`
 
 Send a structured Voice Secretary action request to `@foreman` or one concrete
@@ -1870,7 +2037,7 @@ update it for control-plane repair.
 
 Args:
 ```ts
-{ group_id: string; by?: string; assistant_id: "voice_secretary" | "pet"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
+{ group_id: string; by?: string; assistant_id: "voice_secretary"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
 ```
 
 Result:
@@ -2138,6 +2305,23 @@ Result:
 Notes:
 - For linked actors (`profile_id` set), `actor_start` and `actor_restart` first resolve profile runtime config and profile secrets.
 - If the linked profile includes `capability_defaults`, daemon applies baseline capability enables through capability control plane before launch.
+
+#### `actor_new_session`
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string }
+```
+
+Result:
+```ts
+{ actor: Record<string, unknown>; event: CCCSEventV1; new_session: true }
+```
+
+Notes:
+- Supported for `claude`, `codex`, and Grok PTY actors.
+- Stops the current actor runtime if present, clears CCCC's saved runtime session metadata for that actor, then starts the actor with the same runtime settings.
+- Does not delete provider-side conversation/session history.
 
 #### `runtime_hermes_status`
 
@@ -2442,6 +2626,8 @@ Args (core):
   path?: string                 // optional filesystem path to attribute scope_key
   attachments?: unknown[]       // attachment refs (implementation-defined)
   refs?: ReferenceV1[]          // structured message refs, e.g. presentation_ref/task_ref
+  insight?: string              // optional provisional sender perspective; max 1200 characters
+  require_peer_insight?: boolean // profile gate; default false
   src_group_id?: string         // relay provenance (both required if either is set)
   src_event_id?: string
   dst_group_id?: string         // optional "send record" metadata (source messages)
@@ -2469,6 +2655,8 @@ Args:
   priority?: "normal" | "attention"
   attachments?: unknown[]
   refs?: ReferenceV1[]
+  insight?: string
+  require_peer_insight?: boolean // profile gate; default false
 }
 ```
 
@@ -2500,6 +2688,8 @@ Args:
   reply_required?: boolean      // default true
   idempotency_key?: string
   refs?: ReferenceV1[]
+  insight?: string
+  require_peer_insight?: boolean // profile gate; default false
 }
 ```
 
@@ -2531,7 +2721,7 @@ Cross-group send implemented as:
 
 Args:
 ```ts
-{ group_id: string; dst_group_id: string; text: string; by?: string; to?: string[]; priority?: "normal" | "attention" }
+{ group_id: string; dst_group_id: string; text: string; by?: string; to?: string[]; priority?: "normal" | "attention"; insight?: string; require_peer_insight?: boolean }
 ```
 
 Result:
@@ -2541,6 +2731,14 @@ Result:
 
 Notes:
 - Attachments are not supported in cross-group send in v1.
+
+#### Agent Insight Profile marker
+
+`require_peer_insight` is an internal request-profile marker, not a global message-validity rule. It defaults to `false`. When `true`, the daemon resolves the operation's real audience and rejects a new peer-facing message whose normalized `insight` is empty. User-only sends remain valid without Insight.
+
+The check MUST occur after routing and successful-idempotency lookup, but before this request creates a new message, task, actor wake, or remote outbox entry. The recommended error code is `peer_insight_required`, with `details.delivery_state="not_sent"` and `details.new_side_effects=false`. Invalid Insight type or length SHOULD use `invalid_insight` instead. Existing accepted idempotent operations MUST replay their original result without being reinterpreted by a newer profile requirement.
+
+For a legacy Group Bridge wire that does not advertise structured Insight, an implementation MAY flatten the perspective into remote text with an explicit sender-perspective label. It MUST NOT infer structured `insight` back from that text.
 
 #### `chat_ack`
 
@@ -2642,7 +2840,6 @@ Result:
       environment_summary?: string | null
       user_model?: string | null
       persona_notes?: string | null
-      resume_hint?: string | null
     }
     updated_at?: string | null
   }>
@@ -2939,168 +3136,6 @@ Result:
 }
 ```
 
-### 8.15.1 First-Class Local Memory API
-
-These operations expose the same local CCCC memory index and persistence layer used
-by `cccc_memory` to non-MCP clients such as SDK-based local workers. They MUST NOT
-route through Group Space / NotebookLM bindings.
-
-All successful results SHOULD include:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index" | "local-file"
-  latencyMs: number
-}
-```
-
-Common error codes:
-- `memory_index_missing`
-- `memory_write_failed`
-- `memory_group_missing`
-- `memory_permission_denied`
-
-#### `memory_search`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  query: string
-  limit?: number
-  tags?: string[]
-  target?: "memory" | "daily"
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  hits: Array<{
-    path: string
-    startLine: number
-    score: number
-    snippet: string
-    content?: string
-    tags?: string[]
-    sourceRefs?: string[]
-  }>
-}
-```
-
-The daemon SHOULD reuse `memory_reme_search` index/ranking behavior and adapt field
-names for SDK consumers; it MUST NOT maintain a second memory index.
-
-#### `memory_get`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  path?: string
-  target?: "memory" | "daily"
-  date?: string
-  offset?: number
-  limit?: number
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-file"
-  latencyMs: number
-  path: string
-  offset: number
-  limit: number
-  content: string
-}
-```
-
-#### `memory_write`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  target: "memory" | "daily"
-  content: string
-  tags?: string[]
-  source_refs?: string[]
-  idempotency_key?: string
-  dedup_intent?: "new" | "update" | "supersede" | "silent"
-  dedup_query?: string
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-file"
-  latencyMs: number
-  status: "written" | "silent"
-  path: string
-  contentHash?: string
-  dedup?: Record<string, unknown>
-}
-```
-
-`idempotency_key` MUST prevent duplicate writes from polling workers.
-
-#### `memory_profile_get`
-
-Args:
-```ts
-{
-  group_id: string
-  actor_id?: string
-  user_id?: string
-  tags?: string[]
-}
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  profile: string
-  hits: Array<{ path: string; startLine: number; score: number; snippet: string }>
-}
-```
-
-This operation MAY be implemented as a stable tagged `memory_search` wrapper.
-
-#### `memory_health`
-
-Args:
-```ts
-{ group_id: string }
-```
-
-Result:
-```ts
-{
-  provider: "cccc-memory"
-  source: "local-index"
-  latencyMs: number
-  status: "ok" | "degraded" | "error"
-  indexReady: boolean
-  writable: boolean
-  memoryRoot: string
-  lastIndexedAt?: string
-}
-```
-
 #### `task_list`
 
 Args:
@@ -3219,10 +3254,67 @@ Args:
 { group_id: string; actor_id: string; by?: string; max_chars?: number; strip_ansi?: boolean; compact?: boolean }
 ```
 
+`max_chars` limits the final returned Unicode text. Implementations MUST render the complete
+retained PTY backlog before applying this limit; truncating the raw ANSI/VT byte stream first can
+start replay inside an escape sequence or incremental screen update and produce corrupt snapshots.
+
 Result:
 ```ts
-{ group_id: string; actor_id: string; warning: string; hint: string; text: string }
+{ group_id: string; actor_id: string; warning: string; hint: string; text: string; end_cursor: number }
 ```
+
+`end_cursor` is the exclusive raw PTY byte cursor captured with the backlog used to produce
+`text`. A terminal client MAY display the rendered snapshot and then attach its live stream with
+`since=end_cursor`; the stream must replay output produced after the snapshot so the transition is
+gap-free.
+
+#### `terminal_history`
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string; before?: number; limit_bytes?: number; strip_ansi?: boolean; compact?: boolean }
+```
+
+Result:
+```ts
+{
+  group_id: string
+  actor_id: string
+  warning: string
+  hint: string
+  text: string
+  start_cursor: number
+  end_cursor: number
+  has_more: boolean
+  cursor_expired: boolean
+}
+```
+
+#### `terminal_since`
+
+Args:
+```ts
+{ group_id: string; actor_id: string; by?: string; after: number; limit_bytes?: number }
+```
+
+Result:
+```ts
+{
+  history: {
+    data: string
+    start_cursor: number
+    end_cursor: number
+    has_more: boolean
+    cursor_expired: boolean
+  }
+}
+```
+
+The cursors count raw PTY bytes. Because `data` is transported as UTF-8 JSON text, an
+implementation MUST NOT advance `end_cursor` through an incomplete UTF-8 code point. It MAY return
+up to three bytes beyond `limit_bytes` to finish a code point. If the retained stream currently ends
+inside a code point, it returns the complete prefix and leaves the incomplete suffix for a later
+call.
 
 #### `terminal_clear`
 
@@ -3614,6 +3706,45 @@ Result:
 ```ts
 { remote_access: Record<string, unknown> }
 ```
+
+### 8.17.1 Group Bridge delivery compatibility
+
+The daemon accepts the Python-compatible Group Bridge operations:
+
+- `remote_send`: send a payload through an active registration or trust. It
+  requires `group_id`, `registration_id`, `idempotency_key`, and an explicit
+  `payload.to` recipient list.
+- `remote_delivery_status`: return the stored receipt identified by
+  `registration_id` and `idempotency_key`.
+- `group_bridge_receive_remote_send`: authenticate an already-resolved inbound
+  session using `target_group_id`, `src_group_id`, `remote_peer_id`, and append
+  its payload idempotently to the target group.
+
+Implementations MUST persist delivery receipts and MUST NOT create duplicate
+events when the same registration and idempotency key are retried.
+
+The Rust WebSocket owner and MCP bridge share live reverse-session state through
+these daemon-internal operations:
+
+- `group_bridge_session_open`: register a live route identified by `group_id`,
+  `remote_group_id`, and `remote_peer_id`; returns a new opaque `generation`.
+- `group_bridge_session_close`: remove the route only when its `generation`
+  still matches. A stale socket MUST NOT close a replacement session.
+- `group_bridge_session_ready`: report whether that exact route currently has a
+  live session lease.
+- `group_bridge_session_poll`: let the owning WebSocket take the next queued
+  server-to-peer request for its generation.
+- `group_bridge_session_complete`: resolve a request using `response_to` and a
+  peer-provided `result`.
+- `group_bridge_session_deliver`: enqueue a `remote_send` request and await its
+  response for at most `timeout_ms`.
+
+These operations are runtime-only and MUST NOT treat persisted trust status as
+proof of reachability. Opening a replacement generation, closing the active
+generation, and completing a response MUST wake pending callers immediately.
+Delivery failures use `peer_session_unavailable` when no live lease exists or
+disconnects, `peer_session_timeout` when the peer does not answer in time, and
+`peer_session_failed` when a session is replaced or returns an invalid result.
 
 ### 8.18 Group Space (Provider-Backed Shared Memory, dual-lane NotebookLM)
 
@@ -4332,6 +4463,46 @@ Notes:
 - Export MUST exclude live runtime state, browser profiles, credentials, connector secrets, lock files, and rebuildable caches.
 - Export MUST scrub actor environment secrets from packaged `group.yaml`.
 - `contains_secrets: false` means CCCC-managed live credentials and auth sessions are excluded. The package can still contain user-provided sensitive content such as ledger history, memory, blobs, and attachments.
+- This compatibility operation is intended for small packages. Large packages SHOULD use `group_copy_export_file` and pass the returned `package_path` to preview/import.
+
+#### `group_copy_export_file`
+
+Export one group as a zip package stored on the daemon host filesystem.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+}
+```
+
+Result:
+```ts
+{
+  package_path: string
+  package_size_bytes: number
+  filename: string
+  manifest: {
+    kind: "cccc.group_copy"
+    version: number
+    source_group_id: string
+    source_title?: string
+    exported_at: string
+    cccc_version?: string
+    source_platform?: string
+    export_mode: "group_state_only"
+    workspace_included: false
+    contains_secrets: false
+    content_digest?: string
+    content?: Record<string, unknown>
+  }
+}
+```
+
+Notes:
+- The package path is a temporary daemon-local file path intended for local download flows.
+- This operation uses the large package limit. Secret-scrubbing requirements match `group_copy_export`.
 
 #### `group_copy_preview_import`
 
@@ -4340,10 +4511,13 @@ Validate a copy package and return an import preview without writing group state
 Args:
 ```ts
 {
-  package_b64: string
+  package_b64?: string
+  package_path?: string
   by?: string
 }
 ```
+
+Exactly one of `package_b64` or `package_path` is required. `package_b64` is a small-package compatibility path; large local flows SHOULD use `package_path`.
 
 Result:
 ```ts
@@ -4377,12 +4551,15 @@ Import a group copy into the current `CCCC_HOME`.
 Args:
 ```ts
 {
-  package_b64: string
+  package_b64?: string
+  package_path?: string
   workspace_root?: string
   title?: string
   by?: string
 }
 ```
+
+Exactly one of `package_b64` or `package_path` is required. `package_b64` is a small-package compatibility path; large local flows SHOULD use `package_path`.
 
 Result:
 ```ts

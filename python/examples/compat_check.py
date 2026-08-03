@@ -10,6 +10,7 @@ def main() -> int:
     info = c.assert_compatible(
         require_ipc_v=1,
         require_capabilities={"events_stream": True},
+        require_ops=["events_stream"],
         require_ops=[
             "groups",
             "group_show",
@@ -31,4 +32,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

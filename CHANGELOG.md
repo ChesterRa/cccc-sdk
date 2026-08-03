@@ -3,6 +3,68 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [0.4.33] — Aligned with Rust CCCC 0.4.33
+
+### Added
+
+- Group preamble get/set/reset helpers.
+- Cursor-based terminal history/since helpers and Rust `terminal_resize`
+  dispatch compatibility.
+- Current Voice Secretary prompt refinement, document, transcript, and request
+  argument mappings.
+- `insight` and `require_peer_insight` on send, reply, cross-group, and tracked
+  message helpers.
+
+### Fixed
+
+- `assertCompatible` / `assert_compatible` now probe `events_stream` instead of
+  trusting the advertised capability alone.
+- TypeScript `sendAndWaitForReply` verifies the streaming upgrade before it
+  creates a message side effect.
+- Removed `assistant_voice_transcribe` IPC usage now fails locally with a clear
+  HTTP Voice Secretary migration message.
+
+### Specs
+
+- Resynced daemon IPC, Context Ops, and CCCS snapshots from Rust CCCC 0.4.33.
+
+## [0.4.30] — Aligned with CCCC 0.4.30
+
+Focused compatibility release for the CCCC 0.4.30 daemon line.
+
+### Specs
+
+- Resynced `spec/CCCC_DAEMON_IPC_V1.md`, `spec/CCCC_CONTEXT_OPS_V1.md`, and
+  `spec/CCCS_V1.md` from the CCCC 0.4.30 standards snapshots.
+
+### Added
+
+- **Message suggestions** — `send` / `reply` accept
+  `suggested_user_message` (Python) / `suggestedUserMessage` (TypeScript).
+- **Actor/session control** — `actor_new_session`.
+- **Group Copy file export** — `group_copy_export_file`.
+- **Terminal history and resize** — `terminal_history`, `term_resize`.
+- **Blueprint generation** — `blueprint_generate`.
+- **Voice Secretary JSON helpers** — document/transcript/request helpers plus
+  `assistant_voice_model_install`.
+- **Memory ReMe admin helpers** — layout/search/get/write/index/context
+  check/compact/daily flush.
+- **IM bridge management** — `im_bind_chat`, `im_list_authorized`,
+  `im_list_pending`, `im_reject_pending`, `im_revoke_chat`.
+- **Remote Access** — `remote_access_state`, `remote_access_configure`,
+  `remote_access_start`, `remote_access_stop`.
+
+### Deferred
+
+- Streaming socket-special ops (`term_attach`, browser/VNC attach variants)
+  remain intentionally deferred until the SDK has a shared duplex attach
+  transport. `term_resize` is regular request/response and is wrapped here.
+
+### Tests
+
+- Added Python and TypeScript contract parity coverage for the 0.4.30 JSON op
+  alignment.
+
 ## [0.4.18] — Aligned with CCCC 0.4.18
 
 Focused compatibility release for the CCCC 0.4.18 daemon line.

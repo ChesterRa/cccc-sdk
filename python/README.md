@@ -52,7 +52,7 @@ python - <<'PY'
 from cccc_sdk import CCCCClient
 
 c = CCCCClient()
-c.assert_compatible(require_ipc_v=1, require_capabilities={"events_stream": True})
+c.assert_compatible(require_ipc_v=1, require_ops=["groups"])
 
 groups = c.groups()
 print(groups)
@@ -171,7 +171,7 @@ c.context_sync(
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
 
-## CCCC 0.4.18 surface — Hermes runtime and Voice Secretary lease
+## CCCC 0.4.33 JSON alignment
 
 ```python
 # Hermes runtime setup diagnostics and MCP preparation
@@ -186,6 +186,24 @@ lease = c.assistant_voice_recording_lease(
     owner_id="browser-tab-1",
     ttl_seconds=30,
 )
+
+# Current request/response JSON helpers
+c.send(
+    group_id="g_xxx",
+    text="Next step",
+    suggested_user_message="Run the checks",
+    insight="The compatibility gate is the release-critical part.",
+)
+c.actor_new_session(group_id="g_xxx", actor_id="codex-1", clear_saved_session=True)
+c.group_copy_export_file(group_id="g_xxx", include_blobs=True)
+c.group_preamble_set(group_id="g_xxx", content="Project-specific startup guidance")
+c.terminal_history(group_id="g_xxx", actor_id="codex-1", limit_bytes=64_000)
+c.terminal_since(group_id="g_xxx", actor_id="codex-1", after=0)
+c.term_resize(group_id="g_xxx", actor_id="codex-1", cols=120, rows=40)
+c.blueprint_generate(group_id="g_xxx", task_id="task-1")
+c.memory_reme_search(group_id="g_xxx", query="release notes")
+c.im_list_authorized(platform="dingtalk")
+c.remote_access_state(group_id="g_xxx")
 ```
 
 ## CCCC 0.4.17 surface — new op families
@@ -250,4 +268,19 @@ c.ledger_snapshot(group_id="g_xxx", reason="manual")
 c.branding_update(patch={"product_name": "My CCCC"})
 ```
 
-Not yet wrapped (use `call()` for now): remaining Voice Secretary document/transcribe/prompt ops, remaining Memory ReMe write/index/compaction ops, ChatGPT Web Model runtime, IM bridge management, Remote Access, and the streaming socket-special browser/PTY attach ops. See `spec/ADAPTATION_PLAN.md` for the roadmap.
+The current request/response JSON ops are wrapped in the Python and TypeScript
+clients. Still deferred: streaming socket-special attach ops such as PTY,
+browser, VNC, and web-model attach flows; those need a shared duplex transport
+instead of a plain `call()` wrapper. See `spec/ADAPTATION_PLAN.md` for the
+roadmap.
+
+Before consuming the optional event stream, probe the real operation rather
+than only checking the daemon capability map:
+
+```python
+c.assert_compatible(require_ops=["events_stream"])
+```
+
+Voice transcription is no longer a daemon JSON operation in Rust CCCC. Use the
+HTTP Voice Secretary transcription endpoint; the deprecated
+`assistant_voice_transcribe()` helper now fails locally with a migration message.

@@ -8,9 +8,6 @@ import type {
   DaemonResponse,
   CCCCClientOptions,
   CompatibilityOptions,
-  SendOptions,
-  SendCrossGroupOptions,
-  ReplyOptions,
   ActorAddOptions,
   ActorUpdateOptions,
   ActorEnvPrivateUpdateOptions,
@@ -38,21 +35,6 @@ import type {
   GroupAutomationUpdateOptions,
   GroupAutomationManageOptions,
   GroupAutomationResetBaselineOptions,
-  GroupSpaceStatusOptions,
-  GroupSpaceSpacesOptions,
-  GroupSpaceCapabilitiesOptions,
-  GroupSpaceBindOptions,
-  GroupSpaceIngestOptions,
-  GroupSpaceQueryOptions,
-  GroupSpaceSourcesOptions,
-  GroupSpaceArtifactOptions,
-  GroupSpaceJobsOptions,
-  GroupSpaceSyncOptions,
-  GroupSpaceProviderCredentialStatusOptions,
-  GroupSpaceProviderCredentialUpdateOptions,
-  GroupSpaceProviderHealthCheckOptions,
-  GroupSpaceProviderAuthOptions,
-  InboxListOptions,
   ContextSyncOptions,
   CoordinationBriefUpdateOptions,
   CoordinationNoteAddOptions,
@@ -65,9 +47,6 @@ import type {
   MetaMergeOptions,
   EventsStreamOptions,
   EventStreamItem,
-  CCCSEvent,
-  SendResult,
-  SendAndWaitOptions,
   PingResult,
   GroupsResult,
   GroupShowResult,
@@ -130,6 +109,9 @@ import {
   openEventsStream,
   readLines,
 } from './transport.js';
+import { installCCCC0430Ops, type CCCC0430Ops } from './client_0430_ops.js';
+import { installGroupSpaceOps, type GroupSpaceOps } from './client_group_space_ops.js';
+import { installChatOps, type ChatOps } from './client_chat_ops.js';
 
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
@@ -250,9 +232,7 @@ export class CCCCClient {
     const reservedOps = new Set([
       'ping',
       'shutdown',
-      'events_stream',
       'term_attach',
-      'term_resize',
       'presentation_browser_attach',
       'presentation_browser_vnc_attach',
       'web_model_browser_attach',
@@ -910,206 +890,6 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // Convenience methods: messaging
-  // ============================================================
-
-  /**
-   * Send a chat message to a group.
-   * @param options - Message content, recipients, and priority.
-   * @returns The daemon result (includes event id).
-   * @throws {DaemonAPIError} On invalid group, missing permissions, etc.
-   */
-  async send(options: SendOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      text: options.text,
-      by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
-    };
-
-    if (options.to) args['to'] = options.to;
-    if (options.path) args['path'] = options.path;
-    if (options.refs) args['refs'] = options.refs;
-    if (options.attachments) args['attachments'] = options.attachments;
-    if (options.clientId) args['client_id'] = options.clientId;
-
-    return this.call('send', args);
-  }
-
-  /**
-   * Send message across groups
-   */
-  async sendCrossGroup(options: SendCrossGroupOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      dst_group_id: options.dstGroupId,
-      text: options.text,
-      by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
-    };
-
-    if (options.to) args['to'] = options.to;
-    if (options.refs) args['refs'] = options.refs;
-    if (options.attachments) args['attachments'] = options.attachments;
-
-    return this.call('send_cross_group', args);
-  }
-
-  /**
-   * Reply message
-   */
-  async reply(options: ReplyOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      reply_to: options.replyTo,
-      text: options.text,
-      by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
-    };
-
-    if (options.to) args['to'] = options.to;
-    if (options.refs) args['refs'] = options.refs;
-    if (options.attachments) args['attachments'] = options.attachments;
-    if (options.clientId) args['client_id'] = options.clientId;
-
-    return this.call('reply', args);
-  }
-
-  /**
-   * Acknowledge chat message
-   */
-  async chatAck(
-    groupId: string,
-    actorId: string,
-    eventId: string,
-    by?: string
-  ): Promise<Record<string, unknown>> {
-    return this.call('chat_ack', {
-      group_id: groupId,
-      actor_id: actorId,
-      event_id: eventId,
-      by: by ?? actorId,
-    });
-  }
-
-  /**
-   * Send a message and wait for a reply to it.
-   */
-  async sendAndWaitForReply(options: SendAndWaitOptions): Promise<CCCSEvent> {
-    const waitTimeout = options.waitTimeoutMs ?? 60_000;
-    const deadline = Date.now() + waitTimeout;
-    const stream = this.eventsStream({
-      groupId: options.groupId,
-      by: options.listenAs,
-      kinds: ['chat.message'],
-      sinceTs: new Date().toISOString(),
-      signal: options.signal,
-    });
-    let nextItem = stream.next();
-    const sendResult = await this.send(options) as unknown as SendResult;
-    const sentEventId = sendResult.event.id;
-
-    try {
-      while (true) {
-        if (options.signal?.aborted) {
-          throw new Error('sendAndWaitForReply aborted');
-        }
-        if (Date.now() > deadline) {
-          throw new Error(`sendAndWaitForReply timed out after ${waitTimeout}ms`);
-        }
-        const { value: item, done } = await nextItem;
-        if (done) break;
-        nextItem = stream.next();
-        if (isStreamEvent(item) && item.event.kind === 'chat.message') {
-          const data = item.event.data as Record<string, unknown>;
-          if (data['reply_to'] === sentEventId) {
-            return item.event;
-          }
-        }
-      }
-    } finally {
-      await stream.return(undefined as unknown as EventStreamItem);
-    }
-
-    throw new Error('sendAndWaitForReply: stream ended without reply');
-  }
-
-  // ============================================================
-  // Convenience methods: inbox
-  // ============================================================
-
-  /**
-   * List inbox
-   */
-  async inboxList(options: InboxListOptions): Promise<Record<string, unknown>> {
-    return this.call('inbox_list', {
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      by: options.by ?? 'user',
-      limit: options.limit ?? 50,
-      kind_filter: options.kindFilter ?? 'all',
-    });
-  }
-
-  /**
-   * Mark message as read
-   */
-  async inboxMarkRead(
-    groupId: string,
-    actorId: string,
-    eventId: string,
-    by = 'user'
-  ): Promise<Record<string, unknown>> {
-    return this.call('inbox_mark_read', {
-      group_id: groupId,
-      actor_id: actorId,
-      event_id: eventId,
-      by,
-    });
-  }
-
-  /**
-   * Mark all messages as read
-   */
-  async inboxMarkAllRead(
-    groupId: string,
-    actorId: string,
-    by = 'user',
-    kindFilter = 'all'
-  ): Promise<Record<string, unknown>> {
-    return this.call('inbox_mark_all_read', {
-      group_id: groupId,
-      actor_id: actorId,
-      by,
-      kind_filter: kindFilter,
-    });
-  }
-
-  // ============================================================
-  // Convenience methods: notifications
-  // ============================================================
-
-  /**
-   * Acknowledge notification
-   */
-  async notifyAck(
-    groupId: string,
-    actorId: string,
-    notifyEventId: string,
-    by?: string
-  ): Promise<Record<string, unknown>> {
-    return this.call('notify_ack', {
-      group_id: groupId,
-      actor_id: actorId,
-      notify_event_id: notifyEventId,
-      by: by ?? actorId,
-    });
-  }
-
-  // ============================================================
   // Convenience methods: context
   // ============================================================
 
@@ -1276,6 +1056,8 @@ export class CCCCClient {
     if (options.handoffTo) args['handoff_to'] = options.handoffTo;
     if (options.assignee) args['assignee'] = options.assignee;
     if (options.refs) args['refs'] = options.refs;
+    if (options.insight) args['insight'] = options.insight;
+    if (options.requirePeerInsight !== undefined) args['require_peer_insight'] = options.requirePeerInsight;
     return this.call('tracked_send', args);
   }
 
@@ -1692,208 +1474,6 @@ export class CCCCClient {
   }
 
   // ============================================================
-  // Convenience methods: Group Space
-  // ============================================================
-
-  /**
-   * Read Group Space provider and binding status.
-   */
-  async groupSpaceStatus(options: GroupSpaceStatusOptions): Promise<Record<string, unknown>> {
-    return this.call('group_space_status', {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-    });
-  }
-
-  /**
-   * List available remote spaces for binding.
-   */
-  async groupSpaceSpaces(options: GroupSpaceSpacesOptions): Promise<Record<string, unknown>> {
-    return this.call('group_space_spaces', {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-    });
-  }
-
-  /**
-   * Read the provider capability matrix for a group.
-   */
-  async groupSpaceCapabilities(options: GroupSpaceCapabilitiesOptions): Promise<Record<string, unknown>> {
-    return this.call('group_space_capabilities', {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-    });
-  }
-
-  /**
-   * Bind or unbind one Group Space lane.
-   */
-  async groupSpaceBind(options: GroupSpaceBindOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      action: options.action ?? 'bind',
-      by: options.by ?? 'user',
-    };
-    if (options.remoteSpaceId) args['remote_space_id'] = options.remoteSpaceId;
-    return this.call('group_space_bind', args);
-  }
-
-  /**
-   * Enqueue one Group Space ingest action.
-   */
-  async groupSpaceIngest(options: GroupSpaceIngestOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      kind: options.kind ?? 'context_sync',
-      by: options.by ?? 'user',
-    };
-    if (options.payload) args['payload'] = options.payload;
-    if (options.idempotencyKey) args['idempotency_key'] = options.idempotencyKey;
-    return this.call('group_space_ingest', args);
-  }
-
-  /**
-   * Query Group Space knowledge for one lane.
-   */
-  async groupSpaceQuery(options: GroupSpaceQueryOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      query: options.query,
-    };
-    if (options.options) args['options'] = options.options;
-    return this.call('group_space_query', args);
-  }
-
-  /**
-   * Manage remote sources in the bound Group Space lane.
-   */
-  async groupSpaceSources(options: GroupSpaceSourcesOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      action: options.action ?? 'list',
-      by: options.by ?? 'user',
-    };
-    if (options.sourceId) args['source_id'] = options.sourceId;
-    if (options.newTitle) args['new_title'] = options.newTitle;
-    return this.call('group_space_sources', args);
-  }
-
-  /**
-   * List, generate, or download Group Space artifacts.
-   */
-  async groupSpaceArtifact(options: GroupSpaceArtifactOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      action: options.action ?? 'list',
-      by: options.by ?? 'user',
-    };
-    if (options.kind) args['kind'] = options.kind;
-    if (options.options) args['options'] = options.options;
-    if (options.wait !== undefined) args['wait'] = options.wait;
-    if (options.saveToSpace !== undefined) args['save_to_space'] = options.saveToSpace;
-    if (options.outputPath) args['output_path'] = options.outputPath;
-    if (options.outputFormat) args['output_format'] = options.outputFormat;
-    if (options.artifactId) args['artifact_id'] = options.artifactId;
-    if (options.timeoutSeconds !== undefined) args['timeout_seconds'] = options.timeoutSeconds;
-    if (options.initialInterval !== undefined) args['initial_interval'] = options.initialInterval;
-    if (options.maxInterval !== undefined) args['max_interval'] = options.maxInterval;
-    return this.call('group_space_artifact', args);
-  }
-
-  /**
-   * List or manage Group Space jobs.
-   */
-  async groupSpaceJobs(options: GroupSpaceJobsOptions): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      action: options.action ?? 'list',
-      by: options.by ?? 'user',
-    };
-    if (options.jobId) args['job_id'] = options.jobId;
-    if (options.state) args['state'] = options.state;
-    if (options.limit !== undefined) args['limit'] = options.limit;
-    return this.call('group_space_jobs', args);
-  }
-
-  /**
-   * Read or run Group Space synchronization for one lane.
-   */
-  async groupSpaceSync(options: GroupSpaceSyncOptions): Promise<Record<string, unknown>> {
-    return this.call('group_space_sync', {
-      group_id: options.groupId,
-      provider: options.provider ?? 'notebooklm',
-      lane: options.lane,
-      action: options.action ?? 'status',
-      force: options.force ?? false,
-      by: options.by ?? 'user',
-    });
-  }
-
-  /**
-   * Read provider credential status.
-   */
-  async groupSpaceProviderCredentialStatus(
-    options: GroupSpaceProviderCredentialStatusOptions = {}
-  ): Promise<Record<string, unknown>> {
-    return this.call('group_space_provider_credential_status', {
-      provider: options.provider ?? 'notebooklm',
-      by: options.by ?? 'user',
-    });
-  }
-
-  /**
-   * Update provider credentials.
-   */
-  async groupSpaceProviderCredentialUpdate(
-    options: GroupSpaceProviderCredentialUpdateOptions = {}
-  ): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      provider: options.provider ?? 'notebooklm',
-      by: options.by ?? 'user',
-      clear: options.clear ?? false,
-    };
-    if (options.authJson) args['auth_json'] = options.authJson;
-    return this.call('group_space_provider_credential_update', args);
-  }
-
-  /**
-   * Run provider health check.
-   */
-  async groupSpaceProviderHealthCheck(
-    options: GroupSpaceProviderHealthCheckOptions = {}
-  ): Promise<Record<string, unknown>> {
-    return this.call('group_space_provider_health_check', {
-      provider: options.provider ?? 'notebooklm',
-      by: options.by ?? 'user',
-    });
-  }
-
-  /**
-   * Control provider auth flow.
-   */
-  async groupSpaceProviderAuth(options: GroupSpaceProviderAuthOptions = {}): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      provider: options.provider ?? 'notebooklm',
-      action: options.action ?? 'status',
-      by: options.by ?? 'user',
-    };
-    if (options.timeoutSeconds !== undefined) args['timeout_seconds'] = options.timeoutSeconds;
-    return this.call('group_space_provider_auth', args);
-  }
-
-  // ============================================================
   // Event stream
   // ============================================================
 
@@ -1961,3 +1541,9 @@ export class CCCCClient {
     }
   }
 }
+
+export interface CCCCClient extends CCCC0430Ops, GroupSpaceOps, ChatOps {}
+
+installCCCC0430Ops(CCCCClient.prototype);
+installGroupSpaceOps(CCCCClient.prototype);
+installChatOps(CCCCClient.prototype);

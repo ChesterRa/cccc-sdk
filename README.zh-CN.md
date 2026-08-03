@@ -3,7 +3,7 @@
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
 > 状态：**面向当前 CCCC Daemon IPC v1 的契约优先 SDK**。包版本跟随 `cccc`
-> 本体（当前 0.4.18），同时随 daemon 合约演进补充新版工作流 API。
+> 本体（当前 0.4.33），同时随 daemon 合约演进补充新版工作流 API。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
@@ -63,7 +63,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_capabilities={"events_stream": True},
+    require_ops=["groups"],
     require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")

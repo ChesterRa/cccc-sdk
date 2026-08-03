@@ -99,6 +99,7 @@ export interface CCCSEvent {
 export interface ChatMessageEventData {
   text: string;
   format?: string;
+  insight?: string | null;
   priority?: 'normal' | 'attention';
   reply_required?: boolean;
   to?: string[];
@@ -220,6 +221,9 @@ export interface SendOptions {
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
   clientId?: string;
+  suggestedUserMessage?: string;
+  insight?: string;
+  requirePeerInsight?: boolean;
 }
 
 /** Send-cross-group options */
@@ -233,6 +237,8 @@ export interface SendCrossGroupOptions {
   replyRequired?: boolean;
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
+  insight?: string;
+  requirePeerInsight?: boolean;
 }
 
 /** Reply message options */
@@ -247,6 +253,9 @@ export interface ReplyOptions {
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
   clientId?: string;
+  suggestedUserMessage?: string;
+  insight?: string;
+  requirePeerInsight?: boolean;
 }
 
 /**
@@ -282,6 +291,8 @@ export interface TrackedSendOptions {
   handoffTo?: string;
   assignee?: string;
   refs?: MessageRef[];
+  insight?: string;
+  requirePeerInsight?: boolean;
 }
 
 /** Task list (returns either all tasks or one task plus its children). */

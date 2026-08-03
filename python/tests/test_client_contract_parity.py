@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from cccc_sdk.client import CCCCClient
+from cccc_sdk.errors import DaemonAPIError, IncompatibleDaemonError
 from cccc_sdk.transport import DaemonEndpoint
 
 
@@ -104,6 +105,8 @@ class TestClientContractParity(unittest.TestCase):
                 priority="attention",
                 reply_required=True,
                 waiting_on="actor",
+                insight="This task closes the release gap.",
+                require_peer_insight=True,
             )
 
         req = captured[0]
@@ -123,8 +126,21 @@ class TestClientContractParity(unittest.TestCase):
                 "priority": "attention",
                 "reply_required": True,
                 "waiting_on": "actor",
+                "insight": "This task closes the release gap.",
+                "require_peer_insight": True,
             },
         )
+
+    def test_assert_compatible_probes_events_stream(self) -> None:
+        client = self._client()
+        def fake_call_raw(op: str, args: dict) -> dict:
+            if op == "ping":
+                return {"ok": True, "result": {"ipc_v": 1, "capabilities": {"events_stream": True}}}
+            raise DaemonAPIError(code="unknown_op", message=f"unknown operation: {op}", details={})
+
+        with patch.object(client, "call_raw", side_effect=fake_call_raw):
+            with self.assertRaises(IncompatibleDaemonError):
+                client.assert_compatible(require_ops=["events_stream"])
 
     def test_tracked_send_defaults_reply_required_to_true(self) -> None:
         captured: list[dict] = []
