@@ -58,7 +58,10 @@ python - <<'PY'
 from cccc_sdk import CCCCClient
 
 c = CCCCClient()
-c.assert_compatible(require_ipc_v=1, require_capabilities={"events_stream": True})
+c.assert_compatible(
+    require_ipc_v=1,
+    require_ops=["groups", "send", "reply", "tracked_send", "context_sync"],
+)
 
 groups = c.groups()
 print(groups)
@@ -192,7 +195,7 @@ See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
 
-## CCCC 0.4.32 compatibility delta
+## CCCC 0.4.33 compatibility delta
 
 ```python
 # Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
@@ -210,7 +213,15 @@ page = c.terminal_history(
 exported = c.group_copy_export_file(group_id="g_xxx")
 preview = c.group_copy_preview_import(package_path=exported["package_path"])
 copied = c.group_copy_import(package_path=exported["package_path"])
+
+# Current Rust-daemon administration and terminal operations.
+preamble = c.group_preamble_get(group_id="g_xxx")
+recent = c.terminal_since(group_id="g_xxx", actor_id="reviewer", cursor=0)
+c.term_resize(group_id="g_xxx", actor_id="reviewer", cols=120, rows=40)
 ```
+
+`events_stream` compatibility is verified by probing the operation itself;
+the SDK does not rely only on the daemon's advertised capability flag.
 
 `group_reset` is destructive: it creates a clean replacement and removes the
 old group after copying selected configuration. The explicit confirmation must

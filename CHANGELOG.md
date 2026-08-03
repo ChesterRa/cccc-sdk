@@ -3,6 +3,33 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [0.4.33] — Unreleased
+
+### Added
+
+- Current Rust-daemon wrappers for group preamble, terminal cursor/resize,
+  Voice Secretary documents and prompts, low-level ReMe maintenance, Web Model
+  turns, IM bridge management, and Remote Access administration.
+- `require_peer_insight` / `requirePeerInsight` support on chat workflows and
+  profile-marker support on actor profile operations.
+
+### Changed
+
+- `assert_compatible` / `assertCompatible` now probes `events_stream` as a real
+  operation instead of trusting the advertised capability flag. TypeScript
+  streaming also probes before opening the long-lived socket.
+- `term_resize` / `termResize` maps to the Rust daemon's current
+  `terminal_resize` operation; terminal history also exposes `terminal_since`.
+- The removed voice transcription IPC helper now fails locally with migration
+  guidance to the supported HTTP Voice Secretary endpoint.
+- Refactored large client implementations into focused operation-family
+  mixins without changing the public client entry points.
+
+### Tests
+
+- Added Python and TypeScript contract coverage for the 0.4.33 operation and
+  argument mappings, compatibility probing, and removed-operation behavior.
+
 ## [0.4.32] — Unreleased
 
 ### Added

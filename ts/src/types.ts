@@ -257,6 +257,7 @@ export interface SendOptions {
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
   clientId?: string;
+  requirePeerInsight?: boolean;
 }
 
 /** Send-cross-group options */
@@ -271,6 +272,7 @@ export interface SendCrossGroupOptions {
   replyRequired?: boolean;
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
+  requirePeerInsight?: boolean;
 }
 
 /** Reply message options */
@@ -287,6 +289,7 @@ export interface ReplyOptions {
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
   clientId?: string;
+  requirePeerInsight?: boolean;
 }
 
 /**
@@ -323,6 +326,7 @@ export interface TrackedSendOptions {
   handoffTo?: string;
   assignee?: string;
   refs?: MessageRef[];
+  requirePeerInsight?: boolean;
 }
 
 /** Task list (returns either all tasks or one task plus its children). */
