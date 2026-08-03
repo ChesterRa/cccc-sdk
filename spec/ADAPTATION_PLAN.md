@@ -33,6 +33,16 @@ the Rust daemon moved transcription to its supported HTTP workflow.
 Client implementations are split into operation-family mixins to keep each
 module focused while preserving the existing public client classes.
 
+### Validation evidence (2026-08-03)
+
+- Python: 52 tests passed; source compilation and wheel build succeeded.
+- TypeScript: 89 tests passed; typecheck, build, and npm package dry-run
+  succeeded.
+- A live Rust 0.4.33 daemon accepted the current group-preamble and terminal
+  operations. It advertised `events_stream` but returned `unknown_op` to an
+  operation probe; the SDK now detects and reports that mismatch before a
+  message workflow begins.
+
 ## v0.4.32 baseline retained
 
 Compared with v0.4.18, the daemon added 13 regular request/response operations

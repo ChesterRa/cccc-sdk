@@ -9,8 +9,6 @@ def main() -> int:
     c = CCCCClient()
     info = c.assert_compatible(
         require_ipc_v=1,
-        require_capabilities={"events_stream": True},
-        require_ops=["events_stream"],
         require_ops=[
             "groups",
             "group_show",
@@ -33,6 +31,9 @@ def main() -> int:
             "group_reset",
             "group_copy_export_file",
             "terminal_history",
+            "terminal_since",
+            "terminal_resize",
+            "group_preamble_get",
         ],
     )
     print(json.dumps({"ok": True, "daemon": info}, ensure_ascii=False, indent=2))
