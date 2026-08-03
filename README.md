@@ -12,7 +12,7 @@ CCCC SDK provides **client SDKs** for building applications on top of the CCCC p
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
 - `cccc` (core) ships the daemon/web/CLI and owns runtime state in `CCCC_HOME`.
-- `cccc-sdk` (this repo) provides Python/TypeScript clients for **Daemon IPC v1**.
+- `cccc-sdk` (this repo) provides Python, TypeScript, and Rust clients for **Daemon IPC v1**.
 - The SDK is not a standalone framework. It always talks to a running CCCC daemon.
 
 If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared immediately
@@ -22,6 +22,7 @@ If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared imme
 
 - `python/` — Python package (`cccc-sdk`, import name `cccc_sdk`)
 - `ts/` — TypeScript package (`cccc-sdk`)
+- `rust/` — Rust crate (`cccc-sdk`, crate name `cccc_sdk`)
 - `spec/CCCC_*.md` and `spec/CCCS_V1.md` — mirrored CCCC contract docs
 - `spec/SDK_*.md` — SDK-owned surface notes that are not yet core standards
 
@@ -34,6 +35,7 @@ Typical use cases:
 For language-specific details:
 - Python SDK: `python/README.md`
 - TypeScript SDK: `ts/README.md`
+- Rust SDK: `rust/README.md`
 
 ---
 
@@ -65,7 +67,6 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "tracked_send", "context_sync"],
     require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
@@ -85,12 +86,35 @@ python python/examples/stream.py --group g_xxx
 python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ```
 
+## Quick start (Rust)
+
+```toml
+[dependencies]
+cccc-sdk = "0.0.1"
+```
+
+```rust
+use cccc_sdk::{CCCCClient, CompatibilityRequirements};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = CCCCClient::discover()?;
+    client.assert_compatible(&CompatibilityRequirements {
+        minimum_ipc_version: 1,
+        operations: vec!["groups", "send", "reply", "context_get"],
+        ..Default::default()
+    })?;
+    println!("{:#?}", client.groups()?);
+    Ok(())
+}
+```
+
 ---
 
 ## Versioning and compatibility
 
 SDK releases follow daemon contracts, not strict daemon version strings:
-- Python and TypeScript package versions track the current SDK release line, while RC sequencing remains SDK-owned.
+- Python and TypeScript package versions track the current SDK release line; the
+  Rust crate starts at `0.0.1` while its public API settles.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
 Compatibility is enforced by **contracts**, not by strict version string matching:

@@ -3,7 +3,7 @@
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
 > 状态：**面向 CCCC Daemon IPC v1 的契约优先 SDK**。`main` 上的源码包面向
-> 当前源码包面向 CCCC 0.4.33；发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
+> CCCC 0.4.33；发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
 > 与 `spec/ADAPTATION_PLAN.md`。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
@@ -12,7 +12,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
 - CCCC 本体仓库：https://github.com/ChesterRa/cccc
 - `cccc`（本体）负责 daemon/web/CLI，以及 `CCCC_HOME` 下的运行时状态。
-- `cccc-sdk`（本仓库）提供 Python/TypeScript 客户端，调用 **Daemon IPC v1**。
+- `cccc-sdk`（本仓库）提供 Python、TypeScript 和 Rust 客户端，调用 **Daemon IPC v1**。
 - SDK 不是独立框架，必须连接到已运行的 CCCC daemon。
 
 只要 SDK 与 CCCC Web 指向同一个 `CCCC_HOME`，写入会立即互通
@@ -22,6 +22,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 
 - `python/` — Python 包（PyPI 名称 `cccc-sdk`，import 名称 `cccc_sdk`）
 - `ts/` — TypeScript 包（`cccc-sdk`）
+- `rust/` — Rust crate（`cccc-sdk`，crate 名称 `cccc_sdk`）
 - `spec/` — SDK 开发使用的合约文档镜像
 
 典型场景：
@@ -33,6 +34,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 语言细分文档：
 - Python SDK：`python/README.md`
 - TypeScript SDK：`ts/README.md`
+- Rust SDK：`rust/README.md`
 
 ---
 
@@ -64,7 +66,6 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "tracked_send", "context_sync"],
     require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
@@ -84,12 +85,22 @@ python python/examples/stream.py --group g_xxx
 python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ```
 
+## 快速开始（Rust）
+
+```toml
+[dependencies]
+cccc-sdk = "0.0.1"
+```
+
+Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
+`call` 以及常用的 group、chat、inbox、context 方法。完整示例见 `rust/README.md`。
+
 ---
 
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python 和 TypeScript 包版本跟随当前 SDK 发布线；RC 序号由 SDK 自身维护。
+- Python 和 TypeScript 包版本跟随当前 SDK 发布线；Rust crate 从 `0.0.1` 起步。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

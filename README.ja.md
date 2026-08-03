@@ -12,7 +12,7 @@ CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** �
 
 - CCCC 本体リポジトリ: https://github.com/ChesterRa/cccc
 - `cccc`（本体）は daemon/web/CLI を提供し、`CCCC_HOME` の実行状態を管理します。
-- `cccc-sdk`（このリポジトリ）は Python/TypeScript から **Daemon IPC v1** を呼ぶクライアントです。
+- `cccc-sdk`（このリポジトリ）は Python、TypeScript、Rust から **Daemon IPC v1** を呼ぶクライアントです。
 - SDK 単体では動作せず、実行中の CCCC daemon が必要です。
 
 SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込みは即時に共有されます
@@ -22,6 +22,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 
 - `python/` — Python パッケージ（PyPI 名: `cccc-sdk`、import: `cccc_sdk`）
 - `ts/` — TypeScript パッケージ（`cccc-sdk`）
+- `rust/` — Rust crate（`cccc-sdk`、crate 名 `cccc_sdk`）
 - `spec/` — SDK 開発用の契約ドキュメントミラー
 
 主な用途：
@@ -33,6 +34,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 言語別の詳細:
 - Python SDK: `python/README.md`
 - TypeScript SDK: `ts/README.md`
+- Rust SDK: `rust/README.md`
 
 ---
 
@@ -64,7 +66,6 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "tracked_send", "context_sync"],
     require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
@@ -84,12 +85,23 @@ python python/examples/stream.py --group g_xxx
 python python/examples/auto_ack_attention.py --group g_xxx --actor user
 ```
 
+## クイックスタート（Rust）
+
+```toml
+[dependencies]
+cccc-sdk = "0.0.1"
+```
+
+Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
+汎用 `call` と group、chat、inbox、context の主要メソッドを提供します。
+詳細は `rust/README.md` を参照してください。
+
 ---
 
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python と TypeScript のパッケージバージョンは現在の SDK リリースラインに追従し、RC 番号は SDK 側で管理します。
+- Python と TypeScript は現在の SDK リリースラインに追従し、Rust crate は `0.0.1` から開始します。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：
