@@ -1,13 +1,15 @@
 # Releasing `cccc-sdk`
 
-This repo is a monorepo with two deliverables:
+This repo is a monorepo with three deliverables:
 - Python package: `python/` (PyPI name: `cccc-sdk`)
 - TypeScript package: `ts/` (npm name: `cccc-sdk`)
+- Rust crate: `rust/` (crates.io name: `cccc-sdk`)
 
 ## Versioning policy
 
 - SDK version tracks the supported CCCC line: currently `0.4.33`.
 - RC sequence is SDK-owned (`0.4.33rcN` for Python, `0.4.33-rc.N` for npm).
+- The Rust crate begins at `0.0.1` while its public API settles.
 - Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
 
 ## 0) Sync specs (recommended)
@@ -96,7 +98,29 @@ cd ts
 npm publish --access public
 ```
 
-## 3) Post-release sanity
+## 3) Rust release (crates.io)
+
+### Local checks
+
+```bash
+cd rust
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo package --locked
+```
+
+### Publish
+
+```bash
+cd rust
+cargo publish --locked --registry crates-io
+```
+
+Published crate versions are immutable. Confirm the package file list and
+metadata before running `cargo publish`.
+
+## 4) Post-release sanity
 
 - Run Python compat check against a running daemon:
 
@@ -105,3 +129,5 @@ python python/examples/compat_check.py
 ```
 
 - Verify npm package installs and can `import { CCCCClient } from 'cccc-sdk'`.
+- Verify `cargo info cccc-sdk --registry crates-io` reports the expected Rust
+  crate version and repository.

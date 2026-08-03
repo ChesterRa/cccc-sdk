@@ -1,0 +1,32 @@
+name: rust-ci
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Format
+        working-directory: rust
+        run: cargo fmt --check
+      - name: Lint
+        working-directory: rust
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test
+        working-directory: rust
+        run: cargo test --all-targets
+      - name: Package
+        working-directory: rust
+        run: cargo package --locked

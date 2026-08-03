@@ -1,0 +1,19 @@
+[package]
+name = "cccc-sdk"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.74"
+description = "Official Rust client SDK for CCCC daemon IPC v1"
+license = "Apache-2.0"
+repository = "https://github.com/ChesterRa/cccc-sdk"
+homepage = "https://github.com/ChesterRa/cccc"
+documentation = "https://docs.rs/cccc-sdk"
+readme = "README.md"
+keywords = ["cccc", "sdk", "ipc", "agent", "automation"]
+categories = ["api-bindings", "development-tools"]
+exclude = ["tests/**"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"

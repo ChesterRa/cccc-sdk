@@ -3,6 +3,17 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## Rust crate [0.0.1] — 2026-08-03
+
+### Added
+
+- Initial `cccc-sdk` Rust crate with Unix Socket/TCP endpoint discovery,
+  Daemon IPC v1 NDJSON transport, structured protocol errors, response limits,
+  and configurable timeouts.
+- Generic non-streaming operation calls plus focused helpers for compatibility,
+  groups, chat, inbox, and context workflows.
+- Unit tests, a live compatibility example, crate documentation, and Rust CI.
+
 ## [0.4.33] — Unreleased
 
 ### Added

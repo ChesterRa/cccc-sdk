@@ -1,0 +1,28 @@
+use cccc_sdk::{CCCCClient, CompatibilityRequirements};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = CCCCClient::discover()?;
+    let requirements = CompatibilityRequirements {
+        minimum_ipc_version: 1,
+        operations: vec![
+            "groups",
+            "group_show",
+            "send",
+            "reply",
+            "inbox_list",
+            "context_get",
+            "context_sync",
+            "group_preamble_get",
+            "terminal_history",
+        ],
+        ..Default::default()
+    };
+    let daemon = client.assert_compatible(&requirements)?;
+    println!(
+        "CCCC {} ({}) is compatible with IPC v{}",
+        daemon.version,
+        daemon.implementation.as_deref().unwrap_or("unknown"),
+        daemon.ipc_v
+    );
+    Ok(())
+}

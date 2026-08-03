@@ -19,6 +19,9 @@ pnpm-lock.yaml
 yarn.lock
 npm-debug.log*
 
+# Rust
+target/
+
 # Editors
 .vscode/
 .idea/
