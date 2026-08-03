@@ -28,7 +28,6 @@ async function main() {
 
   await client.assertCompatible({
     requireIpcV: 1,
-    requireCapabilities: { events_stream: true },
     requireOps: ['groups', 'send', 'reply', 'tracked_send', 'context_sync'],
   });
 
@@ -203,7 +202,7 @@ await client.contextSync({
 
 If you need a daemon op that does not have a dedicated helper yet, you can always fall back to `call()` / `callRaw()`.
 
-## CCCC 0.4.32 compatibility delta
+## CCCC 0.4.33 compatibility delta
 
 ```typescript
 // Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
@@ -221,7 +220,15 @@ const exported = await client.groupCopyExportFile({ groupId });
 const packagePath = String(exported.package_path);
 const preview = await client.groupCopyPreviewImport({ packagePath });
 const copied = await client.groupCopyImport({ packagePath });
+
+// Current Rust-daemon administration and terminal operations.
+const preamble = await client.groupPreambleGet({ groupId });
+const recent = await client.terminalSince({ groupId, actorId: 'reviewer', after: 0 });
+await client.termResize({ groupId, actorId: 'reviewer', cols: 120, rows: 40 });
 ```
+
+`events_stream` compatibility is verified by probing the operation itself;
+the SDK does not rely only on the daemon's advertised capability flag.
 
 `groupReset` is destructive: it creates a clean replacement and removes the
 old group after copying selected configuration. `confirmGroupId` must equal

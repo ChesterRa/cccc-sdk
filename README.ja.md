@@ -3,7 +3,7 @@
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
 > ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。`main` の
-> ソースパッケージは CCCC 0.4.32 を対象とします。公開は別の release 手順です。
+> ソースパッケージは CCCC 0.4.33 を対象とします。公開は別の release 手順です。
 > 範囲は `CHANGELOG.md` と `spec/ADAPTATION_PLAN.md` を参照してください。
 
 CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。
@@ -64,7 +64,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_capabilities={"events_stream": True},
+    require_ops=["groups", "send", "reply", "tracked_send", "context_sync"],
     require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")

@@ -23,3 +23,9 @@ npm-debug.log*
 .vscode/
 .idea/
 
+# Local AI / project-harness tooling
+.claude/
+.codex/
+.project-harness/
+.ts-agent/
+docs/project-harness*.md
