@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "context_get",
             "context_sync",
             "group_preamble_get",
+            "send_files",
             "terminal_history",
         ],
         ..Default::default()

@@ -5,9 +5,11 @@ import type {
   ReplyOptions,
   SendAndWaitOptions,
   SendCrossGroupOptions,
+  SendFilesOptions,
   SendOptions,
   SendResult,
 } from './types.js';
+import { DaemonAPIError } from './errors.js';
 import { isStreamEvent } from './types.js';
 
 type ClientCall = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -26,6 +28,7 @@ type ChatClient = {
 
 export interface ChatOps {
   send(options: SendOptions): Promise<Record<string, unknown>>;
+  sendFiles(options: SendFilesOptions): Promise<Record<string, unknown>>;
   sendCrossGroup(options: SendCrossGroupOptions): Promise<Record<string, unknown>>;
   reply(options: ReplyOptions): Promise<Record<string, unknown>>;
   chatAck(groupId: string, actorId: string, eventId: string, by?: string): Promise<Record<string, unknown>>;
@@ -56,6 +59,27 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     if (options.requirePeerInsight !== undefined) args['require_peer_insight'] = options.requirePeerInsight;
 
     return this.call('send', args);
+  },
+
+  async sendFiles(options) {
+    const normalizedPaths = Array.isArray(options.paths)
+      ? options.paths.map((path) => String(path).trim())
+      : [];
+    if (normalizedPaths.length === 0 || normalizedPaths.some((path) => path.length === 0)) {
+      throw new DaemonAPIError('invalid_args', 'sendFiles requires one or more non-empty paths', {});
+    }
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      paths: normalizedPaths,
+      text: options.text ?? '',
+      by: options.by ?? 'user',
+      priority: options.priority ?? 'normal',
+      reply_required: options.replyRequired ?? false,
+    };
+    if (options.to) args['to'] = options.to;
+    if (options.insight) args['insight'] = options.insight;
+    if (options.clientId) args['client_id'] = options.clientId;
+    return this.call('send_files', args);
   },
 
   async sendCrossGroup(options) {

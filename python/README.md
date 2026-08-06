@@ -214,11 +214,33 @@ exported = c.group_copy_export_file(group_id="g_xxx")
 preview = c.group_copy_preview_import(package_path=exported["package_path"])
 copied = c.group_copy_import(package_path=exported["package_path"])
 
-# Current Rust-daemon administration and terminal operations.
+# Manage the startup body delivered to the next fresh provider session.
+c.group_preamble_set(
+    group_id="g_xxx",
+    content="This initialization is not a task. Wait for the targeted mission.\n",
+)
 preamble = c.group_preamble_get(group_id="g_xxx")
-recent = c.terminal_since(group_id="g_xxx", actor_id="reviewer", cursor=0)
+c.group_preamble_reset(group_id="g_xxx", confirm="preamble")
+
+# Upload active-scope files and append one message with daemon-owned attachments.
+c.send_files(
+    group_id="g_xxx",
+    paths=["reference.png", "candidate.png"],
+    text="Inspect these files",
+    to=["reviewer"],
+)
+
+# Current terminal operations.
+recent = c.terminal_since(group_id="g_xxx", actor_id="reviewer", after=0)
 c.term_resize(group_id="g_xxx", actor_id="reviewer", cols=120, rows=40)
 ```
+
+A changed preamble applies on its next delivery; it is not reinjected into a
+session that already received one. `group_reset` creates a new group id and
+does not carry the override forward. If the preamble establishes a standby
+boundary, wait until the actor returns to `waiting` or `idle` before sending
+the authoritative mission. `send_files` accepts only regular files beneath
+the group's active scope and validates every path before appending the message.
 
 `events_stream` compatibility is verified by probing the operation itself;
 the SDK does not rely only on the daemon's advertised capability flag.

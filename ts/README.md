@@ -221,11 +221,33 @@ const packagePath = String(exported.package_path);
 const preview = await client.groupCopyPreviewImport({ packagePath });
 const copied = await client.groupCopyImport({ packagePath });
 
-// Current Rust-daemon administration and terminal operations.
+// Manage the startup body delivered to the next fresh provider session.
+await client.groupPreambleSet({
+  groupId,
+  content: 'This initialization is not a task. Wait for the targeted mission.\n',
+});
 const preamble = await client.groupPreambleGet({ groupId });
+await client.groupPreambleReset({ groupId, confirm: 'preamble' });
+
+// Upload active-scope files and append one message with daemon-owned attachments.
+await client.sendFiles({
+  groupId,
+  paths: ['reference.png', 'candidate.png'],
+  text: 'Inspect these files',
+  to: ['reviewer'],
+});
+
+// Current terminal operations.
 const recent = await client.terminalSince({ groupId, actorId: 'reviewer', after: 0 });
 await client.termResize({ groupId, actorId: 'reviewer', cols: 120, rows: 40 });
 ```
+
+A changed preamble applies on its next delivery; it is not reinjected into a
+session that already received one. `groupReset` creates a new group id and
+does not carry the override forward. If the preamble establishes a standby
+boundary, wait until the actor returns to `waiting` or `idle` before sending
+the authoritative mission. `sendFiles` accepts only regular files beneath
+the group's active scope and validates every path before appending the message.
 
 `events_stream` compatibility is verified by probing the operation itself;
 the SDK does not rely only on the daemon's advertised capability flag.

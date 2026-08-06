@@ -31,7 +31,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     await client.reply({ groupId: 'g_1', replyTo: 'e_1', text: 'done', insight: 'The probe now matches reality.' });
     await client.groupPreambleGet({ groupId: 'g_1' });
     await client.groupPreambleSet({ groupId: 'g_1', content: 'Project guidance' });
-    await client.groupPreambleReset({ groupId: 'g_1' });
+    await client.groupPreambleReset({ groupId: 'g_1', confirm: 'preamble' });
     await client.terminalHistory({
       groupId: 'g_1',
       actorId: 'codex-1',

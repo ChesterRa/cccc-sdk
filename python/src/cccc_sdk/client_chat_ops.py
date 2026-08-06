@@ -81,6 +81,41 @@ class ChatOpsMixin:
             args["require_peer_insight"] = bool(require_peer_insight)
         return self.call("send", args)
 
+    def send_files(
+        self,
+        *,
+        group_id: str,
+        paths: List[str],
+        text: str = "",
+        insight: str = "",
+        by: str = "user",
+        to: Optional[List[str]] = None,
+        priority: str = "normal",
+        reply_required: bool = False,
+        client_id: str = "",
+    ) -> Dict[str, Any]:
+        """Upload active-scope files and send them in one chat message."""
+        if not isinstance(paths, list):
+            raise ValueError("send_files requires a non-empty list of paths")
+        normalized_paths = [str(path).strip() for path in paths]
+        if not normalized_paths or any(not path for path in normalized_paths):
+            raise ValueError("send_files requires one or more non-empty paths")
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "paths": normalized_paths,
+            "text": str(text),
+            "by": str(by),
+            "priority": str(priority),
+            "reply_required": bool(reply_required),
+        }
+        if to is not None:
+            args["to"] = [str(item) for item in to]
+        if insight:
+            args["insight"] = str(insight)
+        if client_id:
+            args["client_id"] = str(client_id)
+        return self.call("send_files", args)
+
     def reply(
         self,
         *,

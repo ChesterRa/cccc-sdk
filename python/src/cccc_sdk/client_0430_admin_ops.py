@@ -5,6 +5,9 @@ from typing import Any, Dict, Optional
 from .client_0430_shared import _compact
 
 
+_MAX_GROUP_PREAMBLE_BYTES = 512 * 1024
+
+
 class CCCC0430AdminOpsMixin:
     def actor_new_session(
         self,
@@ -31,12 +34,19 @@ class CCCC0430AdminOpsMixin:
         return self.call("group_preamble_get", {"group_id": str(group_id)})
 
     def group_preamble_set(self, *, group_id: str, content: str, by: str = "user") -> Dict[str, Any]:
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("group_preamble_set requires non-empty content")
+        body = content
+        if len(body.encode("utf-8")) > _MAX_GROUP_PREAMBLE_BYTES:
+            raise ValueError("group_preamble_set content exceeds 512 KiB")
         return self.call(
             "group_preamble_set",
-            {"group_id": str(group_id), "content": str(content), "by": str(by)},
+            {"group_id": str(group_id), "content": body, "by": str(by)},
         )
 
-    def group_preamble_reset(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
+    def group_preamble_reset(self, *, group_id: str, confirm: str, by: str = "user") -> Dict[str, Any]:
+        if str(confirm) != "preamble":
+            raise ValueError("group_preamble_reset requires confirm='preamble'")
         return self.call(
             "group_preamble_reset",
             {"group_id": str(group_id), "confirm": "preamble", "by": str(by)},

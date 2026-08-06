@@ -123,7 +123,11 @@ jobs:
             requireOps: [
               'groups',
               'group_create',
+              'group_preamble_get',
+              'group_preamble_set',
+              'group_preamble_reset',
               'send',
+              'send_files',
               'events_stream',
               'memory_search',
               'memory_get',

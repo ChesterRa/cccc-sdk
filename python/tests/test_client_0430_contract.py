@@ -30,7 +30,7 @@ class TestClient0433Contract(unittest.TestCase):
             client.reply(group_id="g_1", reply_to="e_1", text="done", insight="The probe now matches reality.")
             client.group_preamble_get(group_id="g_1")
             client.group_preamble_set(group_id="g_1", content="Project guidance")
-            client.group_preamble_reset(group_id="g_1")
+            client.group_preamble_reset(group_id="g_1", confirm="preamble")
             client.terminal_history(
                 group_id="g_1",
                 actor_id="codex-1",

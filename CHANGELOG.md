@@ -21,6 +21,8 @@ CCCC line and exposes the IPC surface available on that line.
 - Current Rust-daemon wrappers for group preamble, terminal cursor/resize,
   Voice Secretary documents and prompts, low-level ReMe maintenance, Web Model
   turns, IM bridge management, and Remote Access administration.
+- Daemon-owned active-scope file upload and chat delivery through `send_files`
+  / `sendFiles`, without direct writes to the group blob store.
 - `require_peer_insight` / `requirePeerInsight` support on chat workflows and
   profile-marker support on actor profile operations.
 
@@ -35,13 +37,15 @@ CCCC line and exposes the IPC surface available on that line.
   guidance to the supported HTTP Voice Secretary endpoint.
 - Refactored large client implementations into focused operation-family
   mixins without changing the public client entry points.
+- Group-preamble setters reject empty or oversized content, and reset helpers
+  require the caller's explicit `preamble` confirmation.
 
 ### Tests
 
 - Added Python and TypeScript contract coverage for the 0.4.33 operation and
   argument mappings, compatibility probing, and removed-operation behavior.
 
-## [0.4.32] — Unreleased
+## [0.4.32] — 2026-07-19
 
 ### Added
 

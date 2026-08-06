@@ -1,17 +1,22 @@
+import { Buffer } from 'node:buffer';
 import {
   compactRecord,
   type BasicGroupActorOptions,
   type CCCC0430Client,
   type GroupScopedOptions,
 } from './client_0430_shared.js';
+import { DaemonAPIError } from './errors.js';
+import type { GroupPreambleResetOptions, GroupPreambleSetOptions } from './types.js';
+
+const MAX_GROUP_PREAMBLE_BYTES = 512 * 1024;
 
 export interface CCCC0430AdminOps {
   actorNewSession(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>;
   actorNewSession(options: BasicGroupActorOptions & { clearSavedSession?: boolean }): Promise<Record<string, unknown>>;
   groupCopyExportFile(options: { groupId: string; includeBlobs?: boolean }): Promise<Record<string, unknown>>;
   groupPreambleGet(options: { groupId: string }): Promise<Record<string, unknown>>;
-  groupPreambleSet(options: { groupId: string; content: string; by?: string }): Promise<Record<string, unknown>>;
-  groupPreambleReset(options: { groupId: string; by?: string }): Promise<Record<string, unknown>>;
+  groupPreambleSet(options: GroupPreambleSetOptions): Promise<Record<string, unknown>>;
+  groupPreambleReset(options: GroupPreambleResetOptions): Promise<Record<string, unknown>>;
   terminalHistory(options: BasicGroupActorOptions & {
     before?: number;
     limitBytes?: number;
@@ -65,6 +70,12 @@ const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
   },
 
   async groupPreambleSet(options) {
+    if (typeof options.content !== 'string' || options.content.trim().length === 0) {
+      throw new DaemonAPIError('invalid_args', 'groupPreambleSet requires non-empty content', {});
+    }
+    if (Buffer.byteLength(options.content, 'utf8') > MAX_GROUP_PREAMBLE_BYTES) {
+      throw new DaemonAPIError('invalid_args', 'groupPreambleSet content exceeds 512 KiB', {});
+    }
     return this.call('group_preamble_set', {
       group_id: options.groupId,
       content: options.content,
@@ -73,6 +84,9 @@ const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
   },
 
   async groupPreambleReset(options) {
+    if (options.confirm !== 'preamble') {
+      throw new DaemonAPIError('invalid_args', "groupPreambleReset requires confirm='preamble'", {});
+    }
     return this.call('group_preamble_reset', {
       group_id: options.groupId,
       confirm: 'preamble',

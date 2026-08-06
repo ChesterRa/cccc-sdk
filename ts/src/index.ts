@@ -60,6 +60,7 @@ export type {
   AsyncResultEnvelope,
   // Operation argument types.
   SendOptions,
+  SendFilesOptions,
   TrackedSendOptions,
   SendCrossGroupOptions,
   ReplyOptions,
@@ -67,6 +68,8 @@ export type {
   ActorAddOptions,
   ActorUpdateOptions,
   GroupResetOptions,
+  GroupPreambleSetOptions,
+  GroupPreambleResetOptions,
   ActorEnvPrivateUpdateOptions,
   ActorInternalKind,
   ActorRuntimeStateSource,

@@ -35,6 +35,33 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args.get("priority"), "attention")
         self.assertIs(args.get("reply_required"), True)
 
+    def test_send_files_maps_paths_into_one_daemon_operation(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {"event": {"id": "e-files"}}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().send_files(
+                group_id="g_1",
+                paths=["reference.png", "candidate.png"],
+                text="inspect",
+                to=["seat-design"],
+                priority="attention",
+            )
+
+        self.assertEqual(captured[0].get("op"), "send_files")
+        args = captured[0].get("args") or {}
+        self.assertEqual(args.get("paths"), ["reference.png", "candidate.png"])
+        self.assertEqual(args.get("to"), ["seat-design"])
+        self.assertEqual(args.get("priority"), "attention")
+
+        with self.assertRaisesRegex(ValueError, "non-empty paths"):
+            self._client().send_files(group_id="g_1", paths=[])
+        with self.assertRaisesRegex(ValueError, "non-empty paths"):
+            self._client().send_files(group_id="g_1", paths=["reference.png", "  "])
+
     def test_reply_includes_reply_required(self) -> None:
         captured: list[dict] = []
 
@@ -977,6 +1004,34 @@ class TestClientContractParity(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "confirm"):
             client.group_reset(group_id="g_1", confirm="g_wrong")
+
+    def test_group_preamble_contract_maps_and_validates_args(self) -> None:
+        captured, client = self._capture({"source": "builtin", "content": "Startup"})
+
+        client.group_preamble_get(group_id="g_1")
+        self.assertEqual(captured[0]["op"], "group_preamble_get")
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+
+        captured.clear()
+        client.group_preamble_set(
+            group_id="g_1",
+            content="Wait for the targeted mission.\n",
+            by="user",
+        )
+        self.assertEqual(captured[0]["op"], "group_preamble_set")
+        self.assertEqual(captured[0]["args"]["content"], "Wait for the targeted mission.\n")
+
+        captured.clear()
+        client.group_preamble_reset(group_id="g_1", confirm="preamble", by="user")
+        self.assertEqual(captured[0]["op"], "group_preamble_reset")
+        self.assertEqual(captured[0]["args"]["confirm"], "preamble")
+
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            client.group_preamble_set(group_id="g_1", content="  ")
+        with self.assertRaisesRegex(ValueError, "512 KiB"):
+            client.group_preamble_set(group_id="g_1", content="x" * (512 * 1024 + 1))
+        with self.assertRaisesRegex(ValueError, "confirm"):
+            client.group_preamble_reset(group_id="g_1", confirm="wrong")
 
     def test_capability_extensions(self) -> None:
         captured, client = self._capture({"action_id": "cv_1"})

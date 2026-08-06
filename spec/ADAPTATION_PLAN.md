@@ -1,8 +1,9 @@
 # CCCC SDK — Adaptation Plan
 
-This plan is based on operation-by-operation audits through CCCC v0.4.33,
-completed on 2026-08-03. The SDK source packages now target v0.4.33;
-the work remains unreleased until the normal package release process is run.
+This plan is based on operation-by-operation audits through the current CCCC
+v0.4.33 line, refreshed on 2026-08-06. The SDK source packages target v0.4.33;
+the Python/TypeScript work remains unreleased until the normal package release
+process is run.
 
 The goal is contract alignment, not one wrapper per daemon implementation
 detail. Public SDK methods should represent stable capabilities that an
@@ -17,6 +18,7 @@ current Rust-daemon contracts for:
 
 ```
 group_preamble_get / group_preamble_set / group_preamble_reset
+send_files
 terminal_since / terminal_resize
 assistant_voice_* document, input, prompt, and request workflows
 memory_reme_* maintenance controls
@@ -33,6 +35,18 @@ the Rust daemon moved transcription to its supported HTTP workflow.
 Client implementations are split into operation-family mixins to keep each
 module focused while preserving the existing public client classes.
 
+Group preamble management has a concrete external consumer: a fresh provider
+session can enter bounded standby before its targeted mission arrives. The SDK
+requires non-empty, at-most-512-KiB content and makes reset confirmation an
+explicit caller action. Preamble delivery and the following mission are not
+atomic, so consumers using standby as an execution boundary must observe the
+actor return to `waiting` or `idle` before sending the authoritative mission.
+
+`send_files` is the consumer-backed upload boundary for active-scope files. It
+asks the daemon to validate and read every path, store the blobs, and append one
+normal chat event. SDK consumers therefore do not write `state/blobs/` directly
+or manufacture attachment records.
+
 ### Validation evidence (2026-08-03)
 
 - Python: 52 tests passed; source compilation and wheel build succeeded.
@@ -42,6 +56,18 @@ module focused while preserving the existing public client classes.
   operations. It advertised `events_stream` but returned `unknown_op` to an
   operation probe; the SDK now detects and reports that mismatch before a
   message workflow begins.
+
+### Reconciliation validation (2026-08-06)
+
+- Python: 54 tests passed; source compilation, sdist, and wheel builds passed.
+- TypeScript: 91 tests passed; typecheck, build, and npm package dry-run passed.
+- Rust: formatting, warning-free clippy, 5 tests, and locked package
+  verification passed.
+- All three mirrored standards match the current CCCC core files byte-for-byte.
+- An isolated current-core daemon completed Python and TypeScript preamble and
+  `send_files` round trips. A mixed valid/missing file batch appended no chat
+  event; the following valid two-file batch appended exactly one event with two
+  attachments. The Rust compatibility example also recognized `send_files`.
 
 ## v0.4.32 baseline retained
 

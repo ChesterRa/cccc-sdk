@@ -24,6 +24,30 @@ async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
 }
 
 describe('client contract parity', () => {
+  it('sendFiles maps paths into one daemon operation', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.sendFiles({
+      groupId: 'g_1',
+      paths: ['reference.png', 'candidate.png'],
+      text: 'inspect',
+      to: ['seat-design'],
+      priority: 'attention',
+    });
+
+    assert.equal(calls[0]?.op, 'send_files');
+    assert.deepEqual(calls[0]?.args?.['paths'], ['reference.png', 'candidate.png']);
+    assert.deepEqual(calls[0]?.args?.['to'], ['seat-design']);
+    assert.equal(calls[0]?.args?.['priority'], 'attention');
+
+    await assert.rejects(client.sendFiles({ groupId: 'g_1', paths: [] }), /non-empty paths/);
+    await assert.rejects(
+      client.sendFiles({ groupId: 'g_1', paths: ['reference.png', '  '] }),
+      /non-empty paths/,
+    );
+  });
+
   it('actorAdd maps profileId to profile_id', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -376,7 +400,7 @@ describe('actor fields (cccc 0.4.17)', () => {
   });
 });
 
-describe('cccc 0.4.32 lifecycle delta', () => {
+describe('cccc lifecycle safety contracts', () => {
   it('maps actorNewSession and guarded groupReset', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -394,6 +418,40 @@ describe('cccc 0.4.32 lifecycle delta', () => {
       /confirmGroupId/,
     );
     assert.equal(calls.length, 2);
+  });
+
+  it('maps group preamble operations and validates destructive inputs', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.groupPreambleGet({ groupId: 'g_1' });
+    assert.equal(calls[0]?.op, 'group_preamble_get');
+    assert.deepEqual(calls[0]?.args, { group_id: 'g_1' });
+
+    await client.groupPreambleSet({
+      groupId: 'g_1',
+      content: 'Wait for the targeted mission.\n',
+    });
+    assert.equal(calls[1]?.op, 'group_preamble_set');
+    assert.equal(calls[1]?.args?.['content'], 'Wait for the targeted mission.\n');
+
+    await client.groupPreambleReset({ groupId: 'g_1', confirm: 'preamble' });
+    assert.equal(calls[2]?.op, 'group_preamble_reset');
+    assert.equal(calls[2]?.args?.['confirm'], 'preamble');
+
+    await assert.rejects(
+      client.groupPreambleSet({ groupId: 'g_1', content: '  ' }),
+      /non-empty/,
+    );
+    await assert.rejects(
+      client.groupPreambleSet({ groupId: 'g_1', content: 'x'.repeat(512 * 1024 + 1) }),
+      /512 KiB/,
+    );
+    await assert.rejects(
+      client.groupPreambleReset({ groupId: 'g_1', confirm: 'wrong' as 'preamble' }),
+      /confirm/,
+    );
+    assert.equal(calls.length, 3);
   });
 });
 

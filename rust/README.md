@@ -53,6 +53,6 @@ let preamble = client.call("group_preamble_get", args)?;
 capability whose actual operation returns `unknown_op`.
 
 Streaming upgrade operations such as `events_stream` and `term_attach` are not
-exposed as iterators in 0.0.1. Their handshake can still be checked through
-operation probing; a reusable duplex-stream API will be added only with stable
-ownership and backpressure semantics.
+exposed as iterators in 0.0.1. `assert_compatible` deliberately skips unsafe
+duplex probes; a reusable stream API will be added only with stable ownership,
+close, and backpressure semantics.

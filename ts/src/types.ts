@@ -260,6 +260,19 @@ export interface SendOptions {
   requirePeerInsight?: boolean;
 }
 
+/** Upload active-scope files and send them in one chat message. */
+export interface SendFilesOptions {
+  groupId: string;
+  paths: string[];
+  text?: string;
+  insight?: string;
+  by?: string;
+  to?: string[];
+  priority?: 'normal' | 'attention';
+  replyRequired?: boolean;
+  clientId?: string;
+}
+
 /** Send-cross-group options */
 export interface SendCrossGroupOptions {
   groupId: string;
@@ -396,6 +409,20 @@ export interface ActorUpdateOptions {
 export interface GroupResetOptions {
   groupId: string;
   confirmGroupId: string;
+  by?: string;
+}
+
+/** Create or replace a non-empty group startup preamble override. */
+export interface GroupPreambleSetOptions {
+  groupId: string;
+  content: string;
+  by?: string;
+}
+
+/** Delete the group startup preamble override and restore the built-in body. */
+export interface GroupPreambleResetOptions {
+  groupId: string;
+  confirm: 'preamble';
   by?: string;
 }
 
