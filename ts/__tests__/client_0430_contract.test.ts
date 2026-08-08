@@ -51,7 +51,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       'group_preamble_reset',
       'terminal_history',
       'terminal_since',
-      'terminal_resize',
+      'term_resize',
     ]);
     assert.equal(calls[0]?.args?.['insight'], 'Compatibility is the release gate.');
     assert.equal(calls[0]?.args?.['require_peer_insight'], true);
@@ -59,6 +59,173 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.equal(calls[5]?.args?.['before'], 100);
     assert.equal(calls[5]?.args?.['limit_bytes'], 2048);
     assert.equal(calls[6]?.args?.['after'], 100);
+  });
+
+  it('maps all ReMe helpers to the current daemon contract', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    const message = { role: 'user', name: 'waterbang', content: 'Keep this decision.' };
+
+    await client.memoryRemeLayoutGet({ groupId: 'g_1' });
+    await client.memoryRemeIndexSync({ groupId: 'g_1', mode: 'rebuild' });
+    await client.memoryRemeContextCheck({
+      groupId: 'g_1',
+      messages: [message],
+      contextWindowTokens: 128000,
+      reserveTokens: 36000,
+      keepRecentTokens: 20000,
+    });
+    await client.memoryRemeCompact({
+      groupId: 'g_1',
+      messagesToSummarize: [message],
+      turnPrefixMessages: [{ role: 'system', content: 'Project context' }],
+      previousSummary: 'Earlier summary',
+      language: 'zh-CN',
+      returnPrompt: true,
+    });
+    await client.memoryRemeDailyFlush({
+      groupId: 'g_1',
+      messages: [message],
+      date: '2026-08-08',
+      version: 'default',
+      language: 'zh-CN',
+      returnPrompt: false,
+      signalPack: { decisions: ['ship'] },
+      signalPackTokenBudget: 320,
+      dedupIntent: 'update',
+      dedupQuery: 'release decision',
+    });
+    await client.memoryRemeWrite({
+      groupId: 'g_1',
+      target: 'memory',
+      content: 'The SDK follows IPC v1.',
+      mode: 'append',
+      idempotencyKey: 'sdk-ipc-v1',
+      actorId: 'foreman',
+      sourceRefs: ['chat:e_1'],
+      tags: ['sdk'],
+      supersedes: ['MEMORY.md#L1'],
+      dedupIntent: 'supersede',
+      dedupQuery: 'SDK IPC contract',
+    });
+
+    assert.deepEqual(calls.map((call) => call.op), [
+      'memory_reme_layout_get',
+      'memory_reme_index_sync',
+      'memory_reme_context_check',
+      'memory_reme_compact',
+      'memory_reme_daily_flush',
+      'memory_reme_write',
+    ]);
+    assert.deepEqual(calls[0]?.args, { group_id: 'g_1' });
+    assert.deepEqual(calls[1]?.args, { group_id: 'g_1', mode: 'rebuild' });
+    assert.deepEqual(calls[2]?.args, {
+      group_id: 'g_1',
+      messages: [message],
+      context_window_tokens: 128000,
+      reserve_tokens: 36000,
+      keep_recent_tokens: 20000,
+    });
+    assert.deepEqual(calls[3]?.args, {
+      group_id: 'g_1',
+      messages_to_summarize: [message],
+      turn_prefix_messages: [{ role: 'system', content: 'Project context' }],
+      previous_summary: 'Earlier summary',
+      language: 'zh-CN',
+      return_prompt: true,
+    });
+    assert.deepEqual(calls[4]?.args, {
+      group_id: 'g_1',
+      messages: [message],
+      date: '2026-08-08',
+      version: 'default',
+      language: 'zh-CN',
+      return_prompt: false,
+      signal_pack: { decisions: ['ship'] },
+      signal_pack_token_budget: 320,
+      dedup_intent: 'update',
+      dedup_query: 'release decision',
+    });
+    assert.deepEqual(calls[5]?.args, {
+      group_id: 'g_1',
+      target: 'memory',
+      content: 'The SDK follows IPC v1.',
+      mode: 'append',
+      idempotency_key: 'sdk-ipc-v1',
+      actor_id: 'foreman',
+      source_refs: ['chat:e_1'],
+      tags: ['sdk'],
+      supersedes: ['MEMORY.md#L1'],
+      dedup_intent: 'supersede',
+      dedup_query: 'SDK IPC contract',
+    });
+  });
+
+  it('maps Remote Access helpers to the global flat contract', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.remoteAccessState();
+    await client.remoteAccessConfigure({
+      provider: 'manual',
+      mode: 'tailnet_only',
+      requireAccessToken: true,
+      webHost: '0.0.0.0',
+      webPort: 8848,
+      webPublicUrl: 'https://cccc.example.test',
+    });
+    await client.remoteAccessStart();
+    await client.remoteAccessStop({ by: 'user' });
+
+    assert.deepEqual(calls.map((call) => call.op), [
+      'remote_access_state',
+      'remote_access_configure',
+      'remote_access_start',
+      'remote_access_stop',
+    ]);
+    assert.deepEqual(calls[0]?.args, { by: 'user' });
+    assert.deepEqual(calls[1]?.args, {
+      by: 'user',
+      provider: 'manual',
+      mode: 'tailnet_only',
+      require_access_token: true,
+      web_host: '0.0.0.0',
+      web_port: 8848,
+      web_public_url: 'https://cccc.example.test',
+    });
+    assert.deepEqual(calls[2]?.args, { by: 'user' });
+    assert.deepEqual(calls[3]?.args, { by: 'user' });
+  });
+
+  it('maps IM authorization and Voice model install to their current contracts', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.imBindChat({ groupId: 'g_1', key: 'bind-key' });
+    await client.imListAuthorized({ groupId: 'g_1' });
+    await client.imListPending({ groupId: 'g_1' });
+    await client.imRejectPending({ groupId: 'g_1', key: 'bind-key' });
+    await client.imRevokeChat({ groupId: 'g_1', chatId: 'chat-1', threadId: 7 });
+    await client.assistantVoiceModelInstall({ groupId: 'g_1', modelId: 'sensevoice-small' });
+
+    assert.deepEqual(calls.map((call) => call.op), [
+      'im_bind_chat',
+      'im_list_authorized',
+      'im_list_pending',
+      'im_reject_pending',
+      'im_revoke_chat',
+      'assistant_voice_model_install',
+    ]);
+    assert.deepEqual(calls[0]?.args, { group_id: 'g_1', key: 'bind-key' });
+    assert.deepEqual(calls[1]?.args, { group_id: 'g_1' });
+    assert.deepEqual(calls[2]?.args, { group_id: 'g_1' });
+    assert.deepEqual(calls[3]?.args, { group_id: 'g_1', key: 'bind-key' });
+    assert.deepEqual(calls[4]?.args, { group_id: 'g_1', chat_id: 'chat-1', thread_id: 7 });
+    assert.deepEqual(calls[5]?.args, {
+      group_id: 'g_1',
+      model_id: 'sensevoice-small',
+      by: 'user',
+    });
   });
 
   it('maps current Voice Secretary request/response operations', async () => {

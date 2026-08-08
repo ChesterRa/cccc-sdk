@@ -1,0 +1,38 @@
+name: spec-drift
+
+on:
+  push:
+    paths:
+      - "spec/**"
+      - "scripts/check_specs_against_cccc.sh"
+      - ".github/workflows/spec-drift.yml"
+  pull_request:
+    paths:
+      - "spec/**"
+      - "scripts/check_specs_against_cccc.sh"
+      - ".github/workflows/spec-drift.yml"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      cccc_ref:
+        description: "CCCC repo ref (branch/tag/sha) to compare"
+        required: true
+        default: "main"
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cccc-sdk
+        uses: actions/checkout@v4
+
+      - name: Checkout cccc
+        uses: actions/checkout@v4
+        with:
+          repository: ChesterRa/cccc
+          ref: ${{ inputs.cccc_ref || 'main' }}
+          path: cccc-core
+
+      - name: Compare mirrored standards
+        run: bash scripts/check_specs_against_cccc.sh cccc-core

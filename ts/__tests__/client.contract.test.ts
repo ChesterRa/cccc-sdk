@@ -351,18 +351,18 @@ describe('message ops (cccc 0.4.17)', () => {
     assert.equal(calls[0]?.args?.['suggested_user_message'], 'Should we widen the frame?');
   });
 
-  it('sendCrossGroup forwards refs', async () => {
+  it('sendCrossGroup uses only cross-runtime message fields', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
     await client.sendCrossGroup({
       groupId: 'g_src',
       dstGroupId: 'g_dst',
       text: 'relay',
-      refs: [{ kind: 'url', url: 'https://example.com' }],
       insight: 'The destination should challenge this plan independently.',
     });
     assert.equal(calls[0]?.op, 'send_cross_group');
-    assert.deepEqual(calls[0]?.args?.['refs'], [{ kind: 'url', url: 'https://example.com' }]);
+    assert.equal(calls[0]?.args?.['refs'], undefined);
+    assert.equal(calls[0]?.args?.['attachments'], undefined);
     assert.equal(
       calls[0]?.args?.['insight'],
       'The destination should challenge this plan independently.',
@@ -540,6 +540,7 @@ describe('group copy', () => {
     const client = await makeClient(calls);
     await client.groupCopyExport({ groupId: 'g_1' });
     assert.equal(calls[0]?.op, 'group_copy_export');
+    assert.deepEqual(calls[0]?.args, { group_id: 'g_1', by: 'user' });
 
     await client.groupCopyExportFile({ groupId: 'g_1' });
     assert.equal(calls[1]?.op, 'group_copy_export_file');
@@ -596,17 +597,18 @@ describe('capability extensions', () => {
     assert.equal(calls[0]?.args?.['ttl_seconds'], 600);
   });
 
-  it('capabilitySourceDelete maps source_instance_key', async () => {
+  it('capabilitySourceDelete stays within the cross-runtime source contract', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
     await client.capabilitySourceDelete({
       groupId: 'g_1',
-      sourceId: 'skillsmp_remote',
-      sourceInstanceKey: 'k1',
+      sourceId: 'github_import',
+      reason: 'remove stale import',
     });
     assert.equal(calls[0]?.op, 'capability_source_delete');
-    assert.equal(calls[0]?.args?.['source_id'], 'skillsmp_remote');
-    assert.equal(calls[0]?.args?.['source_instance_key'], 'k1');
+    assert.equal(calls[0]?.args?.['source_id'], 'github_import');
+    assert.equal(calls[0]?.args?.['reason'], 'remove stale import');
+    assert.equal(calls[0]?.args?.['source_instance_key'], undefined);
   });
 });
 

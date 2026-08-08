@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -9,11 +10,19 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     discover_endpoint, DaemonEndpoint, DaemonRequest, DaemonResponse, Error, PingResult, Result,
+    TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions,
+    TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
+    WebModelDeliveryPreferencesResult, WebModelRuntimeRecoverTurnResult,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REQUEST_BYTES: usize = 2_000_000;
-const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 4_000_000;
+
+enum CallAttemptError {
+    Connect(Error),
+    Exchange(Error),
+}
 
 /// Capabilities and operations required by [`CCCCClient::assert_compatible`].
 #[derive(Clone, Debug, Default)]
@@ -27,7 +36,10 @@ pub struct CompatibilityRequirements<'a> {
 #[derive(Clone, Debug)]
 pub struct CCCCClient {
     endpoint: DaemonEndpoint,
+    rediscovered_endpoint: Arc<RwLock<Option<DaemonEndpoint>>>,
     timeout: Duration,
+    discovery_home: Option<PathBuf>,
+    rediscover_on_connect_failure: bool,
 }
 
 impl CCCCClient {
@@ -38,13 +50,22 @@ impl CCCCClient {
 
     /// Discover a daemon under an explicit `CCCC_HOME`.
     pub fn discover_in(cccc_home: Option<&Path>) -> Result<Self> {
-        Ok(Self::new(discover_endpoint(cccc_home)?))
+        Ok(Self {
+            endpoint: discover_endpoint(cccc_home)?,
+            rediscovered_endpoint: Arc::new(RwLock::new(None)),
+            timeout: DEFAULT_TIMEOUT,
+            discovery_home: cccc_home.map(Path::to_path_buf),
+            rediscover_on_connect_failure: true,
+        })
     }
 
     pub fn new(endpoint: DaemonEndpoint) -> Self {
         Self {
             endpoint,
+            rediscovered_endpoint: Arc::new(RwLock::new(None)),
             timeout: DEFAULT_TIMEOUT,
+            discovery_home: None,
+            rediscover_on_connect_failure: false,
         }
     }
 
@@ -53,8 +74,19 @@ impl CCCCClient {
         self
     }
 
+    /// The endpoint supplied to `new` or found during initial discovery.
     pub fn endpoint(&self) -> &DaemonEndpoint {
         &self.endpoint
+    }
+
+    /// The endpoint currently used for calls, including a successful
+    /// rediscovery after daemon restart.
+    pub fn current_endpoint(&self) -> DaemonEndpoint {
+        self.rediscovered_endpoint
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .unwrap_or_else(|| self.endpoint.clone())
     }
 
     /// Call any non-streaming daemon operation and return its result object.
@@ -91,36 +123,79 @@ impl CCCCClient {
             return Err(Error::RequestTooLarge(MAX_REQUEST_BYTES));
         }
 
-        match &self.endpoint {
+        let endpoint = self.current_endpoint();
+        let response = match self.call_at(&endpoint, &encoded) {
+            Ok(response) => Ok(response),
+            Err(CallAttemptError::Connect(_)) if self.rediscover_on_connect_failure => {
+                let endpoint = discover_endpoint(self.discovery_home.as_deref())?;
+                *self
+                    .rediscovered_endpoint
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(endpoint.clone());
+                self.call_at(&endpoint, &encoded)
+                    .map_err(|retry_error| finish_attempt_error(op, retry_error))
+            }
+            Err(error) => Err(finish_attempt_error(op, error)),
+        }?;
+        if response.v != 1 {
+            return Err(Error::UnsupportedIpcVersion(response.v));
+        }
+        Ok(response)
+    }
+
+    fn call_at(
+        &self,
+        endpoint: &DaemonEndpoint,
+        encoded: &[u8],
+    ) -> std::result::Result<DaemonResponse, CallAttemptError> {
+        match endpoint {
             DaemonEndpoint::Tcp { host, port } => {
                 let address = (host.as_str(), *port)
-                    .to_socket_addrs()?
+                    .to_socket_addrs()
+                    .map_err(|error| CallAttemptError::Connect(error.into()))?
                     .next()
-                    .ok_or_else(|| {
-                        Error::InvalidEndpoint(format!("cannot resolve {host}:{port}"))
-                    })?;
-                let mut stream = TcpStream::connect_timeout(&address, self.timeout)?;
-                stream.set_read_timeout(Some(self.timeout))?;
-                stream.set_write_timeout(Some(self.timeout))?;
-                exchange(&mut stream, &encoded)
+                    .ok_or_else(|| Error::InvalidEndpoint(format!("cannot resolve {host}:{port}")))
+                    .map_err(CallAttemptError::Connect)?;
+                let mut stream = TcpStream::connect_timeout(&address, self.timeout)
+                    .map_err(|error| CallAttemptError::Connect(error.into()))?;
+                stream
+                    .set_read_timeout(Some(self.timeout))
+                    .map_err(|error| CallAttemptError::Connect(error.into()))?;
+                stream
+                    .set_write_timeout(Some(self.timeout))
+                    .map_err(|error| CallAttemptError::Connect(error.into()))?;
+                exchange(&mut stream, encoded).map_err(CallAttemptError::Exchange)
             }
-            DaemonEndpoint::Unix(path) => self.call_unix(path, &encoded),
+            DaemonEndpoint::Unix(path) => self.call_unix(path, encoded),
         }
     }
 
     #[cfg(unix)]
-    fn call_unix(&self, path: &Path, encoded: &[u8]) -> Result<DaemonResponse> {
+    fn call_unix(
+        &self,
+        path: &Path,
+        encoded: &[u8],
+    ) -> std::result::Result<DaemonResponse, CallAttemptError> {
         use std::os::unix::net::UnixStream;
 
-        let mut stream = UnixStream::connect(path)?;
-        stream.set_read_timeout(Some(self.timeout))?;
-        stream.set_write_timeout(Some(self.timeout))?;
-        exchange(&mut stream, encoded)
+        let mut stream =
+            UnixStream::connect(path).map_err(|error| CallAttemptError::Connect(error.into()))?;
+        stream
+            .set_read_timeout(Some(self.timeout))
+            .map_err(|error| CallAttemptError::Connect(error.into()))?;
+        stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|error| CallAttemptError::Connect(error.into()))?;
+        exchange(&mut stream, encoded).map_err(CallAttemptError::Exchange)
     }
 
     #[cfg(not(unix))]
-    fn call_unix(&self, _path: &Path, _encoded: &[u8]) -> Result<DaemonResponse> {
-        Err(Error::UnixSocketUnsupported)
+    fn call_unix(
+        &self,
+        _path: &Path,
+        _encoded: &[u8],
+    ) -> std::result::Result<DaemonResponse, CallAttemptError> {
+        Err(CallAttemptError::Connect(Error::UnixSocketUnsupported))
     }
 
     pub fn ping(&self) -> Result<PingResult> {
@@ -197,6 +272,157 @@ impl CCCCClient {
         )
     }
 
+    pub fn terminal_history(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        options: &TerminalHistoryOptions,
+    ) -> Result<TerminalHistoryResult> {
+        let mut args = object([("group_id", json!(group_id)), ("actor_id", json!(actor_id))]);
+        if let Some(before) = options.before {
+            args.insert("before".into(), json!(before));
+        }
+        if let Some(limit_bytes) = options.limit_bytes {
+            args.insert("limit_bytes".into(), json!(limit_bytes));
+        }
+        if let Some(strip_ansi) = options.strip_ansi {
+            args.insert("strip_ansi".into(), json!(strip_ansi));
+        }
+        if let Some(compact) = options.compact {
+            args.insert("compact".into(), json!(compact));
+        }
+        if let Some(by) = options.by.as_deref() {
+            args.insert("by".into(), json!(by));
+        }
+        self.call_typed("terminal_history", args)
+    }
+
+    pub fn terminal_since(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        after: u64,
+        options: &TerminalSinceOptions,
+    ) -> Result<TerminalSinceResult> {
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("actor_id", json!(actor_id)),
+            ("after", json!(after)),
+        ]);
+        if let Some(limit_bytes) = options.limit_bytes {
+            args.insert("limit_bytes".into(), json!(limit_bytes));
+        }
+        if let Some(by) = options.by.as_deref() {
+            args.insert("by".into(), json!(by));
+        }
+        self.call_typed("terminal_since", args)
+    }
+
+    pub fn terminal_snapshot(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        options: &TerminalSnapshotOptions,
+    ) -> Result<TerminalSnapshotResult> {
+        let mut args = object([("group_id", json!(group_id)), ("actor_id", json!(actor_id))]);
+        if let Some(limit_bytes) = options.limit_bytes {
+            args.insert("limit_bytes".into(), json!(limit_bytes));
+        }
+        if let Some(by) = options.by.as_deref() {
+            args.insert("by".into(), json!(by));
+        }
+        self.call_typed("terminal_snapshot", args)
+    }
+
+    /// Resize a PTY using the normative op, with a compatibility fallback for
+    /// Rust daemon builds that temporarily exposed `terminal_resize` instead.
+    pub fn term_resize(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        cols: u32,
+        rows: u32,
+    ) -> Result<TerminalResizeResult> {
+        let args = object([
+            ("group_id", json!(group_id)),
+            ("actor_id", json!(actor_id)),
+            ("cols", json!(cols)),
+            ("rows", json!(rows)),
+        ]);
+        match self.call_typed("term_resize", args.clone()) {
+            Err(Error::Daemon(error)) if error.code == "unknown_op" => {
+                let legacy = self.call("terminal_resize", args)?;
+                let resolved_cols = legacy
+                    .get("cols")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(cols);
+                let resolved_rows = legacy
+                    .get("rows")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(rows);
+                Ok(TerminalResizeResult {
+                    group_id: group_id.to_owned(),
+                    actor_id: actor_id.to_owned(),
+                    cols: resolved_cols,
+                    rows: resolved_rows,
+                })
+            }
+            result => result,
+        }
+    }
+
+    pub fn web_model_delivery_preferences_get(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+    ) -> Result<WebModelDeliveryPreferencesResult> {
+        self.call_typed(
+            "web_model_delivery_preferences_get",
+            object([("group_id", json!(group_id)), ("actor_id", json!(actor_id))]),
+        )
+    }
+
+    pub fn web_model_delivery_preferences_update(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        mode: WebModelDeliveryMode,
+        by: &str,
+    ) -> Result<WebModelDeliveryPreferencesResult> {
+        self.call_typed(
+            "web_model_delivery_preferences_update",
+            object([
+                ("group_id", json!(group_id)),
+                ("actor_id", json!(actor_id)),
+                ("mode", json!(mode)),
+                ("by", json!(by)),
+            ]),
+        )
+    }
+
+    pub fn web_model_runtime_recover_turn(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        event_ids: &[String],
+    ) -> Result<WebModelRuntimeRecoverTurnResult> {
+        if event_ids.is_empty() || event_ids.iter().any(|event_id| event_id.trim().is_empty()) {
+            return Err(Error::InvalidArgument(
+                "event_ids must contain at least one non-empty event id".into(),
+            ));
+        }
+        self.call_typed(
+            "web_model_runtime_recover_turn",
+            object([
+                ("group_id", json!(group_id)),
+                ("actor_id", json!(actor_id)),
+                ("event_ids", json!(event_ids)),
+            ]),
+        )
+    }
+
     /// Validate protocol, advertised capabilities, and actual op recognition.
     pub fn assert_compatible(
         &self,
@@ -223,6 +449,14 @@ impl CCCCClient {
             }
             match self.call(operation, Map::new()) {
                 Err(Error::Daemon(error)) if error.code == "unknown_op" => {
+                    if *operation == "term_resize" {
+                        match self.call("terminal_resize", Map::new()) {
+                            Err(Error::Daemon(alias_error)) if alias_error.code == "unknown_op" => {
+                            }
+                            Err(Error::Daemon(_)) | Ok(_) => continue,
+                            Err(error) => return Err(error),
+                        }
+                    }
                     return Err(Error::Incompatible(format!(
                         "daemon does not support operation {operation}"
                     )));
@@ -245,6 +479,15 @@ fn operation_probe_is_unsafe(operation: &str) -> bool {
         operation,
         "ping"
             | "shutdown"
+            | "group_create"
+            | "registry_reconcile"
+            | "capability_allowlist_update"
+            | "capability_allowlist_reset"
+            | "remote_access_configure"
+            | "remote_access_start"
+            | "remote_access_stop"
+            | "group_space_provider_credential_update"
+            | "group_space_provider_auth"
             | "term_attach"
             | "presentation_browser_attach"
             | "presentation_browser_vnc_attach"
@@ -255,6 +498,16 @@ fn operation_probe_is_unsafe(operation: &str) -> bool {
             | "runtime_hermes_prepare"
             | "runtime_hermes_mcp_test"
     )
+}
+
+fn finish_attempt_error(op: &str, error: CallAttemptError) -> Error {
+    match error {
+        CallAttemptError::Connect(error) => error,
+        CallAttemptError::Exchange(error) => Error::OutcomeUnknown {
+            op: op.to_owned(),
+            message: error.to_string(),
+        },
+    }
 }
 
 fn object<const N: usize>(entries: [(&str, Value); N]) -> Map<String, Value> {
@@ -286,8 +539,11 @@ fn exchange<S: Read + Write>(stream: &mut S, request: &[u8]) -> Result<DaemonRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::fs;
     use std::net::TcpListener;
     use std::thread;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn server_once(response: &'static str) -> (DaemonEndpoint, thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
@@ -310,6 +566,57 @@ mod tests {
             },
             handle,
         )
+    }
+
+    fn server_sequence(
+        responses: Vec<&'static str>,
+    ) -> (DaemonEndpoint, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("local address");
+        let handle = thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|response| {
+                    let (mut stream, _) = listener.accept().expect("accept client");
+                    let mut request = String::new();
+                    BufReader::new(&mut stream)
+                        .read_line(&mut request)
+                        .expect("read request");
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("write response");
+                    request
+                })
+                .collect()
+        });
+        (
+            DaemonEndpoint::Tcp {
+                host: "127.0.0.1".into(),
+                port: address.port(),
+            },
+            handle,
+        )
+    }
+
+    fn temp_home(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "cccc-sdk-client-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn write_tcp_descriptor(home: &Path, port: u16) {
+        let daemon = home.join("daemon");
+        fs::create_dir_all(&daemon).expect("create daemon directory");
+        fs::write(
+            daemon.join("ccccd.addr.json"),
+            format!(r#"{{"v":1,"transport":"tcp","host":"127.0.0.1","port":{port}}}"#),
+        )
+        .expect("write descriptor");
     }
 
     #[test]
@@ -344,7 +651,195 @@ mod tests {
     #[test]
     fn never_probes_destructive_or_streaming_operations() {
         assert!(operation_probe_is_unsafe("shutdown"));
+        assert!(operation_probe_is_unsafe("group_create"));
+        assert!(operation_probe_is_unsafe("remote_access_start"));
         assert!(operation_probe_is_unsafe("term_attach"));
         assert!(!operation_probe_is_unsafe("group_show"));
+    }
+
+    #[test]
+    fn call_raw_rejects_an_unsupported_response_version() {
+        let (endpoint, server) = server_once("{\"v\":2,\"ok\":true,\"result\":{}}\n");
+        let error = CCCCClient::new(endpoint)
+            .call_raw("ping", Map::new())
+            .expect_err("unsupported version");
+        assert!(matches!(error, Error::UnsupportedIpcVersion(2)));
+        server.join().expect("server thread");
+    }
+
+    #[test]
+    fn maps_current_terminal_and_web_model_operations() {
+        let preference = "{\"v\":1,\"ok\":true,\"result\":{\"group_id\":\"g_1\",\"actor_id\":\"web-1\",\"preference\":{\"mode\":\"image_compat\",\"updated_at\":\"now\",\"updated_by\":\"user\"}}}\n";
+        let (endpoint, server) = server_sequence(vec![
+            "{\"v\":1,\"ok\":true,\"result\":{\"data\":\"screen\",\"start_cursor\":1,\"end_cursor\":7}}\n",
+            preference,
+            preference,
+            "{\"v\":1,\"ok\":true,\"result\":{\"status\":\"recovered\",\"turn\":{\"turn_id\":\"turn-1\",\"group_id\":\"g_1\",\"actor_id\":\"web-1\",\"event_ids\":[\"e_1\"],\"latest_event_id\":\"e_1\",\"latest_ts\":\"now\",\"messages\":[],\"coalesced_text\":\"hello\",\"system_prompt\":\"system\",\"delivery\":{\"mode\":\"recovery_no_cursor_mutation\",\"cursor_committed\":true,\"web_model_mode\":\"image_compat\"}}}}\n",
+        ]);
+        let client = CCCCClient::new(endpoint);
+
+        let snapshot = client
+            .terminal_snapshot(
+                "g_1",
+                "web-1",
+                &TerminalSnapshotOptions {
+                    limit_bytes: Some(4096),
+                    by: Some("user".into()),
+                },
+            )
+            .expect("terminal snapshot");
+        assert_eq!(snapshot.end_cursor, 7);
+        let preference = client
+            .web_model_delivery_preferences_get("g_1", "web-1")
+            .expect("preference get");
+        assert_eq!(
+            preference.preference.mode,
+            WebModelDeliveryMode::ImageCompat
+        );
+        client
+            .web_model_delivery_preferences_update(
+                "g_1",
+                "web-1",
+                WebModelDeliveryMode::ImageCompat,
+                "user",
+            )
+            .expect("preference update");
+        let recovered = client
+            .web_model_runtime_recover_turn("g_1", "web-1", &["e_1".into()])
+            .expect("recover turn");
+        assert_eq!(recovered.status, "recovered");
+
+        let requests: Vec<Value> = server
+            .join()
+            .expect("server thread")
+            .iter()
+            .map(|request| serde_json::from_str(request).expect("request JSON"))
+            .collect();
+        assert_eq!(
+            requests
+                .iter()
+                .map(|request| request["op"].as_str().expect("op"))
+                .collect::<Vec<_>>(),
+            vec![
+                "terminal_snapshot",
+                "web_model_delivery_preferences_get",
+                "web_model_delivery_preferences_update",
+                "web_model_runtime_recover_turn",
+            ]
+        );
+        assert_eq!(requests[0]["args"]["limit_bytes"], 4096);
+        assert_eq!(requests[2]["args"]["mode"], "image_compat");
+        assert_eq!(requests[3]["args"]["event_ids"], json!(["e_1"]));
+    }
+
+    #[test]
+    fn term_resize_prefers_the_standard_op_and_falls_back_for_unknown_op() {
+        let (endpoint, server) = server_sequence(vec![
+            "{\"v\":1,\"ok\":false,\"result\":{},\"error\":{\"code\":\"unknown_op\",\"message\":\"unknown\",\"details\":{}}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"resized\":true,\"cols\":120,\"rows\":40}}\n",
+        ]);
+        let resized = CCCCClient::new(endpoint)
+            .term_resize("g_1", "a_1", 120, 40)
+            .expect("resize");
+        assert_eq!(resized.group_id, "g_1");
+        assert_eq!(resized.actor_id, "a_1");
+        assert_eq!(resized.cols, 120);
+        let requests = server.join().expect("server thread");
+        let operations: Vec<String> = requests
+            .iter()
+            .map(|request| {
+                serde_json::from_str::<Value>(request).expect("request JSON")["op"]
+                    .as_str()
+                    .expect("op")
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(operations, vec!["term_resize", "terminal_resize"]);
+    }
+
+    #[test]
+    fn compatibility_probe_accepts_the_bounded_resize_alias() {
+        let (endpoint, server) = server_sequence(vec![
+            "{\"v\":1,\"ok\":true,\"result\":{\"version\":\"test\",\"ipc_v\":1,\"capabilities\":{}}}\n",
+            "{\"v\":1,\"ok\":false,\"result\":{},\"error\":{\"code\":\"unknown_op\",\"message\":\"unknown\",\"details\":{}}}\n",
+            "{\"v\":1,\"ok\":false,\"result\":{},\"error\":{\"code\":\"invalid_request\",\"message\":\"missing args\",\"details\":{}}}\n",
+        ]);
+        let requirements = CompatibilityRequirements {
+            minimum_ipc_version: 1,
+            operations: vec!["term_resize"],
+            ..Default::default()
+        };
+        CCCCClient::new(endpoint)
+            .assert_compatible(&requirements)
+            .expect("legacy alias is usable through the SDK");
+        let operations: Vec<String> = server
+            .join()
+            .expect("server thread")
+            .iter()
+            .map(|request| {
+                serde_json::from_str::<Value>(request).expect("request JSON")["op"]
+                    .as_str()
+                    .expect("op")
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(operations, vec!["ping", "term_resize", "terminal_resize"]);
+    }
+
+    #[test]
+    fn rediscovers_endpoint_after_connect_failure_before_exchange() {
+        let home = temp_home("rediscover");
+        let stale = TcpListener::bind("127.0.0.1:0").expect("bind stale port");
+        let stale_port = stale.local_addr().expect("stale address").port();
+        drop(stale);
+        write_tcp_descriptor(&home, stale_port);
+        let client = CCCCClient::discover_in(Some(&home)).expect("discover stale endpoint");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind live server");
+        let live_port = listener.local_addr().expect("live address").port();
+        write_tcp_descriptor(&home, live_port);
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept client");
+            let mut request = String::new();
+            BufReader::new(&mut stream)
+                .read_line(&mut request)
+                .expect("read request");
+            stream
+                .write_all(b"{\"v\":1,\"ok\":true,\"result\":{\"ipc_v\":1,\"capabilities\":{}}}\n")
+                .expect("write response");
+        });
+
+        assert_eq!(client.ping().expect("ping").ipc_v, 1);
+        assert_eq!(
+            client.current_endpoint(),
+            DaemonEndpoint::Tcp {
+                host: "127.0.0.1".into(),
+                port: live_port,
+            }
+        );
+        server.join().expect("server thread");
+        fs::remove_dir_all(home).expect("cleanup");
+    }
+
+    #[test]
+    fn exchange_failure_is_reported_as_outcome_unknown_without_replay() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("local address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept client");
+            let mut request = String::new();
+            BufReader::new(&mut stream)
+                .read_line(&mut request)
+                .expect("read request");
+        });
+        let client = CCCCClient::new(DaemonEndpoint::Tcp {
+            host: "127.0.0.1".into(),
+            port: address.port(),
+        });
+        assert!(matches!(
+            client.call("non_idempotent_write", Map::new()),
+            Err(Error::OutcomeUnknown { ref op, .. }) if op == "non_idempotent_write"
+        ));
+        server.join().expect("server thread");
     }
 }

@@ -11,13 +11,12 @@ class CCCC0430AssistantOpsMixin:
         self,
         *,
         group_id: str,
-        model_id: str = "",
-        force: Optional[bool] = None,
+        model_id: str,
         by: str = "user",
     ) -> Dict[str, Any]:
         return self.call(
             "assistant_voice_model_install",
-            _compact({"group_id": str(group_id), "model_id": model_id or None, "force": force, "by": str(by)}),
+            {"group_id": str(group_id), "model_id": str(model_id), "by": str(by)},
         )
 
     def assistant_voice_transcribe(

@@ -138,6 +138,10 @@ jobs:
               'group_reset',
               'group_copy_export_file',
               'terminal_history',
+              'term_resize',
+              'web_model_delivery_preferences_get',
+              'web_model_delivery_preferences_update',
+              'web_model_runtime_recover_turn',
             ],
           });
 

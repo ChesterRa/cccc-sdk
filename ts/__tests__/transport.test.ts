@@ -3,7 +3,16 @@ import assert from 'node:assert/strict';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { discoverEndpoint, defaultHome, MAX_LINE_SIZE, DEFAULT_TIMEOUT_MS } from '../src/transport.js';
+import * as net from 'node:net';
+import { Readable } from 'node:stream';
+import {
+  discoverEndpoint,
+  defaultHome,
+  openEventsStream,
+  readLines,
+  MAX_LINE_SIZE,
+  DEFAULT_TIMEOUT_MS,
+} from '../src/transport.js';
 
 describe('defaultHome', () => {
   it('returns CCCC_HOME env if set', () => {
@@ -108,7 +117,7 @@ describe('discoverEndpoint', () => {
     }
   });
 
-  it('normalizes IPv6 host to 127.0.0.1', async () => {
+  it('preserves a connectable IPv6 host', async () => {
     const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-test-'));
     const daemonDir = path.join(tmpHome, 'daemon');
     await fs.mkdir(daemonDir, { recursive: true });
@@ -119,7 +128,24 @@ describe('discoverEndpoint', () => {
     );
     try {
       const endpoint = await discoverEndpoint(tmpHome);
-      assert.equal(endpoint.host, '127.0.0.1');
+      assert.equal(endpoint.host, '::1');
+    } finally {
+      await fs.rm(tmpHome, { recursive: true });
+    }
+  });
+
+  it('normalizes an IPv6 wildcard host to IPv6 loopback', async () => {
+    const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-test-'));
+    const daemonDir = path.join(tmpHome, 'daemon');
+    await fs.mkdir(daemonDir, { recursive: true });
+    await fs.writeFile(
+      path.join(daemonDir, 'ccccd.addr.json'),
+      JSON.stringify({ v: 1, transport: 'tcp', host: '[::]', port: 5555 }),
+      'utf-8'
+    );
+    try {
+      const endpoint = await discoverEndpoint(tmpHome);
+      assert.equal(endpoint.host, '::1');
     } finally {
       await fs.rm(tmpHome, { recursive: true });
     }
@@ -159,5 +185,93 @@ describe('discoverEndpoint', () => {
     } finally {
       await fs.rm(tmpHome, { recursive: true });
     }
+  });
+});
+
+describe('openEventsStream abort handling', () => {
+  const endpoint = {
+    transport: 'tcp' as const,
+    host: '127.0.0.1',
+    port: 43123,
+    path: '',
+  };
+  const request = { v: 1 as const, op: 'events_stream', args: {} };
+
+  it('aborts while the TCP connection is still pending', async () => {
+    const originalConnect = net.Socket.prototype.connect;
+    let pendingSocket: net.Socket | undefined;
+    net.Socket.prototype.connect = function (this: net.Socket): net.Socket {
+      pendingSocket = this;
+      return this;
+    } as typeof net.Socket.prototype.connect;
+
+    try {
+      const controller = new AbortController();
+      const streamPromise = openEventsStream(endpoint, request, 10_000, controller.signal);
+      controller.abort();
+
+      await assert.rejects(streamPromise, /Event stream aborted/);
+      assert.equal(pendingSocket?.destroyed, true);
+    } finally {
+      net.Socket.prototype.connect = originalConnect;
+    }
+  });
+
+  it('rechecks abort after connect resolves and before handshake listeners attach', async () => {
+    const originalConnect = net.Socket.prototype.connect;
+    let connectedSocket: net.Socket | undefined;
+    net.Socket.prototype.connect = function (
+      this: net.Socket,
+      ...args: unknown[]
+    ): net.Socket {
+      connectedSocket = this;
+      const callback = args[args.length - 1];
+      if (typeof callback === 'function') callback();
+      return this;
+    } as typeof net.Socket.prototype.connect;
+
+    let guard: NodeJS.Timeout | undefined;
+    try {
+      const controller = new AbortController();
+      const streamPromise = openEventsStream(endpoint, request, 10_000, controller.signal);
+      controller.abort();
+      const guardedPromise = Promise.race([
+        streamPromise,
+        new Promise<never>((_resolve, reject) => {
+          guard = setTimeout(() => reject(new Error('abort was not observed promptly')), 250);
+        }),
+      ]);
+
+      await assert.rejects(guardedPromise, /Event stream aborted/);
+      assert.equal(connectedSocket?.destroyed, true);
+    } finally {
+      if (guard !== undefined) clearTimeout(guard);
+      net.Socket.prototype.connect = originalConnect;
+    }
+  });
+});
+
+describe('readLines', () => {
+  it('preserves UTF-8 code points split across socket chunks', async () => {
+    const encoded = Buffer.from('{"text":"中文"}\n', 'utf8');
+    const split = encoded.indexOf(Buffer.from('中')) + 1;
+    const socket = Readable.from([
+      encoded.subarray(0, split),
+      encoded.subarray(split),
+    ]) as unknown as net.Socket;
+    const lines: string[] = [];
+    for await (const line of readLines(socket)) lines.push(line);
+    assert.deepEqual(lines, ['{"text":"中文"}']);
+  });
+
+  it('rejects an oversized line even when its newline is already buffered', async () => {
+    const socket = Readable.from([
+      Buffer.from(`${'x'.repeat(MAX_LINE_SIZE + 1)}\n`, 'utf8'),
+    ]) as unknown as net.Socket;
+    await assert.rejects(async () => {
+      for await (const _line of readLines(socket)) {
+        // The generator must reject before yielding this line.
+      }
+    }, /Stream line exceeds MAX_LINE_SIZE/);
   });
 });

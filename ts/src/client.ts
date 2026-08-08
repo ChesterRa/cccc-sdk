@@ -62,8 +62,6 @@ import type {
   MemoryWriteOptions,
   MemoryHealthOptions,
   MemoryProfileGetOptions,
-  MemoryRemeSearchOptions,
-  MemoryRemeGetOptions,
   TrackedSendOptions,
   TaskListOptions,
   HeadlessStatusOptions,
@@ -88,7 +86,6 @@ import type {
   DebugTailLogsOptions,
   DebugClearLogsOptions,
   TerminalTailOptions,
-  TerminalHistoryOptions,
   TerminalClearOptions,
   LedgerSnapshotOptions,
   LedgerCompactOptions,
@@ -101,6 +98,7 @@ import type {
 } from './types.js';
 import {
   DaemonAPIError,
+  DaemonConnectionError,
   IncompatibleDaemonError,
 } from './errors.js';
 import { isStreamEvent } from './types.js';
@@ -111,6 +109,7 @@ import {
   readLines,
 } from './transport.js';
 import { installCCCC0430Ops, type CCCC0430Ops } from './client_0430_ops.js';
+import { installCCCC0434Ops, type CCCC0434Ops } from './client_0434_ops.js';
 import { installGroupSpaceOps, type GroupSpaceOps } from './client_group_space_ops.js';
 import { installChatOps, type ChatOps } from './client_chat_ops.js';
 
@@ -128,12 +127,21 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
  * ```
  */
 export class CCCCClient {
-  private readonly _endpoint: DaemonEndpoint;
+  private _endpoint: DaemonEndpoint;
   private readonly _timeoutMs: number;
+  private readonly _ccccHome?: string;
+  private readonly _endpointExplicit: boolean;
 
-  private constructor(endpoint: DaemonEndpoint, timeoutMs: number) {
+  private constructor(
+    endpoint: DaemonEndpoint,
+    timeoutMs: number,
+    ccccHome: string | undefined,
+    endpointExplicit: boolean,
+  ) {
     this._endpoint = endpoint;
     this._timeoutMs = timeoutMs;
+    this._ccccHome = ccccHome;
+    this._endpointExplicit = endpointExplicit;
   }
 
   /**
@@ -145,7 +153,7 @@ export class CCCCClient {
   static async create(options: CCCCClientOptions = {}): Promise<CCCCClient> {
     const endpoint = options.endpoint ?? await discoverEndpoint(options.ccccHome);
     const timeoutMs = options.timeoutMs ?? 30_000;
-    return new CCCCClient(endpoint, timeoutMs);
+    return new CCCCClient(endpoint, timeoutMs, options.ccccHome, options.endpoint !== undefined);
   }
 
   /** The resolved daemon endpoint this client connects to. */
@@ -172,13 +180,30 @@ export class CCCCClient {
       args: args ?? {},
     };
 
-    const response = await callDaemon(this._endpoint, request, this._timeoutMs);
+    let response: DaemonResponse;
+    try {
+      response = await callDaemon(this._endpoint, request, this._timeoutMs);
+    } catch (error) {
+      if (!(error instanceof DaemonConnectionError) || this._endpointExplicit) {
+        throw error;
+      }
+      // Rediscovery is safe only because DaemonConnectionError means that no
+      // request bytes were written. Exchange failures are never replayed.
+      this._endpoint = await discoverEndpoint(this._ccccHome);
+      response = await callDaemon(this._endpoint, request, this._timeoutMs);
+    }
 
-    if (!response.ok && response.error) {
+    if (response.v !== undefined && response.v !== 1) {
+      throw new IncompatibleDaemonError(
+        `Daemon response uses unsupported IPC version: ${response.v}`,
+      );
+    }
+
+    if (!response.ok) {
       throw new DaemonAPIError(
-        response.error.code ?? 'error',
-        response.error.message ?? 'daemon error',
-        response.error.details ?? {},
+        response.error?.code ?? 'error',
+        response.error?.message ?? 'daemon returned ok=false without an error',
+        response.error?.details ?? {},
         response
       );
     }
@@ -233,6 +258,15 @@ export class CCCCClient {
     const reservedOps = new Set([
       'ping',
       'shutdown',
+      'group_create',
+      'registry_reconcile',
+      'capability_allowlist_update',
+      'capability_allowlist_reset',
+      'remote_access_configure',
+      'remote_access_start',
+      'remote_access_stop',
+      'group_space_provider_credential_update',
+      'group_space_provider_auth',
       'term_attach',
       'presentation_browser_attach',
       'presentation_browser_vnc_attach',
@@ -249,6 +283,20 @@ export class CCCCClient {
         await this.callRaw(op, {});
       } catch (e) {
         if (e instanceof DaemonAPIError && e.code === 'unknown_op') {
+          if (op === 'term_resize') {
+            try {
+              await this.callRaw('terminal_resize', {});
+              continue;
+            } catch (aliasError) {
+              if (aliasError instanceof DaemonAPIError) {
+                if (aliasError.code !== 'unknown_op') {
+                  continue;
+                }
+              } else {
+                throw aliasError;
+              }
+            }
+          }
           throw new IncompatibleDaemonError(`Operation not supported: ${op}`);
         }
         // Other errors (e.g. missing_group_id) imply the operation exists.
@@ -522,30 +570,6 @@ export class CCCCClient {
    */
   async actorRestart(groupId: string, actorId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('actor_restart', { group_id: groupId, actor_id: actorId, by });
-  }
-
-  /** Start a fresh provider session for a supported Claude, Codex, or Grok PTY actor. */
-  async actorNewSession(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>;
-  async actorNewSession(options: {
-    groupId: string;
-    actorId: string;
-    by?: string;
-    clearSavedSession?: boolean;
-  }): Promise<Record<string, unknown>>;
-  async actorNewSession(
-    optionsOrGroupId: string | { groupId: string; actorId: string; by?: string; clearSavedSession?: boolean },
-    actorId?: string,
-    by = 'user',
-  ): Promise<Record<string, unknown>> {
-    const options = typeof optionsOrGroupId === 'string'
-      ? { groupId: optionsOrGroupId, actorId: String(actorId ?? ''), by }
-      : optionsOrGroupId;
-    return this.call('actor_new_session', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      by: options.by ?? 'user',
-      clear_saved_session: 'clearSavedSession' in options ? options.clearSavedSession : undefined,
-    }));
   }
 
   async runtimeHermesStatus(): Promise<Record<string, unknown>> {
@@ -934,31 +958,6 @@ export class CCCCClient {
     }));
   }
 
-  /** Call the lower-level ReMe search operation explicitly. */
-  async memoryRemeSearch(options: MemoryRemeSearchOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_reme_search', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      query: options.query,
-      max_results: options.maxResults ?? options.limit,
-      vector_weight: options.vectorWeight,
-      candidate_multiplier: options.candidateMultiplier,
-      min_score: options.minScore,
-      sources: options.sources,
-    }));
-  }
-
-  /** Call the lower-level ReMe file-slice operation explicitly. */
-  async memoryRemeGet(options: MemoryRemeGetOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_reme_get', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      path: options.path,
-      offset: options.offset,
-      limit: options.limit,
-    }));
-  }
-
   // ============================================================
   // Convenience methods: context
   // ============================================================
@@ -1174,11 +1173,10 @@ export class CCCCClient {
   // ============================================================
 
   async groupCopyExport(options: GroupCopyExportOptions): Promise<Record<string, unknown>> {
-    return this.call('group_copy_export', { group_id: options.groupId });
-  }
-
-  async groupCopyExportFile(options: GroupCopyExportOptions): Promise<Record<string, unknown>> {
-    return this.call('group_copy_export_file', { group_id: options.groupId });
+    return this.call('group_copy_export', {
+      group_id: options.groupId,
+      by: options.by ?? 'user',
+    });
   }
 
   async groupCopyPreviewImport(
@@ -1257,7 +1255,6 @@ export class CCCCClient {
       source_id: options.sourceId,
       by: options.by ?? 'user',
     };
-    if (options.sourceInstanceKey) args['source_instance_key'] = options.sourceInstanceKey;
     if (options.reason) args['reason'] = options.reason;
     if (options.actorId) args['actor_id'] = options.actorId;
     return this.call('capability_source_delete', args);
@@ -1455,18 +1452,6 @@ export class CCCCClient {
     });
   }
 
-  async terminalHistory(options: TerminalHistoryOptions): Promise<Record<string, unknown>> {
-    return this.call('terminal_history', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      before: options.before,
-      limit_bytes: options.limitBytes ?? 64_000,
-      strip_ansi: options.stripAnsi ?? false,
-      compact: options.compact ?? false,
-      by: options.by ?? 'user',
-    }));
-  }
-
   async terminalClear(options: TerminalClearOptions): Promise<Record<string, unknown>> {
     return this.call('terminal_clear', {
       group_id: options.groupId,
@@ -1569,6 +1554,8 @@ export class CCCCClient {
    * @throws {DaemonAPIError} If the handshake fails.
    */
   async *eventsStream(options: EventsStreamOptions): AsyncGenerator<EventStreamItem> {
+    if (options.signal?.aborted) return;
+
     const args: Record<string, unknown> = {
       group_id: options.groupId,
       by: options.by ?? 'user',
@@ -1592,11 +1579,42 @@ export class CCCCClient {
       args,
     };
 
-    const { socket, handshake, initialBuffer } = await openEventsStream(
-      this._endpoint,
-      request,
-      options.timeoutMs ?? this._timeoutMs
-    );
+    const streamTimeoutMs = options.timeoutMs ?? this._timeoutMs;
+    let connection;
+    try {
+      connection = await openEventsStream(
+        this._endpoint,
+        request,
+        streamTimeoutMs,
+        options.signal,
+      );
+    } catch (error) {
+      if (!(error instanceof DaemonConnectionError) || this._endpointExplicit) {
+        throw error;
+      }
+      this._endpoint = await discoverEndpoint(this._ccccHome);
+      connection = await openEventsStream(
+        this._endpoint,
+        request,
+        streamTimeoutMs,
+        options.signal,
+      );
+    }
+    const { socket, handshake, initialBuffer } = connection;
+
+    if (options.signal?.aborted) {
+      socket.destroy();
+      return;
+    }
+    const abortStream = () => socket.destroy();
+    options.signal?.addEventListener('abort', abortStream, { once: true });
+
+    if (handshake.v !== undefined && handshake.v !== 1) {
+      socket.destroy();
+      throw new IncompatibleDaemonError(
+        `Daemon stream handshake uses unsupported IPC version: ${handshake.v}`,
+      );
+    }
 
     if (!handshake.ok) {
       socket.destroy();
@@ -1620,13 +1638,15 @@ export class CCCCClient {
         }
       }
     } finally {
+      options.signal?.removeEventListener('abort', abortStream);
       socket.destroy();
     }
   }
 }
 
-export interface CCCCClient extends CCCC0430Ops, GroupSpaceOps, ChatOps {}
+export interface CCCCClient extends CCCC0430Ops, CCCC0434Ops, GroupSpaceOps, ChatOps {}
 
 installCCCC0430Ops(CCCCClient.prototype);
+installCCCC0434Ops(CCCCClient.prototype);
 installGroupSpaceOps(CCCCClient.prototype);
 installChatOps(CCCCClient.prototype);

@@ -1,15 +1,102 @@
 # CCCC SDK — Adaptation Plan
 
-This plan is based on operation-by-operation audits through the current CCCC
-v0.4.33 line, refreshed on 2026-08-06. The SDK source packages target v0.4.33;
-the Python/TypeScript work remains unreleased until the normal package release
-process is run.
+This plan is based on an operation-by-operation audit of current CCCC `main`
+(the v0.4.34 release-candidate line plus subsequent commits), refreshed on
+2026-08-08. The SDK source tree targets that contract; Python, TypeScript, and
+Rust package publication remains a separate release process.
 
 The goal is contract alignment, not one wrapper per daemon implementation
 detail. Public SDK methods should represent stable capabilities that an
 external application can use safely. Internal relay operations and
 operator-only mechanisms stay out of the default client unless a real SDK
 consumer establishes a durable contract for them.
+
+## v0.4.34 release-candidate alignment status
+
+The three SDKs now expose focused helpers for the current public delta:
+
+```
+terminal_snapshot
+web_model_delivery_preferences_get
+web_model_delivery_preferences_update
+web_model_runtime_recover_turn
+```
+
+Python and TypeScript removed non-contract `clear_saved_session` and
+`include_blobs` request fields, corrected `blueprint_generate` to the standard
+task metadata shape, and use the normative `term_resize` operation first.
+All three clients accept the temporary Rust-daemon `terminal_resize` alias only
+after a structured `unknown_op` and normalize its shorter success payload to the
+standard result. TypeScript includes `cline` in its known runtime literals and
+its `INVALID_REQUEST` constant now matches the daemon's `invalid_request` code.
+
+The same operation-by-operation pass corrected the ReMe maintenance, global
+Remote Access, group-scoped IM authorization, Voice model installation, group
+copy, and chat argument maps. Cross-group sends now stay within the portable v1
+field set, while capability-source deletion no longer accepts a misleading
+instance key that the daemon ignores before deleting the whole source.
+
+Transport behavior is also aligned with the current normative safety language:
+requests are bounded before connecting, explicit response IPC versions are
+validated, auto-discovered endpoints are refreshed only after a pre-write
+connection failure, and failures after exchange begins are never replayed.
+Connectable IPv6 descriptor hosts are preserved in all three SDKs, while IPv4
+and IPv6 wildcard hosts are converted to matching loopback addresses. Rust and
+TypeScript expose explicit outcome-unknown errors; Python provides the same
+distinction, including malformed post-write response envelopes, while retaining
+`DaemonUnavailableError` compatibility. TypeScript cancellation also covers
+the TCP connection phase instead of beginning only after the stream handshake.
+
+### Current core-side parity blockers
+
+These cannot be repaired honestly inside an external SDK and remain visible in
+live compatibility probes:
+
+- Python daemon does not recognize `terminal_since` or `terminal_snapshot`;
+  Rust recognizes both.
+- Rust daemon recognizes `terminal_resize` instead of standard `term_resize`.
+- Rust advertises `events_stream=true` but returns `unknown_op`, and still lacks
+  several Python-only assistant and Presentation browser lifecycle operations.
+- `blueprint_generate` remains in the standard but returns `unknown_op` from
+  both current daemon implementations.
+
+The SDK therefore provides safe resize compatibility and generic non-streaming
+calls, but does not claim that the two core daemon implementations are already
+operation-for-operation equivalent.
+
+### Current core-standard omissions
+
+The byte-identical SDK mirror cannot document fields that are absent from the
+authoritative CCCC standard. Current daemon handlers nevertheless accept
+additional SDK-used fields, including actor profile scope/owner, advanced
+`tracked_send` task metadata, message reliability fields on `send`/`reply`,
+`reply_required` on cross-group send, and Python's `prompt_request_id` filter on
+`assistant_state`. These helpers remain available because they are backed by
+current core handlers and tests, but the authoritative standard should be
+expanded before they are described as normative cross-implementation v1.
+
+### Validation evidence (2026-08-08)
+
+- Python: 75 contract/transport tests, source compilation, sdist, and wheel
+  build passed.
+- TypeScript: 110 tests, strict typecheck, build, and npm package dry-run
+  passed.
+- Rust: formatting, warning-free clippy, 12 tests, and locked crate packaging
+  passed.
+- All three mirrored standards match current CCCC core byte-for-byte; scheduled
+  CI now detects future drift.
+- A current Rust daemon bound to the IPv6 loopback wrote a connectable `::1`
+  descriptor, and Python, TypeScript, and Rust clients all discovered it and
+  completed IPC v1 compatibility calls against CCCC 0.4.34-rc2.
+- Isolated current Python-daemon probes passed through all eight corrected
+  Python ReMe helpers plus Remote Access and IM authorization, with matching
+  representative TypeScript calls. Earlier isolated Python/Rust daemon probes
+  also passed all three compatibility examples and Web Model
+  delivery-preference round trips. A compiled Rust SDK probe against the current
+  Rust daemon additionally passed typed terminal snapshot/since and the
+  normalized legacy resize fallback.
+- Known implementation gaps above remain release blockers for core parity, not
+  hidden SDK fallbacks.
 
 ## v0.4.33 alignment status
 
@@ -19,7 +106,7 @@ current Rust-daemon contracts for:
 ```
 group_preamble_get / group_preamble_set / group_preamble_reset
 send_files
-terminal_since / terminal_resize
+terminal_since / terminal resize compatibility
 assistant_voice_* document, input, prompt, and request workflows
 memory_reme_* maintenance controls
 web_model_runtime_wait_next_turn / web_model_runtime_complete_turn
@@ -127,19 +214,16 @@ These are older gaps rather than regressions introduced by v0.4.32. They
 should be added only when a concrete external SDK use case justifies their
 contract and support burden.
 
-### 1. ChatGPT Web Model browser lifecycle (5 ops)
+### 1. ChatGPT Web Model browser lifecycle (2 ops)
 
 ```
-web_model_browser_open
-web_model_browser_info
-web_model_browser_close
 web_model_browser_attach              # streaming
 web_model_browser_vnc_attach          # streaming
 ```
 
-The runtime turn operations are wrapped. Browser lifecycle and attach
-operations remain operator-facing and should be designed with the client that
-will actually consume them.
+Delivery preferences and recovery are wrapped. Browser attach operations remain
+operator-facing and should be designed with the client that will consume the
+duplex surface.
 
 ### 2. Socket-special operations
 
@@ -153,7 +237,8 @@ space_provider_auth_browser_attach
 space_provider_auth_browser_vnc_attach
 ```
 
-Terminal resize is wrapped through the daemon's `terminal_resize` operation.
+Terminal resize is wrapped through standard `term_resize`, with the bounded
+legacy alias fallback described above.
 The attach operations switch from a
 JSON request/response exchange to a duplex byte stream after the handshake.
 They require a deliberate transport abstraction, ownership and close
@@ -165,13 +250,11 @@ smallest transport contract that supports its lifecycle correctly.
 
 ## Recommended next iterations
 
-1. **Finalize v0.4.33 alignment.** Review the validated diff as a public API
-   change, then commit only after explicit approval. Tagging and publishing
-   remain separate release actions.
-2. **Add drift detection.** Turn the operation/type comparison used for this
-   audit into a repeatable CI report. It should classify added/removed daemon
-   operations as public, internal, lower-level, or intentionally deferred;
-   equality of raw op sets must not be the pass condition.
+1. **Close core daemon parity gaps.** Fix standard-op recognition and truthful
+   capability advertisement in CCCC core, then run the SDK integration matrix
+   against both implementations.
+2. **Review and release deliberately.** Treat the validated SDK diff as a
+   public API change; commit, tag, and publish remain separate approval gates.
 3. **Choose one consumer-backed capability slice.** Voice Secretary, Web
    Model, admin controls, or duplex attach should proceed only with a named
    consumer and an end-to-end acceptance flow. Without that evidence, keeping
@@ -187,7 +270,8 @@ For each core upgrade:
    contracts;
 3. verify Python/TypeScript method parity and intentional-exclusion notes;
 4. verify the three mirrored standards byte-for-byte against CCCC core;
-5. run both test suites, TypeScript typecheck/build, and package builds;
+5. run all three test suites, TypeScript typecheck/build, Rust clippy/format,
+   and package builds;
 6. run isolated live-daemon probes for new and destructive operations;
 7. review documentation and changelog wording as an external consumer would.
 

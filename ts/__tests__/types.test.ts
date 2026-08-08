@@ -28,7 +28,12 @@ describe('ErrorCodes', () => {
     assert.equal(ErrorCodes.RATE_LIMITED, 'rate_limited');
     assert.equal(ErrorCodes.INTERNAL, 'internal');
     assert.equal(ErrorCodes.UNAVAILABLE, 'unavailable');
-    assert.equal(ErrorCodes.INVALID_REQUEST, 'invalid_request_error');
+    assert.equal(ErrorCodes.INVALID_REQUEST, 'invalid_request');
+    assert.equal(ErrorCodes.REQUEST_TOO_LARGE, 'request_too_large');
+    assert.equal(
+      ErrorCodes.REMOTE_ACCESS_ADMIN_TOKEN_REQUIRED,
+      'remote_access_admin_token_required',
+    );
   });
 
   it('contains SDK-specific error codes', () => {
@@ -36,8 +41,8 @@ describe('ErrorCodes', () => {
     assert.equal(ErrorCodes.STREAM_ERROR, 'stream_error');
   });
 
-  it('has 12 error codes', () => {
-    assert.equal(Object.keys(ErrorCodes).length, 12);
+  it('has 14 error codes', () => {
+    assert.equal(Object.keys(ErrorCodes).length, 14);
   });
 
   it('ErrorCode type covers all values', () => {

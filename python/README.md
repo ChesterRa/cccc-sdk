@@ -195,6 +195,49 @@ See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
 
+## CCCC 0.4.34 compatibility delta
+
+```python
+# Capture the bounded ANSI screen and exact raw cursor boundary.
+snapshot = c.terminal_snapshot(
+    group_id="g_xxx",
+    actor_id="web-model",
+    limit_bytes=512_000,
+)
+
+# Read or change the durable delivery mode for a Web Model actor.
+preference = c.web_model_delivery_preferences_get(
+    group_id="g_xxx",
+    actor_id="web-model",
+)
+c.web_model_delivery_preferences_update(
+    group_id="g_xxx",
+    actor_id="web-model",
+    mode="image_compat",
+)
+
+# Inspect a committed legacy turn without moving the actor cursor.
+recovered = c.web_model_runtime_recover_turn(
+    group_id="g_xxx",
+    actor_id="web-model",
+    event_ids=["e_xxx"],
+)
+```
+
+`term_resize()` sends the standard `term_resize` operation. For current Rust
+daemon builds that still expose `terminal_resize`, the SDK falls back only
+after receiving a structured `unknown_op`; transport failures are never
+replayed, and the legacy result is normalized to the standard shape.
+Auto-discovered clients re-read `ccccd.addr.json` when connection
+establishment fails before any request bytes are sent. Explicit endpoints are
+never replaced.
+
+This alignment pass also corrects the exact ReMe, global Remote Access,
+group-scoped IM authorization, Voice model installation, group-copy, and chat
+wire fields. `capability_source_delete()` is deliberately source-scoped: the
+current daemon does not implement instance-scoped deletion and callers should
+not assume otherwise.
+
 ## CCCC 0.4.33 compatibility delta
 
 ```python
@@ -334,4 +377,7 @@ c.ledger_snapshot(group_id="g_xxx", reason="manual")
 c.branding_update(patch={"product_name": "My CCCC"})
 ```
 
-Not yet wrapped (use `call()` for now): remaining Voice Secretary document/transcribe/prompt ops, remaining Memory ReMe write/index/compaction ops, ChatGPT Web Model runtime, IM bridge management, Remote Access, and the streaming socket-special browser/PTY attach ops. See `spec/ADAPTATION_PLAN.md` for the roadmap.
+Use `call()` for intentionally low-level or newly added non-streaming ops that
+do not yet have a dedicated helper. Duplex browser/VNC/PTY attach operations
+remain outside this request/response client and require a separate streaming
+transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.

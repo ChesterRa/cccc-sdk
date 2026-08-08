@@ -15,7 +15,7 @@ export interface DaemonRequest {
 
 /** IPC response envelope */
 export interface DaemonResponse {
-  v?: 1;
+  v: number;
   ok: boolean;
   result?: Record<string, unknown>;
   error?: DaemonErrorPayload;
@@ -283,8 +283,6 @@ export interface SendCrossGroupOptions {
   to?: string[];
   priority?: 'normal' | 'attention';
   replyRequired?: boolean;
-  refs?: MessageRef[];
-  attachments?: MessageAttachment[];
   requirePeerInsight?: boolean;
 }
 
@@ -360,6 +358,7 @@ export type AgentRuntime =
   | 'antigravity'
   | 'auggie'
   | 'claude'
+  | 'cline'
   | 'codex'
   | 'copilot'
   | 'cursor'
@@ -453,6 +452,28 @@ export interface HeadlessAckMessageOptions {
 /** Group copy: export the current group as a portable package. */
 export interface GroupCopyExportOptions {
   groupId: string;
+  by?: string;
+}
+
+/** Generate a deterministic task blueprint. */
+export interface BlueprintGenerateOptions {
+  taskId: string;
+  taskName?: string;
+  taskGoal?: string;
+  themeHint?: string;
+}
+
+export interface RemoteAccessOptions {
+  by?: string;
+}
+
+export interface RemoteAccessConfigureOptions extends RemoteAccessOptions {
+  provider?: 'off' | 'manual' | 'tailscale';
+  mode?: string;
+  requireAccessToken?: boolean;
+  webHost?: string;
+  webPort?: number;
+  webPublicUrl?: string;
 }
 
 /** Group copy: preview what would be imported from a package. */
@@ -492,8 +513,7 @@ export interface CapabilityInstallTargetOptions {
 /** Capability source delete. */
 export interface CapabilitySourceDeleteOptions {
   groupId: string;
-  sourceId: string;
-  sourceInstanceKey?: string;
+  sourceId: 'manual_import' | 'agent_self_proposed' | 'github_import' | 'url_import' | 'local_import';
   reason?: string;
   actorId?: string;
   by?: string;
@@ -666,6 +686,41 @@ export interface TerminalHistoryOptions {
   stripAnsi?: boolean;
   compact?: boolean;
   by?: string;
+}
+
+/** Read raw terminal output produced after a cursor. */
+export interface TerminalSinceOptions {
+  groupId: string;
+  actorId: string;
+  after: number;
+  limitBytes?: number;
+  by?: string;
+}
+
+/** Capture the bounded ANSI screen and its raw cursor boundary. */
+export interface TerminalSnapshotOptions {
+  groupId: string;
+  actorId: string;
+  limitBytes?: number;
+  by?: string;
+}
+
+export type WebModelDeliveryMode = 'standard' | 'image_compat';
+
+export interface WebModelDeliveryPreferencesGetOptions {
+  groupId: string;
+  actorId: string;
+}
+
+export interface WebModelDeliveryPreferencesUpdateOptions
+  extends WebModelDeliveryPreferencesGetOptions {
+  mode: WebModelDeliveryMode;
+  by?: 'user';
+}
+
+export interface WebModelRuntimeRecoverTurnOptions
+  extends WebModelDeliveryPreferencesGetOptions {
+  eventIds: string[];
 }
 
 /** Clear PTY backlog. */
@@ -1446,6 +1501,42 @@ export interface InboxListResult {
   };
 }
 
+export interface TerminalSnapshotResult {
+  data: string;
+  start_cursor: number;
+  end_cursor: number;
+}
+
+export interface WebModelDeliveryPreferencesResult {
+  group_id: string;
+  actor_id: string;
+  preference: {
+    mode: WebModelDeliveryMode;
+    updated_at: string;
+    updated_by: string;
+  };
+}
+
+export interface WebModelRuntimeRecoverTurnResult {
+  status: 'recovered';
+  turn: {
+    turn_id: string;
+    group_id: string;
+    actor_id: string;
+    event_ids: string[];
+    latest_event_id: string;
+    latest_ts: string;
+    messages: CCCSEvent[];
+    coalesced_text: string;
+    system_prompt: string;
+    delivery: {
+      mode: 'recovery_no_cursor_mutation';
+      cursor_committed: true;
+      web_model_mode: WebModelDeliveryMode;
+    };
+  };
+}
+
 export interface CapabilityUseOptions extends CapabilityEnableOptions {
   toolName?: string;
   toolArguments?: Record<string, unknown>;
@@ -1498,25 +1589,84 @@ export interface MemoryProfileGetOptions {
   tags?: string[];
 }
 
+export interface MemoryRemeMessage {
+  role: string;
+  name?: string;
+  content: string;
+}
+
+export interface MemoryRemeLayoutGetOptions {
+  groupId: string;
+}
+
+export interface MemoryRemeIndexSyncOptions {
+  groupId: string;
+  mode?: 'scan' | 'rebuild';
+}
+
 /** Lower-level ReMe options retained for callers that need source controls. */
 export interface MemoryRemeSearchOptions {
   groupId: string;
-  actorId?: string;
   query: string;
-  limit?: number;
   maxResults?: number;
-  vectorWeight?: number;
-  candidateMultiplier?: number;
   minScore?: number;
   sources?: string[];
+  vectorWeight?: number;
+  candidateMultiplier?: number;
 }
 
 export interface MemoryRemeGetOptions {
   groupId: string;
-  actorId?: string;
   path: string;
   offset?: number;
   limit?: number;
+}
+
+export interface MemoryRemeContextCheckOptions {
+  groupId: string;
+  messages: MemoryRemeMessage[];
+  contextWindowTokens?: number;
+  reserveTokens?: number;
+  keepRecentTokens?: number;
+}
+
+export interface MemoryRemeCompactOptions {
+  groupId: string;
+  messagesToSummarize: MemoryRemeMessage[];
+  turnPrefixMessages?: MemoryRemeMessage[];
+  previousSummary?: string;
+  language?: string;
+  returnPrompt?: boolean;
+}
+
+export type MemoryRemeDedupIntent = 'new' | 'update' | 'supersede' | 'silent';
+
+export interface MemoryRemeDailyFlushOptions {
+  groupId: string;
+  messages: MemoryRemeMessage[];
+  date?: string;
+  version?: string;
+  language?: string;
+  returnPrompt?: boolean;
+  signalPack?: Record<string, unknown>;
+  signalPackTokenBudget?: number;
+  dedupIntent?: MemoryRemeDedupIntent;
+  dedupQuery?: string;
+}
+
+export interface MemoryRemeWriteOptions {
+  groupId: string;
+  target: 'memory' | 'daily';
+  content: string;
+  date?: string;
+  mode?: 'append' | 'replace';
+  idempotencyKey?: string;
+  actorId?: string;
+  sourceRefs?: string[];
+  tags?: string[];
+  supersedes?: string[];
+  dedupIntent?: MemoryRemeDedupIntent;
+  dedupQuery?: string;
 }
 
 /** Result of context_get */

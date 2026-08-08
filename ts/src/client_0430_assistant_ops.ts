@@ -13,7 +13,7 @@ type VoiceSecretaryDocumentSaveOptions = {
 };
 
 export interface CCCC0430AssistantOps {
-  assistantVoiceModelInstall(options: { groupId: string; modelId?: string; by?: string; force?: boolean }): Promise<Record<string, unknown>>;
+  assistantVoiceModelInstall(options: { groupId: string; modelId: string; by?: string }): Promise<Record<string, unknown>>;
   /** @deprecated Rust CCCC uses the HTTP Voice Secretary transcription endpoint. */
   assistantVoiceTranscribe(options: { groupId: string; audioBase64?: string; path?: string; mimeType?: string; by?: string }): Promise<Record<string, unknown>>;
   assistantVoiceTranscriptAppend(options: {
@@ -85,7 +85,6 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
       group_id: options.groupId,
       model_id: options.modelId,
       by: options.by ?? 'user',
-      force: options.force,
     }));
   },
 

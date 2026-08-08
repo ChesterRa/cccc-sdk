@@ -14,8 +14,11 @@ export { CCCCClient } from './client.js';
 export {
   CCCCSDKError,
   DaemonAPIError,
+  DaemonConnectionError,
   DaemonUnavailableError,
   IncompatibleDaemonError,
+  OutcomeUnknownError,
+  RequestTooLargeError,
   ErrorCodes,
 } from './errors.js';
 export type { ErrorCode } from './errors.js';
@@ -25,6 +28,7 @@ export {
   discoverEndpoint,
   defaultHome,
   MAX_LINE_SIZE,
+  MAX_REQUEST_SIZE,
   DEFAULT_TIMEOUT_MS,
 } from './transport.js';
 
@@ -88,6 +92,9 @@ export type {
   GroupCreateOptions,
   GroupUpdateOptions,
   GroupCopyExportOptions,
+  BlueprintGenerateOptions,
+  RemoteAccessOptions,
+  RemoteAccessConfigureOptions,
   GroupCopyPackageInput,
   GroupCopyPreviewImportOptions,
   GroupCopyImportOptions,
@@ -146,7 +153,13 @@ export type {
   DebugClearLogsOptions,
   TerminalTailOptions,
   TerminalHistoryOptions,
+  TerminalSinceOptions,
+  TerminalSnapshotOptions,
   TerminalClearOptions,
+  WebModelDeliveryMode,
+  WebModelDeliveryPreferencesGetOptions,
+  WebModelDeliveryPreferencesUpdateOptions,
+  WebModelRuntimeRecoverTurnOptions,
   LedgerSnapshotOptions,
   LedgerCompactOptions,
   StreamEmitOptions,
@@ -192,8 +205,16 @@ export type {
   MemoryWriteOptions,
   MemoryHealthOptions,
   MemoryProfileGetOptions,
+  MemoryRemeMessage,
+  MemoryRemeLayoutGetOptions,
+  MemoryRemeIndexSyncOptions,
   MemoryRemeSearchOptions,
   MemoryRemeGetOptions,
+  MemoryRemeContextCheckOptions,
+  MemoryRemeCompactOptions,
+  MemoryRemeDedupIntent,
+  MemoryRemeDailyFlushOptions,
+  MemoryRemeWriteOptions,
   // Result types.
   SendResult,
   SendAndWaitOptions,
@@ -216,6 +237,9 @@ export type {
   ActorListResult,
   ActorAddResult,
   InboxListResult,
+  TerminalSnapshotResult,
+  WebModelDeliveryPreferencesResult,
+  WebModelRuntimeRecoverTurnResult,
   ContextGetResult,
 } from './types.js';
 

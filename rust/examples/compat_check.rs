@@ -15,6 +15,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "group_preamble_get",
             "send_files",
             "terminal_history",
+            "term_resize",
+            "web_model_delivery_preferences_get",
+            "web_model_delivery_preferences_update",
+            "web_model_runtime_recover_turn",
         ],
         ..Default::default()
     };

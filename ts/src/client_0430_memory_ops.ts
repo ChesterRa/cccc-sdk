@@ -1,129 +1,109 @@
-import { compactRecord, type CCCC0430Client, type GroupScopedOptions } from './client_0430_shared.js';
-
-type MemoryRemeReadOptions = {
-  groupId?: string;
-  actorId?: string;
-  path?: string;
-  target?: string;
-  date?: string;
-  offset?: number;
-  limit?: number;
-};
+import type {
+  MemoryRemeCompactOptions,
+  MemoryRemeContextCheckOptions,
+  MemoryRemeDailyFlushOptions,
+  MemoryRemeGetOptions,
+  MemoryRemeIndexSyncOptions,
+  MemoryRemeLayoutGetOptions,
+  MemoryRemeSearchOptions,
+  MemoryRemeWriteOptions,
+} from './types.js';
+import { compactRecord, type CCCC0430Client } from './client_0430_shared.js';
 
 export interface CCCC0430MemoryOps {
-  memoryRemeLayoutGet(options?: GroupScopedOptions): Promise<Record<string, unknown>>;
-  memoryRemeSearch(options: {
-    query: string;
-    groupId?: string;
-    actorId?: string;
-    limit?: number;
-    maxResults?: number;
-    tags?: string[];
-    target?: string;
-    vectorWeight?: number;
-    candidateMultiplier?: number;
-    minScore?: number;
-    sources?: string[];
-  }): Promise<Record<string, unknown>>;
-  memoryRemeGet(options: MemoryRemeReadOptions): Promise<Record<string, unknown>>;
-  memoryRemeWrite(options: {
-    target: string;
-    content: string;
-    groupId?: string;
-    actorId?: string;
-    tags?: string[];
-    sourceRefs?: string[];
-    idempotencyKey?: string;
-    dedupIntent?: string;
-    dedupQuery?: string;
-    date?: string;
-  }): Promise<Record<string, unknown>>;
-  memoryRemeIndexSync(options?: GroupScopedOptions & { force?: boolean }): Promise<Record<string, unknown>>;
-  memoryRemeContextCheck(options: GroupScopedOptions & { messages: Array<Record<string, unknown>> }): Promise<Record<string, unknown>>;
-  memoryRemeCompact(options: GroupScopedOptions & { messages: Array<Record<string, unknown>>; returnPrompt?: boolean }): Promise<Record<string, unknown>>;
-  memoryRemeDailyFlush(options?: GroupScopedOptions & { date?: string }): Promise<Record<string, unknown>>;
+  memoryRemeLayoutGet(options: MemoryRemeLayoutGetOptions): Promise<Record<string, unknown>>;
+  memoryRemeIndexSync(options: MemoryRemeIndexSyncOptions): Promise<Record<string, unknown>>;
+  memoryRemeSearch(options: MemoryRemeSearchOptions): Promise<Record<string, unknown>>;
+  memoryRemeGet(options: MemoryRemeGetOptions): Promise<Record<string, unknown>>;
+  memoryRemeContextCheck(options: MemoryRemeContextCheckOptions): Promise<Record<string, unknown>>;
+  memoryRemeCompact(options: MemoryRemeCompactOptions): Promise<Record<string, unknown>>;
+  memoryRemeDailyFlush(options: MemoryRemeDailyFlushOptions): Promise<Record<string, unknown>>;
+  memoryRemeWrite(options: MemoryRemeWriteOptions): Promise<Record<string, unknown>>;
 }
 
 const memoryOps: CCCC0430MemoryOps & ThisType<CCCC0430Client> = {
-  async memoryRemeLayoutGet(options = {}) {
-    return this.call('memory_reme_layout_get', compactRecord({
+  async memoryRemeLayoutGet(options) {
+    return this.call('memory_reme_layout_get', { group_id: options.groupId });
+  },
+
+  async memoryRemeIndexSync(options) {
+    return this.call('memory_reme_index_sync', compactRecord({
       group_id: options.groupId,
-      by: options.by,
+      mode: options.mode,
     }));
   },
 
   async memoryRemeSearch(options) {
     return this.call('memory_reme_search', compactRecord({
       group_id: options.groupId,
-      actor_id: options.actorId,
       query: options.query,
-      max_results: options.maxResults ?? options.limit,
-      tags: options.tags,
-      target: options.target,
-      vector_weight: options.vectorWeight,
-      candidate_multiplier: options.candidateMultiplier,
+      max_results: options.maxResults,
       min_score: options.minScore,
       sources: options.sources,
+      vector_weight: options.vectorWeight,
+      candidate_multiplier: options.candidateMultiplier,
     }));
   },
 
   async memoryRemeGet(options) {
     return this.call('memory_reme_get', compactRecord({
       group_id: options.groupId,
-      actor_id: options.actorId,
       path: options.path,
-      target: options.target,
-      date: options.date,
       offset: options.offset,
       limit: options.limit,
-    }));
-  },
-
-  async memoryRemeWrite(options) {
-    return this.call('memory_reme_write', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      target: options.target,
-      content: options.content,
-      tags: options.tags,
-      source_refs: options.sourceRefs,
-      idempotency_key: options.idempotencyKey,
-      dedup_intent: options.dedupIntent,
-      dedup_query: options.dedupQuery,
-      date: options.date,
-    }));
-  },
-
-  async memoryRemeIndexSync(options = {}) {
-    return this.call('memory_reme_index_sync', compactRecord({
-      group_id: options.groupId,
-      by: options.by,
-      force: options.force,
     }));
   },
 
   async memoryRemeContextCheck(options) {
     return this.call('memory_reme_context_check', compactRecord({
       group_id: options.groupId,
-      by: options.by,
       messages: options.messages,
+      context_window_tokens: options.contextWindowTokens,
+      reserve_tokens: options.reserveTokens,
+      keep_recent_tokens: options.keepRecentTokens,
     }));
   },
 
   async memoryRemeCompact(options) {
     return this.call('memory_reme_compact', compactRecord({
       group_id: options.groupId,
-      by: options.by,
-      messages: options.messages,
+      messages_to_summarize: options.messagesToSummarize,
+      turn_prefix_messages: options.turnPrefixMessages,
+      previous_summary: options.previousSummary,
+      language: options.language,
       return_prompt: options.returnPrompt,
     }));
   },
 
-  async memoryRemeDailyFlush(options = {}) {
+  async memoryRemeDailyFlush(options) {
     return this.call('memory_reme_daily_flush', compactRecord({
       group_id: options.groupId,
-      by: options.by,
+      messages: options.messages,
       date: options.date,
+      version: options.version,
+      language: options.language,
+      return_prompt: options.returnPrompt,
+      signal_pack: options.signalPack,
+      signal_pack_token_budget: options.signalPackTokenBudget,
+      dedup_intent: options.dedupIntent,
+      dedup_query: options.dedupQuery,
+    }));
+  },
+
+  async memoryRemeWrite(options) {
+    return this.call('memory_reme_write', compactRecord({
+      group_id: options.groupId,
+      target: options.target,
+      content: options.content,
+      date: options.date,
+      mode: options.mode,
+      idempotency_key: options.idempotencyKey,
+      actor_id: options.actorId,
+      source_refs: options.sourceRefs,
+      tags: options.tags,
+      supersedes: options.supersedes,
+      dedup_intent: options.dedupIntent,
+      dedup_query: options.dedupQuery,
     }));
   },
 };

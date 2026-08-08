@@ -3,7 +3,15 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from .client import CCCCClient
-from .errors import CCCCSDKError, DaemonAPIError, DaemonUnavailableError, IncompatibleDaemonError
+from .errors import (
+    CCCCSDKError,
+    DaemonAPIError,
+    DaemonConnectionError,
+    DaemonUnavailableError,
+    IncompatibleDaemonError,
+    OutcomeUnknownError,
+    RequestTooLargeError,
+)
 
 
 def _detect_version() -> str:
@@ -19,7 +27,10 @@ __all__ = [
     "CCCCClient",
     "CCCCSDKError",
     "DaemonAPIError",
+    "DaemonConnectionError",
     "DaemonUnavailableError",
     "IncompatibleDaemonError",
+    "OutcomeUnknownError",
+    "RequestTooLargeError",
     "__version__",
 ]

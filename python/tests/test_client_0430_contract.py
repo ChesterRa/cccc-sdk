@@ -52,7 +52,7 @@ class TestClient0433Contract(unittest.TestCase):
                 "group_preamble_reset",
                 "terminal_history",
                 "terminal_since",
-                "terminal_resize",
+                "term_resize",
             ],
         )
         self.assertEqual(captured[0]["args"]["insight"], "Compatibility is the release gate.")
@@ -60,6 +60,211 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[4]["args"]["confirm"], "preamble")
         self.assertEqual(captured[5]["args"]["before"], 100)
         self.assertEqual(captured[6]["args"]["after"], 100)
+
+    def test_reme_helpers_match_current_daemon_contract(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        message = {"role": "user", "name": "waterbang", "content": "Keep this decision."}
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.memory_reme_layout_get(group_id="g_1")
+            client.memory_reme_index_sync(group_id="g_1", mode="rebuild")
+            client.memory_reme_context_check(
+                group_id="g_1",
+                messages=[message],
+                context_window_tokens=128000,
+                reserve_tokens=36000,
+                keep_recent_tokens=20000,
+            )
+            client.memory_reme_compact(
+                group_id="g_1",
+                messages_to_summarize=[message],
+                turn_prefix_messages=[{"role": "system", "content": "Project context"}],
+                previous_summary="Earlier summary",
+                language="zh-CN",
+                return_prompt=True,
+            )
+            client.memory_reme_daily_flush(
+                group_id="g_1",
+                messages=[message],
+                date="2026-08-08",
+                version="default",
+                language="zh-CN",
+                return_prompt=False,
+                signal_pack={"decisions": ["ship"]},
+                signal_pack_token_budget=320,
+                dedup_intent="update",
+                dedup_query="release decision",
+            )
+            client.memory_reme_write(
+                group_id="g_1",
+                target="memory",
+                content="The SDK follows IPC v1.",
+                mode="append",
+                idempotency_key="sdk-ipc-v1",
+                actor_id="foreman",
+                source_refs=["chat:e_1"],
+                tags=["sdk"],
+                supersedes=["MEMORY.md#L1"],
+                dedup_intent="supersede",
+                dedup_query="SDK IPC contract",
+            )
+
+        self.assertEqual(
+            [request["op"] for request in captured],
+            [
+                "memory_reme_layout_get",
+                "memory_reme_index_sync",
+                "memory_reme_context_check",
+                "memory_reme_compact",
+                "memory_reme_daily_flush",
+                "memory_reme_write",
+            ],
+        )
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[1]["args"], {"group_id": "g_1", "mode": "rebuild"})
+        self.assertEqual(
+            captured[2]["args"],
+            {
+                "group_id": "g_1",
+                "messages": [message],
+                "context_window_tokens": 128000,
+                "reserve_tokens": 36000,
+                "keep_recent_tokens": 20000,
+            },
+        )
+        self.assertEqual(
+            captured[3]["args"],
+            {
+                "group_id": "g_1",
+                "messages_to_summarize": [message],
+                "turn_prefix_messages": [{"role": "system", "content": "Project context"}],
+                "previous_summary": "Earlier summary",
+                "language": "zh-CN",
+                "return_prompt": True,
+            },
+        )
+        self.assertEqual(
+            captured[4]["args"],
+            {
+                "group_id": "g_1",
+                "messages": [message],
+                "date": "2026-08-08",
+                "version": "default",
+                "language": "zh-CN",
+                "return_prompt": False,
+                "signal_pack": {"decisions": ["ship"]},
+                "signal_pack_token_budget": 320,
+                "dedup_intent": "update",
+                "dedup_query": "release decision",
+            },
+        )
+        self.assertEqual(
+            captured[5]["args"],
+            {
+                "group_id": "g_1",
+                "target": "memory",
+                "content": "The SDK follows IPC v1.",
+                "mode": "append",
+                "idempotency_key": "sdk-ipc-v1",
+                "actor_id": "foreman",
+                "source_refs": ["chat:e_1"],
+                "tags": ["sdk"],
+                "supersedes": ["MEMORY.md#L1"],
+                "dedup_intent": "supersede",
+                "dedup_query": "SDK IPC contract",
+            },
+        )
+
+    def test_remote_access_helpers_use_the_global_flat_contract(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.remote_access_state()
+            client.remote_access_configure(
+                provider="manual",
+                mode="tailnet_only",
+                require_access_token=True,
+                web_host="0.0.0.0",
+                web_port=8848,
+                web_public_url="https://cccc.example.test",
+            )
+            client.remote_access_start()
+            client.remote_access_stop(by="user")
+
+        self.assertEqual(
+            [request["op"] for request in captured],
+            [
+                "remote_access_state",
+                "remote_access_configure",
+                "remote_access_start",
+                "remote_access_stop",
+            ],
+        )
+        self.assertEqual(captured[0]["args"], {"by": "user"})
+        self.assertEqual(
+            captured[1]["args"],
+            {
+                "by": "user",
+                "provider": "manual",
+                "mode": "tailnet_only",
+                "require_access_token": True,
+                "web_host": "0.0.0.0",
+                "web_port": 8848,
+                "web_public_url": "https://cccc.example.test",
+            },
+        )
+        self.assertEqual(captured[2]["args"], {"by": "user"})
+        self.assertEqual(captured[3]["args"], {"by": "user"})
+
+    def test_im_auth_and_voice_model_install_match_current_contracts(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.im_bind_chat(group_id="g_1", key="bind-key")
+            client.im_list_authorized(group_id="g_1")
+            client.im_list_pending(group_id="g_1")
+            client.im_reject_pending(group_id="g_1", key="bind-key")
+            client.im_revoke_chat(group_id="g_1", chat_id="chat-1", thread_id=7)
+            client.assistant_voice_model_install(group_id="g_1", model_id="sensevoice-small")
+
+        self.assertEqual(
+            [request["op"] for request in captured],
+            [
+                "im_bind_chat",
+                "im_list_authorized",
+                "im_list_pending",
+                "im_reject_pending",
+                "im_revoke_chat",
+                "assistant_voice_model_install",
+            ],
+        )
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1", "key": "bind-key"})
+        self.assertEqual(captured[1]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[2]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[3]["args"], {"group_id": "g_1", "key": "bind-key"})
+        self.assertEqual(
+            captured[4]["args"],
+            {"group_id": "g_1", "chat_id": "chat-1", "thread_id": 7},
+        )
+        self.assertEqual(
+            captured[5]["args"],
+            {"group_id": "g_1", "model_id": "sensevoice-small", "by": "user"},
+        )
 
     def test_current_voice_secretary_ops(self) -> None:
         captured: list[dict] = []

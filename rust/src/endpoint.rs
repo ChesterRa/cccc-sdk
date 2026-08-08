@@ -84,8 +84,15 @@ fn endpoint_from_descriptor(descriptor: EndpointDescriptor) -> Result<DaemonEndp
 }
 
 fn normalize_tcp_host(host: &str) -> String {
-    match host.trim() {
-        "" | "0.0.0.0" | "::" | "[::]" | "localhost" => "127.0.0.1".into(),
+    let value = host.trim();
+    let value = value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(value)
+        .trim();
+    match value {
+        "" | "0.0.0.0" | "localhost" => "127.0.0.1".into(),
+        "::" => "::1".into(),
         value => value.into(),
     }
 }
@@ -123,6 +130,15 @@ mod tests {
             }
         );
         fs::remove_dir_all(home).expect("cleanup");
+    }
+
+    #[test]
+    fn preserves_connectable_ipv6_and_normalizes_only_the_wildcard() {
+        assert_eq!(normalize_tcp_host("::1"), "::1");
+        assert_eq!(normalize_tcp_host("2001:db8::1"), "2001:db8::1");
+        assert_eq!(normalize_tcp_host("[::1]"), "::1");
+        assert_eq!(normalize_tcp_host("::"), "::1");
+        assert_eq!(normalize_tcp_host("[::]"), "::1");
     }
 
     #[test]

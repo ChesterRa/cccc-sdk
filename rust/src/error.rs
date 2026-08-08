@@ -25,6 +25,9 @@ pub enum Error {
     #[error("CCCC daemon endpoint was not found: {0}")]
     EndpointNotFound(String),
 
+    #[error("invalid CCCC SDK argument: {0}")]
+    InvalidArgument(String),
+
     #[error("invalid CCCC daemon endpoint descriptor: {0}")]
     InvalidEndpoint(String),
 
@@ -45,6 +48,9 @@ pub enum Error {
 
     #[error("CCCC daemon closed the connection without a response")]
     EmptyResponse,
+
+    #[error("CCCC daemon request outcome is unknown for {op}: {message}")]
+    OutcomeUnknown { op: String, message: String },
 
     #[error("CCCC daemon response used unsupported IPC version {0}")]
     UnsupportedIpcVersion(u32),

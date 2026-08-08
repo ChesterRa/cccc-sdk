@@ -4,7 +4,7 @@
 
 > ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。直近でタグ付け
 > された Python/TypeScript 系列は CCCC 0.4.32 を対象とし、`main` のソース
-> パッケージは現在の CCCC 0.4.33 系列を対象とします。公開は別の release
+> パッケージは現在の CCCC 0.4.34 リリース候補契約を対象とします。公開は別の release
 > 手順です。範囲は `CHANGELOG.md` と `spec/ADAPTATION_PLAN.md` を参照してください。
 
 CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。

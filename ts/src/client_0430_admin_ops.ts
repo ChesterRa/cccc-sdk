@@ -3,17 +3,23 @@ import {
   compactRecord,
   type BasicGroupActorOptions,
   type CCCC0430Client,
-  type GroupScopedOptions,
 } from './client_0430_shared.js';
 import { DaemonAPIError } from './errors.js';
-import type { GroupPreambleResetOptions, GroupPreambleSetOptions } from './types.js';
+import type {
+  BlueprintGenerateOptions,
+  GroupCopyExportOptions,
+  GroupPreambleResetOptions,
+  GroupPreambleSetOptions,
+  RemoteAccessConfigureOptions,
+  RemoteAccessOptions,
+} from './types.js';
 
 const MAX_GROUP_PREAMBLE_BYTES = 512 * 1024;
 
 export interface CCCC0430AdminOps {
   actorNewSession(groupId: string, actorId: string, by?: string): Promise<Record<string, unknown>>;
-  actorNewSession(options: BasicGroupActorOptions & { clearSavedSession?: boolean }): Promise<Record<string, unknown>>;
-  groupCopyExportFile(options: { groupId: string; includeBlobs?: boolean }): Promise<Record<string, unknown>>;
+  actorNewSession(options: BasicGroupActorOptions): Promise<Record<string, unknown>>;
+  groupCopyExportFile(options: GroupCopyExportOptions): Promise<Record<string, unknown>>;
   groupPreambleGet(options: { groupId: string }): Promise<Record<string, unknown>>;
   groupPreambleSet(options: GroupPreambleSetOptions): Promise<Record<string, unknown>>;
   groupPreambleReset(options: GroupPreambleResetOptions): Promise<Record<string, unknown>>;
@@ -29,39 +35,38 @@ export interface CCCC0430AdminOps {
   }): Promise<Record<string, unknown>>;
   terminalSince(options: BasicGroupActorOptions & { after: number; limitBytes?: number }): Promise<Record<string, unknown>>;
   termResize(options: BasicGroupActorOptions & { cols: number; rows: number }): Promise<Record<string, unknown>>;
-  imBindChat(options: { groupId: string; platform: string; chatId: string; threadId?: number; by?: string }): Promise<Record<string, unknown>>;
-  imListAuthorized(options?: { platform?: string }): Promise<Record<string, unknown>>;
-  imListPending(options?: { platform?: string }): Promise<Record<string, unknown>>;
-  imRejectPending(options: { platform?: string; key: string; by?: string }): Promise<Record<string, unknown>>;
-  imRevokeChat(options: { platform?: string; chatId: string; threadId?: number; by?: string }): Promise<Record<string, unknown>>;
-  remoteAccessState(options?: GroupScopedOptions): Promise<Record<string, unknown>>;
-  remoteAccessConfigure(options: GroupScopedOptions & { config: Record<string, unknown> }): Promise<Record<string, unknown>>;
-  remoteAccessStart(options?: GroupScopedOptions): Promise<Record<string, unknown>>;
-  remoteAccessStop(options?: GroupScopedOptions): Promise<Record<string, unknown>>;
-  blueprintGenerate(options: { groupId: string; taskId: string; variant?: number }): Promise<Record<string, unknown>>;
+  imBindChat(options: { groupId: string; key: string }): Promise<Record<string, unknown>>;
+  imListAuthorized(options: { groupId: string }): Promise<Record<string, unknown>>;
+  imListPending(options: { groupId: string }): Promise<Record<string, unknown>>;
+  imRejectPending(options: { groupId: string; key: string }): Promise<Record<string, unknown>>;
+  imRevokeChat(options: { groupId: string; chatId: string; threadId?: number }): Promise<Record<string, unknown>>;
+  remoteAccessState(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
+  remoteAccessConfigure(options: RemoteAccessConfigureOptions): Promise<Record<string, unknown>>;
+  remoteAccessStart(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
+  remoteAccessStop(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
+  blueprintGenerate(options: BlueprintGenerateOptions): Promise<Record<string, unknown>>;
 }
 
 const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
   async actorNewSession(
-    optionsOrGroupId: (BasicGroupActorOptions & { clearSavedSession?: boolean }) | string,
+    optionsOrGroupId: BasicGroupActorOptions | string,
     legacyActorId?: string,
     legacyBy: string = 'user',
   ) {
-    const options: BasicGroupActorOptions & { clearSavedSession?: boolean } = typeof optionsOrGroupId === 'string'
+    const options: BasicGroupActorOptions = typeof optionsOrGroupId === 'string'
       ? { groupId: optionsOrGroupId, actorId: String(legacyActorId ?? ''), by: legacyBy }
       : optionsOrGroupId;
-    return this.call('actor_new_session', compactRecord({
+    return this.call('actor_new_session', {
       group_id: options.groupId,
       actor_id: options.actorId,
       by: options.by ?? 'user',
-      clear_saved_session: options.clearSavedSession,
-    }));
+    });
   },
 
   async groupCopyExportFile(options) {
     return this.call('group_copy_export_file', compactRecord({
       group_id: options.groupId,
-      include_blobs: options.includeBlobs,
+      by: options.by ?? 'user',
     }));
   },
 
@@ -118,83 +123,89 @@ const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
   },
 
   async termResize(options) {
-    return this.call('terminal_resize', {
+    const args = {
       group_id: options.groupId,
       actor_id: options.actorId,
       cols: options.cols,
       rows: options.rows,
-    });
+    };
+    try {
+      return await this.call('term_resize', args);
+    } catch (error) {
+      if (!(error instanceof DaemonAPIError) || error.code !== 'unknown_op') {
+        throw error;
+      }
+    }
+    // Rust CCCC builds prior to contract parity used this legacy alias.
+    const legacy = await this.call('terminal_resize', args);
+    return {
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      cols: typeof legacy['cols'] === 'number' ? legacy['cols'] : options.cols,
+      rows: typeof legacy['rows'] === 'number' ? legacy['rows'] : options.rows,
+    };
   },
 
   async imBindChat(options) {
-    return this.call('im_bind_chat', compactRecord({
+    return this.call('im_bind_chat', {
       group_id: options.groupId,
-      platform: options.platform,
-      chat_id: options.chatId,
-      thread_id: options.threadId,
-      by: options.by ?? 'user',
-    }));
+      key: options.key,
+    });
   },
 
-  async imListAuthorized(options = {}) {
-    return this.call('im_list_authorized', compactRecord({ platform: options.platform }));
+  async imListAuthorized(options) {
+    return this.call('im_list_authorized', { group_id: options.groupId });
   },
 
-  async imListPending(options = {}) {
-    return this.call('im_list_pending', compactRecord({ platform: options.platform }));
+  async imListPending(options) {
+    return this.call('im_list_pending', { group_id: options.groupId });
   },
 
   async imRejectPending(options) {
-    return this.call('im_reject_pending', compactRecord({
-      platform: options.platform,
+    return this.call('im_reject_pending', {
+      group_id: options.groupId,
       key: options.key,
-      by: options.by ?? 'user',
-    }));
+    });
   },
 
   async imRevokeChat(options) {
     return this.call('im_revoke_chat', compactRecord({
-      platform: options.platform,
+      group_id: options.groupId,
       chat_id: options.chatId,
       thread_id: options.threadId,
-      by: options.by ?? 'user',
     }));
   },
 
   async remoteAccessState(options = {}) {
-    return this.call('remote_access_state', compactRecord({
-      group_id: options.groupId,
-      by: options.by,
-    }));
+    return this.call('remote_access_state', { by: options.by ?? 'user' });
   },
 
   async remoteAccessConfigure(options) {
     return this.call('remote_access_configure', compactRecord({
-      group_id: options.groupId,
       by: options.by ?? 'user',
-      config: options.config,
+      provider: options.provider,
+      mode: options.mode,
+      require_access_token: options.requireAccessToken,
+      web_host: options.webHost,
+      web_port: options.webPort,
+      web_public_url: options.webPublicUrl,
     }));
   },
 
   async remoteAccessStart(options = {}) {
-    return this.call('remote_access_start', compactRecord({
-      group_id: options.groupId,
-      by: options.by ?? 'user',
-    }));
+    return this.call('remote_access_start', { by: options.by ?? 'user' });
   },
 
   async remoteAccessStop(options = {}) {
-    return this.call('remote_access_stop', compactRecord({
-      group_id: options.groupId,
-      by: options.by ?? 'user',
-    }));
+    return this.call('remote_access_stop', { by: options.by ?? 'user' });
   },
 
   async blueprintGenerate(options) {
     return this.call('blueprint_generate', compactRecord({
-      group_id: options.groupId,
       task_id: options.taskId,
-      variant: options.variant,
+      task_name: options.taskName,
+      task_goal: options.taskGoal,
+      theme_hint: options.themeHint,
     }));
   },
 };

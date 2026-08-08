@@ -27,7 +27,9 @@ export const ErrorCodes = {
   RATE_LIMITED: 'rate_limited',
   INTERNAL: 'internal',
   UNAVAILABLE: 'unavailable',
-  INVALID_REQUEST: 'invalid_request_error',
+  INVALID_REQUEST: 'invalid_request',
+  REQUEST_TOO_LARGE: 'request_too_large',
+  REMOTE_ACCESS_ADMIN_TOKEN_REQUIRED: 'remote_access_admin_token_required',
 
   // ---- SDK-specific codes ----
   /** Unparseable JSON line in event stream */
@@ -60,6 +62,35 @@ export class DaemonUnavailableError extends CCCCSDKError {
   constructor(message: string) {
     super(message);
     this.name = 'DaemonUnavailableError';
+  }
+}
+
+/** Connection failed before any request bytes were sent. */
+export class DaemonConnectionError extends DaemonUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DaemonConnectionError';
+  }
+}
+
+/** Exchange began, but the daemon result could not be determined. */
+export class OutcomeUnknownError extends DaemonUnavailableError {
+  readonly op: string;
+  readonly reason: string;
+
+  constructor(op: string, message: string) {
+    super(`Daemon request outcome is unknown for ${op}: ${message}`);
+    this.name = 'OutcomeUnknownError';
+    this.op = op;
+    this.reason = message;
+  }
+}
+
+/** Encoded request exceeds the daemon IPC line limit. */
+export class RequestTooLargeError extends CCCCSDKError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RequestTooLargeError';
   }
 }
 

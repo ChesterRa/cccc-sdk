@@ -368,9 +368,8 @@ class TestClientContractParity(unittest.TestCase):
             client = self._client()
             client.memory_reme_search(
                 group_id="g_1",
-                actor_id="worker",
                 query="recent decisions",
-                limit=3,
+                max_results=3,
                 vector_weight=0.6,
                 candidate_multiplier=4.0,
                 min_score=0.2,
@@ -378,7 +377,6 @@ class TestClientContractParity(unittest.TestCase):
             )
             client.memory_reme_get(
                 group_id="g_1",
-                actor_id="worker",
                 path="state/memory/MEMORY.md",
                 offset=10,
                 limit=25,
@@ -389,7 +387,6 @@ class TestClientContractParity(unittest.TestCase):
             captured[0]["args"],
             {
                 "group_id": "g_1",
-                "actor_id": "worker",
                 "query": "recent decisions",
                 "max_results": 3,
                 "vector_weight": 0.6,
@@ -403,7 +400,6 @@ class TestClientContractParity(unittest.TestCase):
             captured[1]["args"],
             {
                 "group_id": "g_1",
-                "actor_id": "worker",
                 "path": "state/memory/MEMORY.md",
                 "offset": 10,
                 "limit": 25,
@@ -836,17 +832,17 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args["insight"], "The current frame may be too narrow.")
         self.assertEqual(args["suggested_user_message"], "Should we widen the frame?")
 
-    def test_send_cross_group_includes_refs(self) -> None:
+    def test_send_cross_group_uses_only_cross_runtime_message_fields(self) -> None:
         captured, client = self._capture({"src_event": {"id": "s"}, "dst_event": {"id": "d"}})
         client.send_cross_group(
             group_id="g_src",
             dst_group_id="g_dst",
             text="cross",
-            refs=[{"kind": "url", "url": "https://example.com"}],
             insight="The destination should challenge this plan independently.",
         )
         args = captured[0]["args"]
-        self.assertEqual(args["refs"], [{"kind": "url", "url": "https://example.com"}])
+        self.assertNotIn("refs", args)
+        self.assertNotIn("attachments", args)
         self.assertEqual(args["insight"], "The destination should challenge this plan independently.")
 
     def test_actor_add_supports_capability_hidden_and_profile_scope(self) -> None:
@@ -959,12 +955,12 @@ class TestClientContractParity(unittest.TestCase):
         captured, client = self._capture({"package_b64": "AAAA"})
         client.group_copy_export(group_id="g_1")
         self.assertEqual(captured[0]["op"], "group_copy_export")
-        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1", "by": "user"})
 
         captured.clear()
         client.group_copy_export_file(group_id="g_1")
         self.assertEqual(captured[0]["op"], "group_copy_export_file")
-        self.assertEqual(captured[0]["args"], {"group_id": "g_1"})
+        self.assertEqual(captured[0]["args"], {"group_id": "g_1", "by": "user"})
 
         captured.clear()
         client.group_copy_preview_import(package_b64="ZZZ=")
@@ -1064,11 +1060,12 @@ class TestClientContractParity(unittest.TestCase):
 
         captured.clear()
         client.capability_source_delete(
-            group_id="g_1", source_id="skillsmp_remote", source_instance_key="k1"
+            group_id="g_1", source_id="github_import", reason="remove stale import"
         )
         self.assertEqual(captured[0]["op"], "capability_source_delete")
-        self.assertEqual(captured[0]["args"]["source_id"], "skillsmp_remote")
-        self.assertEqual(captured[0]["args"]["source_instance_key"], "k1")
+        self.assertEqual(captured[0]["args"]["source_id"], "github_import")
+        self.assertEqual(captured[0]["args"]["reason"], "remove stale import")
+        self.assertNotIn("source_instance_key", captured[0]["args"])
 
     def test_presentation_ops(self) -> None:
         captured, client = self._capture({"presentation": {}})

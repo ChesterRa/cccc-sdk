@@ -7,8 +7,8 @@ This repo is a monorepo with three deliverables:
 
 ## Versioning policy
 
-- SDK version tracks the supported CCCC line: currently `0.4.33`.
-- RC sequence is SDK-owned (`0.4.33rcN` for Python, `0.4.33-rc.N` for npm).
+- SDK version tracks the supported CCCC line: next release `0.4.34`.
+- RC sequence is SDK-owned (`0.4.34rcN` for Python, `0.4.34-rc.N` for npm).
 - The Rust crate begins at `0.0.1` while its public API settles.
 - Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
 
@@ -16,6 +16,7 @@ This repo is a monorepo with three deliverables:
 
 ```bash
 ./scripts/sync_specs_from_cccc.sh ../cccc
+./scripts/check_specs_against_cccc.sh ../cccc
 ```
 
 ## 1) Python release (PyPI/TestPyPI)
@@ -41,8 +42,8 @@ Edit `python/pyproject.toml` (`project.version`).
 ### Publish RC to TestPyPI
 
 ```bash
-git tag v0.4.33rcN
-git push origin v0.4.33rcN
+git tag v0.4.34rcN
+git push origin v0.4.34rcN
 ```
 
 This triggers `.github/workflows/python-publish-testpypi.yml`.
@@ -52,14 +53,14 @@ Install check:
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.33rcN
+  cccc-sdk==0.4.34rcN
 ```
 
 ### Publish stable to PyPI
 
 ```bash
-git tag v0.4.33
-git push origin v0.4.33
+git tag v0.4.34
+git push origin v0.4.34
 ```
 
 This triggers `.github/workflows/python-publish.yml`.
@@ -71,8 +72,8 @@ This triggers `.github/workflows/python-publish.yml`.
 Edit `ts/package.json` (`version`).
 
 Examples:
-- RC: `0.4.33-rc.N`
-- Stable: `0.4.33`
+- RC: `0.4.34-rc.N`
+- Stable: `0.4.34`
 
 ### Local checks
 

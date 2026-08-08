@@ -4,7 +4,7 @@
 
 > 状态：**面向 CCCC Daemon IPC v1 的契约优先 SDK**。最近一次打标签的
 > Python/TypeScript 版本面向 CCCC 0.4.32；`main` 上的源码包面向当前 CCCC
-> 0.4.33 版本线。发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
+> 0.4.34 候选版契约。发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
 > 与 `spec/ADAPTATION_PLAN.md`。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。

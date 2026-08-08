@@ -93,8 +93,6 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     };
 
     if (options.to) args['to'] = options.to;
-    if (options.refs) args['refs'] = options.refs;
-    if (options.attachments) args['attachments'] = options.attachments;
     if (options.insight) args['insight'] = options.insight;
     if (options.requirePeerInsight !== undefined) args['require_peer_insight'] = options.requirePeerInsight;
 
@@ -132,34 +130,50 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
   },
 
   async sendAndWaitForReply(options) {
+    if (options.signal?.aborted) {
+      throw new Error('sendAndWaitForReply aborted');
+    }
     // Probe the real streaming upgrade before creating the message side effect.
     // Some daemon builds have advertised events_stream without dispatching it.
     await this.callRaw('events_stream', {
       group_id: options.groupId,
       by: options.listenAs,
     });
+    if (options.signal?.aborted) {
+      throw new Error('sendAndWaitForReply aborted');
+    }
     const waitTimeout = options.waitTimeoutMs ?? 60_000;
-    const deadline = Date.now() + waitTimeout;
+    const streamAbort = new AbortController();
+    let abortReason: 'caller' | 'timeout' | undefined;
+    const abortFromCaller = () => {
+      abortReason = 'caller';
+      streamAbort.abort();
+    };
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+    const timeout = setTimeout(() => {
+      abortReason = 'timeout';
+      streamAbort.abort();
+    }, waitTimeout);
     const stream = this.eventsStream({
       groupId: options.groupId,
       by: options.listenAs,
       kinds: ['chat.message'],
       sinceTs: new Date().toISOString(),
-      signal: options.signal,
+      signal: streamAbort.signal,
     });
     let nextItem = stream.next();
-    const sendResult = await this.send(options) as unknown as SendResult;
-    const sentEventId = sendResult.event.id;
 
     try {
+      const sendResult = await this.send(options) as unknown as SendResult;
+      const sentEventId = sendResult.event.id;
       while (true) {
-        if (options.signal?.aborted) {
+        const { value: item, done } = await nextItem;
+        if (abortReason === 'caller') {
           throw new Error('sendAndWaitForReply aborted');
         }
-        if (Date.now() > deadline) {
+        if (abortReason === 'timeout') {
           throw new Error(`sendAndWaitForReply timed out after ${waitTimeout}ms`);
         }
-        const { value: item, done } = await nextItem;
         if (done) break;
         nextItem = stream.next();
         if (isStreamEvent(item) && item.event.kind === 'chat.message') {
@@ -170,6 +184,9 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
         }
       }
     } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abortFromCaller);
+      streamAbort.abort();
       await stream.return(undefined as unknown as EventStreamItem);
     }
 

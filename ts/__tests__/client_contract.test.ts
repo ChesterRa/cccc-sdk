@@ -260,9 +260,8 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
   it('explicit ReMe helpers preserve low-level controls', async () => {
     const search = await captureCall((client) => client.memoryRemeSearch({
       groupId: 'g1',
-      actorId: 'worker',
       query: 'recent decisions',
-      limit: 3,
+      maxResults: 3,
       vectorWeight: 0.6,
       candidateMultiplier: 4,
       minScore: 0.2,
@@ -271,7 +270,6 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     assert.equal(search.op, 'memory_reme_search');
     assert.deepEqual(search.args, {
       group_id: 'g1',
-      actor_id: 'worker',
       query: 'recent decisions',
       max_results: 3,
       vector_weight: 0.6,
@@ -282,7 +280,6 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
 
     const get = await captureCall((client) => client.memoryRemeGet({
       groupId: 'g1',
-      actorId: 'worker',
       path: 'state/memory/MEMORY.md',
       offset: 10,
       limit: 25,
@@ -290,7 +287,6 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     assert.equal(get.op, 'memory_reme_get');
     assert.deepEqual(get.args, {
       group_id: 'g1',
-      actor_id: 'worker',
       path: 'state/memory/MEMORY.md',
       offset: 10,
       limit: 25,
@@ -437,6 +433,38 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       DaemonAPIError
     );
     assert.equal(sent, false);
+  });
+
+  it('sendAndWaitForReply enforces its timeout while the stream is quiet', async () => {
+    const client = await CCCCClient.create({
+      endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
+    });
+    client.callRaw = async () => ({ v: 1, ok: true, result: {} });
+    client.eventsStream = async function* (options) {
+      await new Promise<void>((resolve) => {
+        options.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    };
+    client.send = async () => ({
+      event: {
+        id: 'sent-1',
+        ts: '2026-08-08T00:00:00Z',
+        kind: 'chat.message',
+        group_id: 'g1',
+        data: { text: 'question' },
+      },
+      ack_event: null,
+    });
+
+    await assert.rejects(
+      client.sendAndWaitForReply({
+        groupId: 'g1',
+        listenAs: 'user',
+        text: 'question',
+        waitTimeoutMs: 20,
+      }),
+      /timed out after 20ms/,
+    );
   });
 
   it('assertCompatible probes events_stream instead of trusting the capability flag', async () => {

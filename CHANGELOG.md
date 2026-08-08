@@ -3,6 +3,54 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [0.4.34] — Unreleased
+
+### Added
+
+- Python, TypeScript, and Rust helpers for `terminal_snapshot`, Web Model
+  delivery preferences, and non-mutating Web Model turn recovery.
+- Typed Rust terminal history/since/resize results and Web Model delivery
+  payloads; TypeScript now recognizes the first-class `cline` runtime.
+- Safe endpoint rediscovery after connection-establishment failures,
+  family-agnostic IPv4/IPv6 TCP descriptor handling, request size guards,
+  protocol-version validation, and explicit outcome-unknown transport errors
+  after an exchange has begun.
+- Scheduled CI drift detection for all three mirrored CCCC standards, automatic
+  Python integration coverage, and a live Rust-SDK/current-daemon smoke job.
+
+### Changed
+
+- Terminal resize now uses the normative `term_resize` operation first and
+  falls back to the Rust daemon's temporary `terminal_resize` alias only after
+  a structured `unknown_op` response. The alias's non-standard success payload
+  is normalized back to the standard result shape in all three SDKs.
+- `actor_new_session` and `group_copy_export_file` no longer emit parameters
+  absent from the current contract. `blueprint_generate` now uses the documented
+  task name, goal, and theme inputs.
+- ReMe maintenance, Remote Access, IM authorization, Voice model installation,
+  group copy, and chat helpers now emit the argument names and scopes accepted
+  by current core handlers.
+- Cross-group send no longer emits unsupported attachment/reference fields, and
+  capability-source deletion no longer exposes an instance key that the daemon
+  ignores before performing a source-wide delete.
+- Compatibility probes skip mutating administrative operations. TypeScript
+  event streams now preserve split UTF-8 input, abort promptly, and enforce
+  reply deadlines without waiting forever on an idle stream. Python now
+  classifies malformed non-object replies received after a write as
+  outcome-unknown instead of a compatibility failure.
+- TypeScript's `INVALID_REQUEST` constant now matches the daemon's
+  `invalid_request` code and includes current request-size and Remote Access
+  administrator-token errors.
+- The daemon IPC mirror now matches current CCCC core, including Remote Access
+  administrator-token state and enforcement fields.
+
+### Tests
+
+- Added cross-language contract tests for the 0.4.34 operations, legacy resize
+  fallback, endpoint rotation, protocol versions, request bounds, and the
+  no-replay-after-exchange guarantee, plus exact ReMe/Remote Access/IM argument
+  maps and side-effect-free compatibility probing.
+
 ## Rust crate [0.0.1] — 2026-08-03
 
 ### Added

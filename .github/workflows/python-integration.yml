@@ -1,6 +1,14 @@
 name: python-integration
 
 on:
+  push:
+    paths:
+      - "python/**"
+      - ".github/workflows/python-integration.yml"
+  pull_request:
+    paths:
+      - "python/**"
+      - ".github/workflows/python-integration.yml"
   workflow_dispatch:
     inputs:
       cccc_ref:
@@ -20,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ChesterRa/cccc
-          ref: ${{ inputs.cccc_ref }}
+          ref: ${{ inputs.cccc_ref || 'main' }}
           path: cccc
 
       - uses: actions/setup-python@v5
@@ -35,8 +43,11 @@ jobs:
 
       - name: Smoke (daemon + sdk)
         run: |
+          set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
+          cleanup() {
+            cccc daemon stop >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
           cccc daemon start
           python python/examples/compat_check.py
-          cccc daemon stop
-

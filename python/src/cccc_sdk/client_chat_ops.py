@@ -14,8 +14,6 @@ class ChatOpsMixin:
         to: Optional[List[str]] = None,
         priority: str = "normal",
         reply_required: bool = False,
-        refs: Optional[List[Dict[str, Any]]] = None,
-        attachments: Optional[List[Dict[str, Any]]] = None,
         insight: str = "",
         require_peer_insight: Optional[bool] = None,
     ) -> Dict[str, Any]:
@@ -29,10 +27,6 @@ class ChatOpsMixin:
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
-        if refs is not None:
-            args["refs"] = [dict(r) for r in refs]
-        if attachments is not None:
-            args["attachments"] = [dict(a) for a in attachments]
         if insight:
             args["insight"] = str(insight)
         if require_peer_insight is not None:

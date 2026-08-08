@@ -4,7 +4,7 @@
 
 > Status: **contract-first SDK for CCCC daemon IPC v1**. The last tagged
 > Python/TypeScript line targets CCCC 0.4.32; source packages on `main` target
-> the current CCCC 0.4.33 line. Publishing remains a separate release step.
+> the current CCCC 0.4.34 release-candidate contract. Publishing remains a separate release step.
 > See `CHANGELOG.md` and `spec/ADAPTATION_PLAN.md` for exact scope.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.

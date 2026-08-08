@@ -4,18 +4,36 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from .client_0430_ops import CCCC0430OpsMixin
+from .client_0434_ops import CCCC0434OpsMixin
 from .client_chat_ops import ChatOpsMixin
 from .client_group_space_ops import GroupSpaceOpsMixin
 from .client_group_space_provider_ops import GroupSpaceProviderOpsMixin
-from .errors import DaemonAPIError, IncompatibleDaemonError
-from .transport import DaemonEndpoint, call_daemon, discover_endpoint, open_events_stream
+from .errors import (
+    DaemonAPIError,
+    DaemonConnectionError,
+    IncompatibleDaemonError,
+    OutcomeUnknownError,
+)
+from .transport import (
+    MAX_DAEMON_LINE_BYTES,
+    DaemonEndpoint,
+    call_daemon,
+    discover_endpoint,
+    open_events_stream,
+)
 
 
 def _compact(args: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in args.items() if v is not None}
 
 
-class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceProviderOpsMixin):
+class CCCCClient(
+    CCCC0434OpsMixin,
+    CCCC0430OpsMixin,
+    ChatOpsMixin,
+    GroupSpaceOpsMixin,
+    GroupSpaceProviderOpsMixin,
+):
     """A minimal client for the CCCC daemon IPC v1."""
 
     def __init__(
@@ -27,6 +45,7 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
     ) -> None:
         self._timeout_s = float(timeout_s)
         self._home = Path(cccc_home).expanduser() if cccc_home else None
+        self._endpoint_explicit = endpoint is not None
         self._endpoint = endpoint or discover_endpoint(self._home)
 
     @property
@@ -35,7 +54,20 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
 
     def call_raw(self, op: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         req = {"v": 1, "op": str(op), "args": dict(args or {})}
-        resp = call_daemon(endpoint=self._endpoint, request=req, timeout_s=self._timeout_s)
+        try:
+            resp = call_daemon(endpoint=self._endpoint, request=req, timeout_s=self._timeout_s)
+        except DaemonConnectionError:
+            if self._endpoint_explicit:
+                raise
+            # Discovery is retried only when the connection failed before the
+            # request was written. Never replay a request after exchange began.
+            self._endpoint = discover_endpoint(self._home)
+            resp = call_daemon(endpoint=self._endpoint, request=req, timeout_s=self._timeout_s)
+        if not isinstance(resp, dict):
+            raise IncompatibleDaemonError("daemon response must be a JSON object")
+        response_v = resp.get("v")
+        if response_v is not None and response_v != 1:
+            raise IncompatibleDaemonError(f"daemon response uses unsupported IPC version: {response_v}")
         if bool(resp.get("ok")):
             return resp
         err = resp.get("error") if isinstance(resp.get("error"), dict) else {}
@@ -86,6 +118,15 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
         _UNPROBABLE_OPS = {
             "ping",
             "shutdown",
+            "group_create",
+            "registry_reconcile",
+            "capability_allowlist_update",
+            "capability_allowlist_reset",
+            "remote_access_configure",
+            "remote_access_start",
+            "remote_access_stop",
+            "group_space_provider_credential_update",
+            "group_space_provider_auth",
             "term_attach",
             "presentation_browser_attach",
             "presentation_browser_vnc_attach",
@@ -106,6 +147,14 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
                 self.call_raw(op_name, {})
             except DaemonAPIError as e:
                 if str(e.code or "") == "unknown_op":
+                    if op_name == "term_resize":
+                        try:
+                            self.call_raw("terminal_resize", {})
+                        except DaemonAPIError as alias_error:
+                            if str(alias_error.code or "") != "unknown_op":
+                                continue
+                        else:
+                            continue
                     raise IncompatibleDaemonError(f"daemon does not support op: {op_name}") from e
                 # Any other error code implies the op is recognized.
         return ping
@@ -297,12 +346,6 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
 
     def actor_restart(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("actor_restart", {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)})
-
-    def actor_new_session(self, *, group_id: str, actor_id: str, by: str = "user") -> Dict[str, Any]:
-        return self.call(
-            "actor_new_session",
-            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
-        )
 
     def runtime_hermes_status(self) -> Dict[str, Any]:
         return self.call("runtime_hermes_status", {})
@@ -1134,11 +1177,8 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
     # Group copy (export/import for duplication/migration)
     # ---------------------------------------------------------------------
 
-    def group_copy_export(self, *, group_id: str) -> Dict[str, Any]:
-        return self.call("group_copy_export", {"group_id": str(group_id)})
-
-    def group_copy_export_file(self, *, group_id: str) -> Dict[str, Any]:
-        return self.call("group_copy_export_file", {"group_id": str(group_id)})
+    def group_copy_export(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
+        return self.call("group_copy_export", {"group_id": str(group_id), "by": str(by)})
 
     def group_copy_preview_import(
         self,
@@ -1226,7 +1266,6 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
         *,
         group_id: str,
         source_id: str,
-        source_instance_key: str = "",
         reason: str = "",
         actor_id: str = "",
         by: str = "user",
@@ -1236,8 +1275,6 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
             "source_id": str(source_id),
             "by": str(by),
         }
-        if source_instance_key:
-            args["source_instance_key"] = str(source_instance_key)
         if reason:
             args["reason"] = str(reason)
         if actor_id:
@@ -1506,32 +1543,6 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
             {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by)},
         )
 
-    def terminal_history(
-        self,
-        *,
-        group_id: str,
-        actor_id: str,
-        before: Optional[int] = None,
-        limit_bytes: int = 64_000,
-        strip_ansi: bool = False,
-        compact: bool = False,
-        by: str = "user",
-    ) -> Dict[str, Any]:
-        return self.call(
-            "terminal_history",
-            _compact(
-                {
-                    "group_id": str(group_id),
-                    "actor_id": str(actor_id),
-                    "before": int(before) if before is not None else None,
-                    "limit_bytes": int(limit_bytes),
-                    "strip_ansi": bool(strip_ansi),
-                    "compact": bool(compact),
-                    "by": str(by),
-                }
-            ),
-        )
-
     # ---------------------------------------------------------------------
     # Maintenance (ledger)
     # ---------------------------------------------------------------------
@@ -1680,14 +1691,38 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
         if since_ts:
             req["args"]["since_ts"] = str(since_ts)
 
-        sock, f = open_events_stream(endpoint=self._endpoint, request=req, timeout_s=float(timeout_s or self._timeout_s))
+        stream_timeout = float(timeout_s or self._timeout_s)
         try:
-            first = f.readline(4_000_000)
+            sock, f = open_events_stream(endpoint=self._endpoint, request=req, timeout_s=stream_timeout)
+        except DaemonConnectionError:
+            if self._endpoint_explicit:
+                raise
+            self._endpoint = discover_endpoint(self._home)
+            sock, f = open_events_stream(endpoint=self._endpoint, request=req, timeout_s=stream_timeout)
+        try:
+            first = f.readline(MAX_DAEMON_LINE_BYTES + 1)
             if not first:
                 return
+            if len(first) > MAX_DAEMON_LINE_BYTES:
+                raise OutcomeUnknownError(
+                    op="events_stream",
+                    message=f"handshake exceeds {MAX_DAEMON_LINE_BYTES} bytes",
+                )
             import json
 
-            resp = json.loads(first.decode("utf-8", errors="replace"))
+            try:
+                resp = json.loads(first.decode("utf-8", errors="replace"))
+            except Exception as error:
+                raise OutcomeUnknownError(
+                    op="events_stream", message=f"invalid stream handshake JSON: {error}"
+                ) from error
+            if not isinstance(resp, dict):
+                raise IncompatibleDaemonError("daemon stream handshake must be a JSON object")
+            response_v = resp.get("v")
+            if response_v != 1:
+                raise IncompatibleDaemonError(
+                    f"daemon stream handshake uses unsupported IPC version: {response_v}"
+                )
             if not bool(resp.get("ok")):
                 err = resp.get("error") if isinstance(resp.get("error"), dict) else {}
                 raise DaemonAPIError(
@@ -1705,9 +1740,13 @@ class CCCCClient(CCCC0430OpsMixin, ChatOpsMixin, GroupSpaceOpsMixin, GroupSpaceP
                 pass
 
             while True:
-                line = f.readline(4_000_000)
+                line = f.readline(MAX_DAEMON_LINE_BYTES + 1)
                 if not line:
                     break
+                if len(line) > MAX_DAEMON_LINE_BYTES:
+                    raise IncompatibleDaemonError(
+                        f"daemon stream line exceeds {MAX_DAEMON_LINE_BYTES} bytes"
+                    )
                 line = line.strip()
                 if not line:
                     continue
