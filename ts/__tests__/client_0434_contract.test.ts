@@ -17,6 +17,11 @@ async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
 }
 
 describe('cccc 0.4.34 JSON op alignment', () => {
+  it('does not expose the removed Panorama blueprint operation', async () => {
+    const client = await makeClient([]);
+    assert.equal('blueprintGenerate' in client, false);
+  });
+
   it('maps terminal snapshot and Web Model delivery operations', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -37,29 +42,16 @@ describe('cccc 0.4.34 JSON op alignment', () => {
       actorId: 'web-1',
       eventIds: ['e_1', 'e_2'],
     });
-    await client.blueprintGenerate({
-      taskId: 't_1',
-      taskName: 'Release',
-      taskGoal: 'Ship safely',
-      themeHint: 'shield',
-    });
 
     assert.deepEqual(calls.map(({ op }) => op), [
       'terminal_snapshot',
       'web_model_delivery_preferences_get',
       'web_model_delivery_preferences_update',
       'web_model_runtime_recover_turn',
-      'blueprint_generate',
     ]);
     assert.equal(calls[0]?.args?.['limit_bytes'], 4096);
     assert.equal(calls[2]?.args?.['mode'], 'image_compat');
     assert.deepEqual(calls[3]?.args?.['event_ids'], ['e_1', 'e_2']);
-    assert.deepEqual(calls[4]?.args, {
-      task_id: 't_1',
-      task_name: 'Release',
-      task_goal: 'Ship safely',
-      theme_hint: 'shield',
-    });
   });
 
   it('rejects an empty Web Model recovery set before transport', async () => {

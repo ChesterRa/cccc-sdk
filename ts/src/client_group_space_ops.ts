@@ -173,10 +173,12 @@ const groupSpaceOps: GroupSpaceOps & ThisType<GroupSpaceClient> = {
   },
 
   async groupSpaceProviderHealthCheck(options = {}) {
-    return this.call('group_space_provider_health_check', {
+    const args: Record<string, unknown> = {
       provider: options.provider ?? 'notebooklm',
       by: options.by ?? 'user',
-    });
+    };
+    if (options.authJson) args['auth_json'] = options.authJson;
+    return this.call('group_space_provider_health_check', args);
   },
 
   async groupSpaceProviderAuth(options = {}) {
@@ -186,6 +188,7 @@ const groupSpaceOps: GroupSpaceOps & ThisType<GroupSpaceClient> = {
       by: options.by ?? 'user',
     };
     if (options.timeoutSeconds !== undefined) args['timeout_seconds'] = options.timeoutSeconds;
+    if (options.projected !== undefined) args['projected'] = options.projected;
     return this.call('group_space_provider_auth', args);
   },
 };

@@ -25,8 +25,19 @@ CCCC line and exposes the IPC surface available on that line.
   a structured `unknown_op` response. The alias's non-standard success payload
   is normalized back to the standard result shape in all three SDKs.
 - `actor_new_session` and `group_copy_export_file` no longer emit parameters
-  absent from the current contract. `blueprint_generate` now uses the documented
-  task name, goal, and theme inputs.
+  absent from the current contract. Removed the never-functional
+  `blueprint_generate` wrappers after the obsolete Panorama blueprint contract
+  was removed from CCCC core.
+- `capability_install_target` is now the sole daemon IPC operation for target
+  installation; the public SDK helpers already emitted the canonical name.
+- Mirrored standards now include current browser capability discovery,
+  daemon-owned actor notes, Context task deletion, and NotebookLM capability,
+  refresh, artifact, and error semantics.
+- Python and TypeScript now expose Context `task.delete`, current Voice
+  Secretary idempotency/general-instruction fields, explicit public IM
+  visibility for system notifications, opaque string IM thread IDs, and the
+  current projected/disconnect NotebookLM authentication controls. TypeScript
+  artifact formats now include `pdf`, `pptx`, and `csv`.
 - ReMe maintenance, Remote Access, IM authorization, Voice model installation,
   group copy, and chat helpers now emit the argument names and scopes accepted
   by current core handlers.
@@ -49,7 +60,9 @@ CCCC line and exposes the IPC surface available on that line.
 - Added cross-language contract tests for the 0.4.34 operations, legacy resize
   fallback, endpoint rotation, protocol versions, request bounds, and the
   no-replay-after-exchange guarantee, plus exact ReMe/Remote Access/IM argument
-  maps and side-effect-free compatibility probing.
+  maps and side-effect-free compatibility probing. TypeScript also compiles
+  exported option fixtures so documented contract values cannot silently drift
+  out of the published declaration surface.
 
 ## Rust crate [0.0.1] — 2026-08-03
 

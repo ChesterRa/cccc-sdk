@@ -205,7 +205,11 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     await client.imListAuthorized({ groupId: 'g_1' });
     await client.imListPending({ groupId: 'g_1' });
     await client.imRejectPending({ groupId: 'g_1', key: 'bind-key' });
-    await client.imRevokeChat({ groupId: 'g_1', chatId: 'chat-1', threadId: 7 });
+    await client.imRevokeChat({
+      groupId: 'g_1',
+      chatId: 'chat-1',
+      threadId: '1710000000.100',
+    });
     await client.assistantVoiceModelInstall({ groupId: 'g_1', modelId: 'sensevoice-small' });
 
     assert.deepEqual(calls.map((call) => call.op), [
@@ -220,7 +224,11 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.deepEqual(calls[1]?.args, { group_id: 'g_1' });
     assert.deepEqual(calls[2]?.args, { group_id: 'g_1' });
     assert.deepEqual(calls[3]?.args, { group_id: 'g_1', key: 'bind-key' });
-    assert.deepEqual(calls[4]?.args, { group_id: 'g_1', chat_id: 'chat-1', thread_id: 7 });
+    assert.deepEqual(calls[4]?.args, {
+      group_id: 'g_1',
+      chat_id: 'chat-1',
+      thread_id: '1710000000.100',
+    });
     assert.deepEqual(calls[5]?.args, {
       group_id: 'g_1',
       model_id: 'sensevoice-small',
@@ -292,5 +300,36 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       client.assistantVoiceTranscribe({ groupId: 'g_1', audioBase64: 'abc' }),
       IncompatibleDaemonError
     );
+  });
+
+  it('maps current Voice Secretary idempotency and general-instruction fields', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.assistantVoiceDocumentInstruction({
+      groupId: 'g_1',
+      documentPath: 'notes/meeting.md',
+      requestId: 'voice-ask-1',
+      inputAppendId: 'voice-input-1',
+      instruction: 'Tighten the summary',
+    });
+    await client.assistantVoiceInputAppend({
+      groupId: 'g_1',
+      kind: 'voice_instruction',
+      requestId: 'voice-ask-2',
+      inputAppendId: 'voice-input-2',
+      instruction: 'Check the latest summary',
+      text: 'Include omissions',
+      sourceText: 'Current meeting notes',
+    });
+
+    assert.equal(calls[0]?.args?.['request_id'], 'voice-ask-1');
+    assert.equal(calls[0]?.args?.['input_append_id'], 'voice-input-1');
+    assert.equal(calls[1]?.args?.['kind'], 'voice_instruction');
+    assert.equal(calls[1]?.args?.['request_id'], 'voice-ask-2');
+    assert.equal(calls[1]?.args?.['input_append_id'], 'voice-input-2');
+    assert.equal(calls[1]?.args?.['instruction'], 'Check the latest summary');
+    assert.equal(calls[1]?.args?.['text'], 'Include omissions');
+    assert.equal(calls[1]?.args?.['source_text'], 'Current meeting notes');
   });
 });

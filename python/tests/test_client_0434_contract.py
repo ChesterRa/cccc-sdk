@@ -20,6 +20,9 @@ class TestClient0434Contract(unittest.TestCase):
     def _client(self) -> CCCCClient:
         return CCCCClient(endpoint=self._endpoint())
 
+    def test_removed_panorama_blueprint_is_not_a_typed_api(self) -> None:
+        self.assertFalse(hasattr(self._client(), "blueprint_generate"))
+
     def test_new_terminal_and_web_model_ops_match_the_daemon_contract(self) -> None:
         captured: list[dict] = []
 
@@ -46,12 +49,6 @@ class TestClient0434Contract(unittest.TestCase):
                 actor_id="web-1",
                 event_ids=["e_1", "e_2"],
             )
-            client.blueprint_generate(
-                task_id="t_1",
-                task_name="Release",
-                task_goal="Ship safely",
-                theme_hint="shield",
-            )
 
         self.assertEqual(
             [request["op"] for request in captured],
@@ -60,21 +57,11 @@ class TestClient0434Contract(unittest.TestCase):
                 "web_model_delivery_preferences_get",
                 "web_model_delivery_preferences_update",
                 "web_model_runtime_recover_turn",
-                "blueprint_generate",
             ],
         )
         self.assertEqual(captured[0]["args"]["limit_bytes"], 4096)
         self.assertEqual(captured[2]["args"]["mode"], "image_compat")
         self.assertEqual(captured[3]["args"]["event_ids"], ["e_1", "e_2"])
-        self.assertEqual(
-            captured[4]["args"],
-            {
-                "task_id": "t_1",
-                "task_name": "Release",
-                "task_goal": "Ship safely",
-                "theme_hint": "shield",
-            },
-        )
 
     def test_new_web_model_options_are_validated_before_transport(self) -> None:
         client = self._client()

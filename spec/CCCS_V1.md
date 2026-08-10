@@ -98,6 +98,7 @@ interface CCCSEventV1 {
 - The authoritative ordering of events is the **ledger append order**.
 - `ts` MUST be assigned by the daemon at append time. Clients MUST NOT rely on client-local timestamps for ordering.
 - Implementations MAY record a client-provided timestamp (RECOMMENDED: `data.client_ts`) for diagnostics or UI display, but it MUST NOT affect ordering.
+- A newline-delimited ledger writer that finds a nonempty active ledger without a terminating newline MUST preserve the existing bytes and append a newline separator under the same writer lock before appending the next event. It MUST NOT concatenate a new event onto an incomplete or complete unterminated record, report success for an event that cannot be read back, or treat a derived index as authority over the ledger bytes.
 
 ### 4.4 Event Kind Namespaces
 
@@ -258,6 +259,7 @@ data: {
   title?: string
   message?: string
   target_actor_id?: string | null                   // null = broadcast
+  im_visibility?: "internal" | "public"            // default "internal"
   context?: Record<string, unknown>                 // implementation-defined
   requires_ack?: boolean                            // default false
   related_event_id?: string | null                  // optional correlation
@@ -267,6 +269,7 @@ data: {
 **Rules**
 - Clients MUST ignore unknown `data.kind` values within `system.notify` (open enum).
 - Implementations MAY enforce an allowlist of `data.kind` values, but should not assume clients understand new kinds.
+- External IM bridges MUST fail closed: a `system.notify` is eligible for IM delivery only when `im_visibility="public"`. Missing, invalid, or `internal` values stay inside CCCC. Actor-targeted notifications remain internal even if a malformed producer also marks them public.
 
 ### 7.2 `system.notify_ack`
 
@@ -280,6 +283,9 @@ data: {
 **Rules**
 - `system.notify_ack` MUST be self-only: `event.by` MUST equal `data.actor_id`.
 - A daemon MUST NOT allow a principal to ack on behalf of another recipient.
+- `notify_event_id` MUST reference a valid `system.notify` addressed to
+  `actor_id` (a broadcast notification is addressed to every eligible current
+  recipient). Invalid targets MUST NOT append a `system.notify_ack` event.
 
 ## 8. Attachments and References
 

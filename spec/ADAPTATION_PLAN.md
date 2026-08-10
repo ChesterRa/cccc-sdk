@@ -2,8 +2,9 @@
 
 This plan is based on an operation-by-operation audit of current CCCC `main`
 (the v0.4.34 release-candidate line plus subsequent commits), refreshed on
-2026-08-08. The SDK source tree targets that contract; Python, TypeScript, and
-Rust package publication remains a separate release process.
+2026-08-11 at core revision `7943724bf1025265d0716b2b181b3890efe24051`.
+The SDK source tree targets that contract; Python, TypeScript, and Rust package
+publication remains a separate release process.
 
 The goal is contract alignment, not one wrapper per daemon implementation
 detail. Public SDK methods should represent stable capabilities that an
@@ -20,11 +21,12 @@ terminal_snapshot
 web_model_delivery_preferences_get
 web_model_delivery_preferences_update
 web_model_runtime_recover_turn
+task.delete (Python/TypeScript convenience wrapper; generic in Rust)
 ```
 
 Python and TypeScript removed non-contract `clear_saved_session` and
-`include_blobs` request fields, corrected `blueprint_generate` to the standard
-task metadata shape, and use the normative `term_resize` operation first.
+`include_blobs` request fields and use the normative `term_resize` operation
+first.
 All three clients accept the temporary Rust-daemon `terminal_resize` alias only
 after a structured `unknown_op` and normalize its shorter success payload to the
 standard result. TypeScript includes `cline` in its known runtime literals and
@@ -35,6 +37,15 @@ Remote Access, group-scoped IM authorization, Voice model installation, group
 copy, and chat argument maps. Cross-group sends now stay within the portable v1
 field set, while capability-source deletion no longer accepts a misleading
 instance key that the daemon ignores before deleting the whole source.
+
+The latest core sync also extends existing Python and TypeScript surfaces with
+Voice Secretary request/input idempotency, general Voice Secretary instruction
+input, explicit system-notification IM visibility, opaque string IM thread IDs,
+candidate provider-health credentials, projected/disconnect provider auth, and
+the complete artifact download-format set. Newly documented group-help,
+actor-note, terminal-replay, and assistant feedback/history operations remain
+available through the generic non-streaming call surface; no consumer-backed
+first-class wrapper was added merely to mirror implementation operation count.
 
 Transport behavior is also aligned with the current normative safety language:
 requests are bounded before connecting, explicit response IPC versions are
@@ -57,8 +68,6 @@ live compatibility probes:
 - Rust daemon recognizes `terminal_resize` instead of standard `term_resize`.
 - Rust advertises `events_stream=true` but returns `unknown_op`, and still lacks
   several Python-only assistant and Presentation browser lifecycle operations.
-- `blueprint_generate` remains in the standard but returns `unknown_op` from
-  both current daemon implementations.
 
 The SDK therefore provides safe resize compatibility and generic non-streaming
 calls, but does not claim that the two core daemon implementations are already
@@ -75,20 +84,22 @@ additional SDK-used fields, including actor profile scope/owner, advanced
 current core handlers and tests, but the authoritative standard should be
 expanded before they are described as normative cross-implementation v1.
 
-### Validation evidence (2026-08-08)
+### Validation evidence (2026-08-11)
 
-- Python: 75 contract/transport tests, source compilation, sdist, and wheel
+- Python: 77 contract/transport tests, source compilation, sdist, and wheel
   build passed.
-- TypeScript: 110 tests, strict typecheck, build, and npm package dry-run
-  passed.
+- TypeScript: 114 tests, strict source and exported-option fixture typechecks,
+  build, and npm package dry-run passed.
 - Rust: formatting, warning-free clippy, 12 tests, and locked crate packaging
   passed.
-- All three mirrored standards match current CCCC core byte-for-byte; scheduled
-  CI now detects future drift.
-- A current Rust daemon bound to the IPv6 loopback wrote a connectable `::1`
+- All three mirrored standards match core revision
+  `7943724bf1025265d0716b2b181b3890efe24051` byte-for-byte; scheduled CI now
+  detects future drift.
+- In the 2026-08-08 live probe, a current Rust daemon bound to the IPv6 loopback
+  wrote a connectable `::1`
   descriptor, and Python, TypeScript, and Rust clients all discovered it and
   completed IPC v1 compatibility calls against CCCC 0.4.34-rc2.
-- Isolated current Python-daemon probes passed through all eight corrected
+- The 2026-08-08 isolated Python-daemon probes passed through all eight corrected
   Python ReMe helpers plus Remote Access and IM authorization, with matching
   representative TypeScript calls. Earlier isolated Python/Rust daemon probes
   also passed all three compatibility examples and Web Model

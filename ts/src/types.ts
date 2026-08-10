@@ -455,14 +455,6 @@ export interface GroupCopyExportOptions {
   by?: string;
 }
 
-/** Generate a deterministic task blueprint. */
-export interface BlueprintGenerateOptions {
-  taskId: string;
-  taskName?: string;
-  taskGoal?: string;
-  themeHint?: string;
-}
-
 export interface RemoteAccessOptions {
   by?: string;
 }
@@ -765,8 +757,10 @@ export interface SystemNotifyOptions {
   message?: string;
   title?: string;
   kind?: string;
-  priority?: 'normal' | 'attention';
+  /** `attention` is retained for source compatibility with earlier SDK releases. */
+  priority?: 'low' | 'normal' | 'high' | 'urgent' | 'attention';
   targetActorId?: string;
+  imVisibility?: 'internal' | 'public';
   requiresAck?: boolean;
   context?: Record<string, unknown>;
   by?: string;
@@ -1089,7 +1083,7 @@ export interface GroupSpaceArtifactOptions {
   wait?: boolean;
   saveToSpace?: boolean;
   outputPath?: string;
-  outputFormat?: 'json' | 'markdown' | 'html';
+  outputFormat?: 'json' | 'markdown' | 'html' | 'pdf' | 'pptx' | 'csv';
   artifactId?: string;
   timeoutSeconds?: number;
   initialInterval?: number;
@@ -1138,13 +1132,15 @@ export interface GroupSpaceProviderCredentialUpdateOptions {
 export interface GroupSpaceProviderHealthCheckOptions {
   provider?: GroupSpaceProvider;
   by?: string;
+  authJson?: string;
 }
 
 /** Provider auth flow options */
 export interface GroupSpaceProviderAuthOptions {
   provider?: GroupSpaceProvider;
-  action?: 'status' | 'start' | 'cancel';
+  action?: 'status' | 'start' | 'cancel' | 'disconnect';
   timeoutSeconds?: number;
+  projected?: boolean;
   by?: string;
 }
 
@@ -1360,6 +1356,10 @@ export interface TaskMoveOptions extends ContextWrapperOptions {
 }
 
 export interface TaskRestoreOptions extends ContextWrapperOptions {
+  taskId: string;
+}
+
+export interface TaskDeleteOptions extends ContextWrapperOptions {
   taskId: string;
 }
 

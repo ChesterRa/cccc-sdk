@@ -239,7 +239,7 @@ class TestClient0433Contract(unittest.TestCase):
             client.im_list_authorized(group_id="g_1")
             client.im_list_pending(group_id="g_1")
             client.im_reject_pending(group_id="g_1", key="bind-key")
-            client.im_revoke_chat(group_id="g_1", chat_id="chat-1", thread_id=7)
+            client.im_revoke_chat(group_id="g_1", chat_id="chat-1", thread_id="1710000000.100")
             client.assistant_voice_model_install(group_id="g_1", model_id="sensevoice-small")
 
         self.assertEqual(
@@ -259,7 +259,7 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[3]["args"], {"group_id": "g_1", "key": "bind-key"})
         self.assertEqual(
             captured[4]["args"],
-            {"group_id": "g_1", "chat_id": "chat-1", "thread_id": 7},
+            {"group_id": "g_1", "chat_id": "chat-1", "thread_id": "1710000000.100"},
         )
         self.assertEqual(
             captured[5]["args"],
@@ -312,6 +312,41 @@ class TestClient0433Contract(unittest.TestCase):
     def test_removed_ipc_transcription_fails_clearly(self) -> None:
         with self.assertRaises(IncompatibleDaemonError):
             self._client().assistant_voice_transcribe(group_id="g_1", audio_base64="abc")
+
+    def test_voice_secretary_idempotency_and_general_instruction_fields(self) -> None:
+        captured: list[dict] = []
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {"ok": True, "result": {}}
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            client.assistant_voice_document_instruction(
+                group_id="g_1",
+                document_path="notes/meeting.md",
+                request_id="voice-ask-1",
+                input_append_id="voice-input-1",
+                instruction="Tighten the summary",
+            )
+            client.assistant_voice_input_append(
+                group_id="g_1",
+                kind="voice_instruction",
+                request_id="voice-ask-2",
+                input_append_id="voice-input-2",
+                instruction="Check the latest summary",
+                text="Include omissions",
+                source_text="Current meeting notes",
+            )
+
+        self.assertEqual(captured[0]["args"]["request_id"], "voice-ask-1")
+        self.assertEqual(captured[0]["args"]["input_append_id"], "voice-input-1")
+        self.assertEqual(captured[1]["args"]["kind"], "voice_instruction")
+        self.assertEqual(captured[1]["args"]["request_id"], "voice-ask-2")
+        self.assertEqual(captured[1]["args"]["input_append_id"], "voice-input-2")
+        self.assertEqual(captured[1]["args"]["instruction"], "Check the latest summary")
+        self.assertEqual(captured[1]["args"]["text"], "Include omissions")
+        self.assertEqual(captured[1]["args"]["source_text"], "Current meeting notes")
 
 
 if __name__ == "__main__":

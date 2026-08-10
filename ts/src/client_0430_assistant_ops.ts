@@ -34,6 +34,8 @@ export interface CCCC0430AssistantOps {
   assistantVoiceDocumentInstruction(options: {
     groupId: string;
     documentPath: string;
+    requestId?: string;
+    inputAppendId?: string;
     instruction?: string;
     sourceText?: string;
     trigger?: Record<string, unknown>;
@@ -42,7 +44,12 @@ export interface CCCC0430AssistantOps {
   assistantVoiceDocumentArchive(options: { groupId: string; documentPath: string; by?: string }): Promise<Record<string, unknown>>;
   assistantVoiceInputAppend(options: {
     groupId: string;
+    kind?: 'voice_instruction' | 'prompt_refine';
     requestId?: string;
+    inputAppendId?: string;
+    instruction?: string;
+    text?: string;
+    sourceText?: string;
     voiceTranscript?: string;
     composerText?: string;
     operation?: string;
@@ -141,6 +148,8 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
     return this.call('assistant_voice_document_instruction', compactRecord({
       group_id: options.groupId,
       document_path: options.documentPath,
+      request_id: options.requestId,
+      input_append_id: options.inputAppendId,
       instruction: options.instruction,
       source_text: options.sourceText,
       trigger: options.trigger,
@@ -159,8 +168,12 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   async assistantVoiceInputAppend(options) {
     return this.call('assistant_voice_input_append', compactRecord({
       group_id: options.groupId,
-      kind: 'prompt_refine',
+      kind: options.kind ?? 'prompt_refine',
       request_id: options.requestId,
+      input_append_id: options.inputAppendId,
+      instruction: options.instruction,
+      text: options.text,
+      source_text: options.sourceText,
       voice_transcript: options.voiceTranscript,
       composer_text: options.composerText,
       operation: options.operation,

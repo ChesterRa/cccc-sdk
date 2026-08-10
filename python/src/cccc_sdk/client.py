@@ -992,6 +992,14 @@ class CCCCClient(
             op={"op": "task.restore", "task_id": str(task_id)},
         )
 
+    def task_delete(self, *, group_id: str, task_id: str, by: str = "system", dry_run: bool = False) -> Dict[str, Any]:
+        return self._context_op(
+            group_id=group_id,
+            by=by,
+            dry_run=dry_run,
+            op={"op": "task.delete", "task_id": str(task_id)},
+        )
+
     def agent_state_update(
         self,
         *,
@@ -1620,6 +1628,7 @@ class CCCCClient(
         kind: str = "info",
         priority: str = "normal",
         target_actor_id: str = "",
+        im_visibility: str = "",
         requires_ack: bool = False,
         context: Optional[Dict[str, Any]] = None,
         by: str = "system",
@@ -1637,6 +1646,8 @@ class CCCCClient(
             args["title"] = str(title)
         if target_actor_id:
             args["target_actor_id"] = str(target_actor_id)
+        if im_visibility:
+            args["im_visibility"] = str(im_visibility)
         if context is not None:
             args["context"] = dict(context)
         return self.call("system_notify", args)

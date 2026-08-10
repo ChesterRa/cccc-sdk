@@ -202,6 +202,7 @@ class TestClientContractParity(unittest.TestCase):
                 dry_run=True,
             )
             client.task_move(group_id="g_1", task_id="t1", status="done", by="foreman")
+            client.task_delete(group_id="g_1", task_id="t-planned", by="foreman", dry_run=True)
             client.agent_state_update(
                 group_id="g_1",
                 actor_id="peer-impl",
@@ -231,7 +232,16 @@ class TestClientContractParity(unittest.TestCase):
         )
         self.assertEqual(captured[1]["args"]["ops"], [{"op": "task.move", "task_id": "t1", "status": "done"}])
         self.assertEqual(
-            captured[2]["args"]["ops"],
+            captured[2]["args"],
+            {
+                "group_id": "g_1",
+                "by": "foreman",
+                "ops": [{"op": "task.delete", "task_id": "t-planned"}],
+                "dry_run": True,
+            },
+        )
+        self.assertEqual(
+            captured[3]["args"]["ops"],
             [{"op": "agent_state.update", "actor_id": "peer-impl", "focus": "coding", "blockers": []}],
         )
 
@@ -760,7 +770,7 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args.get("action"), "bind")
         self.assertEqual(args.get("remote_space_id"), "nb_123")
 
-    def test_group_space_provider_auth_maps_timeout(self) -> None:
+    def test_group_space_provider_auth_maps_candidate_credentials_and_projected_flow(self) -> None:
         captured: list[dict] = []
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
@@ -768,19 +778,28 @@ class TestClientContractParity(unittest.TestCase):
             return {"ok": True, "result": {"provider": "notebooklm"}}
 
         with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
-            self._client().group_space_provider_auth(
+            client = self._client()
+            client.group_space_provider_health_check(
+                provider="notebooklm",
+                auth_json='{"cookies":[]}',
+            )
+            client.group_space_provider_auth(
                 provider="notebooklm",
                 action="start",
                 timeout_seconds=120,
+                projected=True,
             )
 
-        self.assertEqual(len(captured), 1)
-        req = captured[0]
-        self.assertEqual(req.get("op"), "group_space_provider_auth")
-        args = req.get("args") if isinstance(req.get("args"), dict) else {}
-        self.assertEqual(args.get("provider"), "notebooklm")
-        self.assertEqual(args.get("action"), "start")
-        self.assertEqual(args.get("timeout_seconds"), 120)
+        self.assertEqual(len(captured), 2)
+        health_args = captured[0].get("args") if isinstance(captured[0].get("args"), dict) else {}
+        self.assertEqual(captured[0].get("op"), "group_space_provider_health_check")
+        self.assertEqual(health_args.get("provider"), "notebooklm")
+        self.assertEqual(health_args.get("auth_json"), '{"cookies":[]}')
+        auth_args = captured[1].get("args") if isinstance(captured[1].get("args"), dict) else {}
+        self.assertEqual(captured[1].get("op"), "group_space_provider_auth")
+        self.assertEqual(auth_args.get("action"), "start")
+        self.assertEqual(auth_args.get("timeout_seconds"), 120)
+        self.assertIs(auth_args.get("projected"), True)
 
     # -----------------------------------------------------------------
     # cccc 0.4.17 alignment — new ops and contract extensions
@@ -1219,6 +1238,8 @@ class TestClientContractParity(unittest.TestCase):
             message="hello",
             title="Heads up",
             kind="info",
+            priority="high",
+            im_visibility="public",
             requires_ack=True,
             target_actor_id="a1",
         )
@@ -1226,6 +1247,8 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["args"]["title"], "Heads up")
         self.assertIs(captured[0]["args"]["requires_ack"], True)
         self.assertEqual(captured[0]["args"]["target_actor_id"], "a1")
+        self.assertEqual(captured[0]["args"]["priority"], "high")
+        self.assertEqual(captured[0]["args"]["im_visibility"], "public")
 
     def test_admin_ops(self) -> None:
         captured, client = self._capture({"removed_group_ids": []})

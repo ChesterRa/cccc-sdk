@@ -43,6 +43,7 @@ import type {
   TaskUpdateOptions,
   TaskMoveOptions,
   TaskRestoreOptions,
+  TaskDeleteOptions,
   AgentStateUpdateOptions,
   AgentStateClearOptions,
   MetaMergeOptions,
@@ -1060,6 +1061,13 @@ export class CCCCClient {
     }, options.by, options.dryRun);
   }
 
+  async taskDelete(options: TaskDeleteOptions): Promise<Record<string, unknown>> {
+    return this.contextOp(options.groupId, {
+      op: 'task.delete',
+      task_id: options.taskId,
+    }, options.by, options.dryRun);
+  }
+
   async agentStateUpdate(options: AgentStateUpdateOptions): Promise<Record<string, unknown>> {
     return this.contextOp(options.groupId, compactRecord({
       op: 'agent_state.update',
@@ -1517,6 +1525,7 @@ export class CCCCClient {
     if (options.message) args['message'] = options.message;
     if (options.title) args['title'] = options.title;
     if (options.targetActorId) args['target_actor_id'] = options.targetActorId;
+    if (options.imVisibility) args['im_visibility'] = options.imVisibility;
     if (options.context) args['context'] = options.context;
     return this.call('system_notify', args);
   }

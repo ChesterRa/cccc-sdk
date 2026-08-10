@@ -6,7 +6,6 @@ import {
 } from './client_0430_shared.js';
 import { DaemonAPIError } from './errors.js';
 import type {
-  BlueprintGenerateOptions,
   GroupCopyExportOptions,
   GroupPreambleResetOptions,
   GroupPreambleSetOptions,
@@ -39,12 +38,11 @@ export interface CCCC0430AdminOps {
   imListAuthorized(options: { groupId: string }): Promise<Record<string, unknown>>;
   imListPending(options: { groupId: string }): Promise<Record<string, unknown>>;
   imRejectPending(options: { groupId: string; key: string }): Promise<Record<string, unknown>>;
-  imRevokeChat(options: { groupId: string; chatId: string; threadId?: number }): Promise<Record<string, unknown>>;
+  imRevokeChat(options: { groupId: string; chatId: string; threadId?: number | string }): Promise<Record<string, unknown>>;
   remoteAccessState(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
   remoteAccessConfigure(options: RemoteAccessConfigureOptions): Promise<Record<string, unknown>>;
   remoteAccessStart(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
   remoteAccessStop(options?: RemoteAccessOptions): Promise<Record<string, unknown>>;
-  blueprintGenerate(options: BlueprintGenerateOptions): Promise<Record<string, unknown>>;
 }
 
 const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
@@ -200,14 +198,6 @@ const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
     return this.call('remote_access_stop', { by: options.by ?? 'user' });
   },
 
-  async blueprintGenerate(options) {
-    return this.call('blueprint_generate', compactRecord({
-      task_id: options.taskId,
-      task_name: options.taskName,
-      task_goal: options.taskGoal,
-      theme_hint: options.themeHint,
-    }));
-  },
 };
 
 export function installCCCC0430AdminOps(proto: CCCC0430Client & Partial<CCCC0430AdminOps>): void {

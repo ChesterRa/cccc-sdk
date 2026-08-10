@@ -291,21 +291,49 @@ describe('client contract parity', () => {
     assert.equal(calls[0]?.args?.['remote_space_id'], 'nb_123');
   });
 
-  it('groupSpaceProviderAuth maps timeout', async () => {
+  it('groupSpaceArtifact forwards current download formats', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
 
+    for (const outputFormat of ['pdf', 'pptx', 'csv'] as const) {
+      await client.groupSpaceArtifact({
+        groupId: 'g_1',
+        lane: 'work',
+        action: 'download',
+        artifactId: `artifact-${outputFormat}`,
+        outputFormat,
+      });
+    }
+
+    assert.deepEqual(
+      calls.map(({ args }) => args?.['output_format']),
+      ['pdf', 'pptx', 'csv'],
+    );
+  });
+
+  it('groupSpace provider auth maps candidate credentials and projected flow', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.groupSpaceProviderHealthCheck({
+      provider: 'notebooklm',
+      authJson: '{"cookies":[]}',
+    });
     await client.groupSpaceProviderAuth({
       provider: 'notebooklm',
       action: 'start',
       timeoutSeconds: 120,
+      projected: true,
     });
 
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]?.op, 'group_space_provider_auth');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.op, 'group_space_provider_health_check');
     assert.equal(calls[0]?.args?.['provider'], 'notebooklm');
-    assert.equal(calls[0]?.args?.['action'], 'start');
-    assert.equal(calls[0]?.args?.['timeout_seconds'], 120);
+    assert.equal(calls[0]?.args?.['auth_json'], '{"cookies":[]}');
+    assert.equal(calls[1]?.op, 'group_space_provider_auth');
+    assert.equal(calls[1]?.args?.['action'], 'start');
+    assert.equal(calls[1]?.args?.['timeout_seconds'], 120);
+    assert.equal(calls[1]?.args?.['projected'], true);
   });
 });
 
@@ -757,12 +785,16 @@ describe('stream / notify / admin', () => {
       groupId: 'g_1',
       message: 'hello',
       title: 'Heads up',
+      priority: 'high',
+      imVisibility: 'public',
       requiresAck: true,
       targetActorId: 'a1',
     });
     assert.equal(calls[1]?.op, 'system_notify');
     assert.equal(calls[1]?.args?.['requires_ack'], true);
     assert.equal(calls[1]?.args?.['target_actor_id'], 'a1');
+    assert.equal(calls[1]?.args?.['priority'], 'high');
+    assert.equal(calls[1]?.args?.['im_visibility'], 'public');
 
     await client.registryReconcile({ removeMissing: true });
     assert.equal(calls[2]?.op, 'registry_reconcile');

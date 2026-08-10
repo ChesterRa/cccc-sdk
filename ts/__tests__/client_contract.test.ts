@@ -113,6 +113,23 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     });
   });
 
+  it('taskDelete emits context_sync task.delete', async () => {
+    const call = await captureCall((client) => client.taskDelete({
+      groupId: 'g1',
+      taskId: 't-planned',
+      by: 'foreman',
+      dryRun: true,
+    }));
+
+    assert.equal(call.op, 'context_sync');
+    assert.deepEqual(call.args, {
+      group_id: 'g1',
+      by: 'foreman',
+      dry_run: true,
+      ops: [{ op: 'task.delete', task_id: 't-planned' }],
+    });
+  });
+
   it('agentStateUpdate emits context_sync agent_state.update', async () => {
     const call = await captureCall((client) => client.agentStateUpdate({
       groupId: 'g1',

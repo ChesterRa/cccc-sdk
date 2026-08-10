@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from .client_0430_shared import _compact
 from .errors import DaemonAPIError
@@ -140,7 +140,7 @@ class CCCC0430AdminOpsMixin:
         *,
         group_id: str,
         chat_id: str,
-        thread_id: Optional[int] = None,
+        thread_id: Optional[Union[int, str]] = None,
     ) -> Dict[str, Any]:
         return self.call(
             "im_revoke_chat",
@@ -148,7 +148,7 @@ class CCCC0430AdminOpsMixin:
                 {
                     "group_id": str(group_id),
                     "chat_id": str(chat_id),
-                    "thread_id": int(thread_id) if thread_id is not None else None,
+                    "thread_id": thread_id,
                 }
             ),
         )
@@ -187,23 +187,3 @@ class CCCC0430AdminOpsMixin:
 
     def remote_access_stop(self, *, by: str = "user") -> Dict[str, Any]:
         return self.call("remote_access_stop", {"by": str(by)})
-
-    def blueprint_generate(
-        self,
-        *,
-        task_id: str,
-        task_name: str = "",
-        task_goal: str = "",
-        theme_hint: str = "",
-    ) -> Dict[str, Any]:
-        return self.call(
-            "blueprint_generate",
-            _compact(
-                {
-                    "task_id": str(task_id),
-                    "task_name": task_name or None,
-                    "task_goal": task_goal or None,
-                    "theme_hint": theme_hint or None,
-                }
-            ),
-        )

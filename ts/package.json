@@ -36,7 +36,7 @@
     "build": "tsc",
     "dev": "tsc -w",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.type-tests.json",
     "test": "node --import tsx --test __tests__/*.test.ts",
     "prepublishOnly": "npm run clean && npm run build"
   },
