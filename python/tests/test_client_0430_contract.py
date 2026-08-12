@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from cccc_sdk.client import CCCCClient
 from cccc_sdk.errors import IncompatibleDaemonError
 from cccc_sdk.transport import DaemonEndpoint
+
+
+TARGET_FIXTURE = json.loads(
+    (Path(__file__).resolve().parents[2] / "spec" / "SDK_DAEMON_TARGET_0_4_33.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 class TestClient0433Contract(unittest.TestCase):
@@ -347,6 +356,32 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[1]["args"]["instruction"], "Check the latest summary")
         self.assertEqual(captured[1]["args"]["text"], "Include omissions")
         self.assertEqual(captured[1]["args"]["source_text"], "Current meeting notes")
+
+    def test_web_model_completion_requires_and_reuses_delivery_id(self) -> None:
+        captured: list[dict] = []
+        contract = TARGET_FIXTURE["operations"]["web_model_runtime_complete_turn"]
+        args = contract["request"]["args"]
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return contract["completion_response"]
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            for _ in range(2):
+                client.web_model_runtime_complete_turn(
+                    group_id=args["group_id"],
+                    actor_id=args["actor_id"],
+                    turn_id=args["turn_id"],
+                    delivery_id=args["delivery_id"],
+                    event_ids=args["event_ids"],
+                    status=args["status"],
+                )
+
+        self.assertEqual(captured[0], captured[1])
+        self.assertEqual(captured[0]["op"], "web_model_runtime_complete_turn")
+        self.assertTrue(set(contract["required_args"]).issubset(captured[0]["args"]))
+        self.assertEqual(captured[0]["args"]["delivery_id"], args["delivery_id"])
 
 
 if __name__ == "__main__":

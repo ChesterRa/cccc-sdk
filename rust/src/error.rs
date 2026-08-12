@@ -60,6 +60,9 @@ pub enum Error {
 
     #[error("incompatible CCCC daemon: {0}")]
     Incompatible(String),
+
+    #[error("write reconciliation requires operator action: {0}")]
+    ReconciliationRequired(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

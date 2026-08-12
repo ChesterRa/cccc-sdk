@@ -6,7 +6,7 @@ Official blocking Rust client for CCCC Daemon IPC v1.
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.0.2"
 ```
 
 ## Quick start
@@ -76,10 +76,25 @@ a connection-establishment failure. Once request exchange begins, failures are
 reported as `Error::OutcomeUnknown` and are never replayed automatically.
 Clients created with `new(endpoint)` keep that explicit endpoint.
 
+## Reliable messaging
+
+Rust 0.0.2 adds an `IdentityBoundClient` that exposes only idempotent chat and
+inbox operations. A caller supplies a `WorkloadIdentityHook`; the adapter binds
+the verified principal and evidence to every request instead of treating the
+wire-level `by` field as authentication.
+
+`FileCursorStore` persists the last fully processed event through a unique
+same-directory temporary file and atomic replacement. `PersistentInbox`
+reconciles a saved cursor before polling, accepts native `event_id: null` for a
+fresh actor, maps native `duplicate: true` to `replayed`, and verifies a
+remote-ahead cursor through `message_read_status` or immutable ledger order.
+The adapter intentionally has no generic `call`, shutdown, configuration, or
+credential methods.
+
 `assert_compatible` probes requested operation names and rejects an advertised
 capability whose actual operation returns `unknown_op`.
 
 Streaming upgrade operations such as `events_stream` and `term_attach` are not
-exposed as iterators in 0.0.1. `assert_compatible` deliberately skips unsafe
+exposed as iterators in 0.0.2. `assert_compatible` deliberately skips unsafe
 duplex probes; a reusable stream API will be added only with stable ownership,
 close, and backpressure semantics.

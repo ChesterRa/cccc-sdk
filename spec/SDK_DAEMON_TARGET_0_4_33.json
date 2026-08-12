@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "target": {
+    "product": "cccc",
+    "version": "0.4.33",
+    "cargo_install_spec": "cccc@=0.4.33",
+    "package_sha256": "f715a6947f9fb58fc2a24c21e8c009cf5178e4382a3ccf35d1813f5e7f3f263c",
+    "daemon_package": "cccc-pair-daemon@=0.4.33",
+    "daemon_package_sha256": "6c890a08f8cdcdb3a722ce59ef8f5694b2b2587101db4870a446a061f0986270",
+    "daemon_source_commit": "43be897b75af0eb25a3d4728248bb359f9999204",
+    "daemon_package_vcs_dirty": true,
+    "standards_git_ref": "v0.4.33",
+    "standards_git_commit": "f6c511f1abb37fa49245754646316a4b0bbc0c14"
+  },
+  "daemon_source_sha256": {
+    "crates/cccc-daemon/src/ops/runtime_state.rs": "d2243bf4bae984bd090ea0a431f5675f792cd0a18bdd2571bce8eb03b93d542f",
+    "crates/cccc-daemon/src/ops/messaging.rs": "6ba0dacd8c6b53d85c51e51c02aa4de56ff0eb2141b1e90c7c8603d6fb264e01",
+    "crates/cccc-daemon/src/ops/messaging_inbox.rs": "a2c7afe2591bed741592e2b29ed9446e05ac94c6271ea7d558f7ccf812e46044",
+    "crates/cccc-daemon/src/ops/messaging_status.rs": "d50c3816f28a372e4fe7ae2699637825704105b91352dd7621c8b8deea2280e1"
+  },
+  "operations": {
+    "events_stream": {
+      "advertised_capability": true,
+      "operation_probe_supported": false,
+      "probe_error_code": "unknown_op",
+      "note": "The published native 0.4.33 daemon advertises events_stream but does not dispatch the operation. SDK stream transport remains fixture-tested and assertCompatible fails closed."
+    },
+    "web_model_runtime_complete_turn": {
+      "required_args": ["group_id", "actor_id", "turn_id", "delivery_id"],
+      "event_selector_any_of": ["event_ids", "latest_event_id"],
+      "replay_key": "delivery_id",
+      "sdk_parameters": {
+        "python": ["group_id", "actor_id", "turn_id", "delivery_id"],
+        "typescript": ["groupId", "actorId", "turnId", "deliveryId"]
+      },
+      "request": {
+        "v": 1,
+        "op": "web_model_runtime_complete_turn",
+        "args": {
+          "group_id": "g1",
+          "actor_id": "web-1",
+          "by": "web-1",
+          "turn_id": "turn-1",
+          "delivery_id": "runtime:turn-1",
+          "event_ids": ["e1"],
+          "status": "done"
+        }
+      },
+      "missing_delivery_id_response": {
+        "v": 1,
+        "ok": false,
+        "result": {},
+        "error": {
+          "code": "missing_delivery_id",
+          "message": "delivery_id is required",
+          "details": {}
+        }
+      },
+      "completion_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "status": "done",
+          "turn_id": "turn-1",
+          "delivery_id": "runtime:turn-1",
+          "cursor_committed": true,
+          "cursor": {"event_id": "e1", "ts": ""},
+          "read_event": {
+            "v": 1,
+            "id": "receipt-1",
+            "ts": "2026-08-05T01:00:01Z",
+            "kind": "chat.read",
+            "group_id": "g1",
+            "scope_key": "",
+            "by": "web-1",
+            "data": {
+              "actor_id": "web-1",
+              "event_id": "e1",
+              "turn_id": "turn-1",
+              "event_ids": ["e1"],
+              "status": "done",
+              "delivery_id": "runtime:turn-1",
+              "cursor_committed": true
+            }
+          },
+          "ack_events": [],
+          "processed_event_ids": ["e1"],
+          "followup_delivery_scheduled": false,
+          "summary": ""
+        }
+      }
+    },
+    "inbox_list": {
+      "cursor_event_id_nullable": true,
+      "cursor_ts_is_empty": true,
+      "fresh_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "messages": [],
+          "cursor": {"event_id": null, "ts": ""}
+        }
+      },
+      "remote_ahead_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "messages": [],
+          "cursor": {"event_id": "e8", "ts": ""}
+        }
+      }
+    },
+    "message_read_status": {
+      "covered_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "event_id": "e7",
+          "read_status": {"a1": true}
+        }
+      }
+    },
+    "send": {
+      "replay_result_field": "duplicate",
+      "initial_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "event": {
+            "v": 1,
+            "id": "e1",
+            "ts": "2026-08-05T01:00:00Z",
+            "kind": "chat.message",
+            "group_id": "g1",
+            "scope_key": "",
+            "by": "workload:aquant",
+            "data": {"text": "hello", "client_id": "send:stable-1"}
+          },
+          "delivery": {"accepted": true, "state": "queued"}
+        }
+      },
+      "duplicate_response": {
+        "v": 1,
+        "ok": true,
+        "result": {
+          "event": {
+            "v": 1,
+            "id": "e1",
+            "ts": "2026-08-05T01:00:00Z",
+            "kind": "chat.message",
+            "group_id": "g1",
+            "scope_key": "",
+            "by": "workload:aquant",
+            "data": {"text": "hello", "client_id": "send:stable-1"}
+          },
+          "delivery": {
+            "accepted": true,
+            "state": "duplicate",
+            "targeted": 0,
+            "online": 0,
+            "queued": 0
+          },
+          "duplicate": true
+        }
+      }
+    }
+  }
+}

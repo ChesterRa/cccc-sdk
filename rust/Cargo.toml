@@ -1,6 +1,6 @@
 [package]
 name = "cccc-sdk"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 rust-version = "1.74"
 description = "Official Rust client SDK for CCCC daemon IPC v1"
@@ -16,4 +16,5 @@ exclude = ["tests/**"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "=3.20.0"
 thiserror = "2"

@@ -121,9 +121,12 @@ function connect(
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
-      socket.removeAllListeners();
+      if (timer !== undefined) clearTimeout(timer);
+      socket.removeListener('connect', onConnect);
+      socket.removeListener('error', onError);
       signal?.removeEventListener('abort', onAbort);
     };
 
@@ -154,20 +157,56 @@ function connect(
       return;
     }
     signal?.addEventListener('abort', onAbort, { once: true });
-    socket.setTimeout(timeoutMs);
+    timer = setTimeout(onTimeout, timeoutMs);
+    socket.once('connect', onConnect);
     socket.once('error', onError);
-    socket.once('timeout', onTimeout);
 
-    if (endpoint.transport === 'tcp') {
-      socket.connect(endpoint.port, endpoint.host, onConnect);
-    } else if (endpoint.transport === 'unix') {
-      socket.connect(endpoint.path, onConnect);
-    } else {
-      rejectAndDestroy(
-        new DaemonConnectionError(`Invalid endpoint transport: ${endpoint.transport}`),
-      );
+    try {
+      if (endpoint.transport === 'tcp') {
+        socket.connect(endpoint.port, endpoint.host);
+      } else if (endpoint.transport === 'unix') {
+        socket.connect(endpoint.path);
+      } else {
+        rejectAndDestroy(
+          new DaemonConnectionError(`Invalid endpoint transport: ${endpoint.transport}`),
+        );
+      }
+    } catch (error) {
+      rejectAndDestroy(new DaemonConnectionError(
+        error instanceof Error ? error.message : String(error),
+      ));
     }
   });
+}
+
+function remainingTimeout(deadline: number): number {
+  return Math.max(1, deadline - Date.now());
+}
+
+function appendChunk(buffer: Buffer, chunk: Buffer): Buffer {
+  return buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk]);
+}
+
+function assertBufferedLineLimit(buffer: Buffer): void {
+  let start = 0;
+  let newlineIndex: number;
+  while ((newlineIndex = buffer.indexOf(0x0a, start)) !== -1) {
+    if (newlineIndex - start > MAX_LINE_SIZE) {
+      throw new DaemonUnavailableError(
+        `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`,
+      );
+    }
+    start = newlineIndex + 1;
+  }
+  if (buffer.length - start > MAX_LINE_SIZE) {
+    throw new DaemonUnavailableError(
+      `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`,
+    );
+  }
+}
+
+function decodeLine(bytes: Buffer): string {
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 // ============================================================
@@ -189,6 +228,7 @@ export async function callDaemon(
   request: DaemonRequest,
   timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<DaemonResponse> {
+  const deadline = Date.now() + timeoutMs;
   const line = JSON.stringify(request) + '\n';
   if (Buffer.byteLength(line, 'utf8') > MAX_REQUEST_SIZE) {
     throw new RequestTooLargeError(`Daemon request exceeds ${MAX_REQUEST_SIZE} bytes`);
@@ -196,19 +236,31 @@ export async function callDaemon(
   const socket = await connect(endpoint, timeoutMs);
 
   return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let resolved = false;
+    let buffer: Buffer = Buffer.alloc(0);
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
-      socket.removeAllListeners();
+      if (timer !== undefined) clearTimeout(timer);
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
     };
 
-    socket.on('data', (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(error);
+    };
 
+    const onData = (chunk: Buffer) => {
+      if (settled) return;
+      buffer = appendChunk(buffer, chunk);
       const newlineIndex = buffer.indexOf(0x0a);
-      if (newlineIndex !== -1 && !resolved) {
-        resolved = true;
+      if (newlineIndex !== -1) {
+        settled = true;
         const responseBytes = buffer.subarray(0, newlineIndex);
         cleanup();
         socket.destroy();
@@ -238,49 +290,34 @@ export async function callDaemon(
       }
 
       if (newlineIndex === -1 && buffer.length > MAX_LINE_SIZE) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Response too large'));
+        fail(new OutcomeUnknownError(request.op, 'Response too large'));
       }
-    });
+    };
 
-    socket.on('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, err.message));
-      }
-    });
+    const onError = (err: Error) => fail(new OutcomeUnknownError(request.op, err.message));
+    const onClose = () => fail(
+      new OutcomeUnknownError(request.op, 'Connection closed unexpectedly'),
+    );
 
-    socket.on('close', () => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Connection closed unexpectedly'));
-      }
-    });
-
-    socket.once('timeout', () => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Response timeout'));
-      }
-    });
+    socket.on('data', onData);
+    socket.once('error', onError);
+    socket.once('close', onClose);
+    timer = setTimeout(
+      () => fail(new OutcomeUnknownError(request.op, 'Response timeout')),
+      remainingTimeout(deadline),
+    );
 
     // Send request.
-    socket.write(line, (err) => {
-      if (err && !resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, `Write failed: ${err.message}`));
-      }
-    });
+    try {
+      socket.write(line, (err) => {
+        if (err) fail(new OutcomeUnknownError(request.op, `Write failed: ${err.message}`));
+      });
+    } catch (error) {
+      fail(new OutcomeUnknownError(
+        request.op,
+        error instanceof Error ? error.message : String(error),
+      ));
+    }
   });
 }
 
@@ -311,6 +348,7 @@ export async function openEventsStream(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<EventsStreamConnection> {
+  const deadline = Date.now() + timeoutMs;
   if (signal?.aborted) {
     throw new DaemonUnavailableError('Event stream aborted');
   }
@@ -330,106 +368,94 @@ export async function openEventsStream(
     handshake: DaemonResponse;
     remainingBuffer: Buffer;
   }>((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let resolved = false;
+    let buffer: Buffer = Buffer.alloc(0);
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
-      socket.removeAllListeners();
+      if (timer !== undefined) clearTimeout(timer);
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
       signal?.removeEventListener('abort', onAbort);
     };
 
-    const onAbort = () => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new DaemonUnavailableError('Event stream aborted'));
-      }
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(error);
     };
 
+    const onAbort = () => fail(new DaemonUnavailableError('Event stream aborted'));
+
     const onData = (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
+      if (settled) return;
+      buffer = appendChunk(buffer, chunk);
       const newlineIndex = buffer.indexOf(0x0a);
-      if (newlineIndex !== -1 && !resolved) {
-        resolved = true;
-        cleanup();
+      if (newlineIndex !== -1) {
         const responseBytes = buffer.subarray(0, newlineIndex);
         const remaining = buffer.subarray(newlineIndex + 1);
         if (responseBytes.length > MAX_LINE_SIZE) {
-          socket.destroy();
-          reject(new OutcomeUnknownError(request.op, 'Handshake response too large'));
+          fail(new OutcomeUnknownError(request.op, 'Handshake response too large'));
           return;
         }
         try {
           const parsed: unknown = JSON.parse(responseBytes.toString('utf8'));
           if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            socket.destroy();
-            reject(new OutcomeUnknownError(request.op, 'Handshake must be a JSON object'));
+            fail(new OutcomeUnknownError(request.op, 'Handshake must be a JSON object'));
             return;
           }
           const handshake = parsed as DaemonResponse;
           if (handshake.v !== 1) {
-            socket.destroy();
-            reject(new IncompatibleDaemonError(
+            fail(new IncompatibleDaemonError(
               `Daemon stream handshake uses unsupported IPC version: ${String(handshake.v)}`,
             ));
             return;
           }
+          assertBufferedLineLimit(remaining);
+          settled = true;
+          cleanup();
           resolve({
             handshake,
             remainingBuffer: remaining,
           });
-        } catch {
-          socket.destroy();
-          reject(new OutcomeUnknownError(request.op, 'Invalid handshake JSON'));
+        } catch (error) {
+          fail(error instanceof DaemonUnavailableError
+            ? error
+            : new OutcomeUnknownError(request.op, 'Invalid handshake JSON'));
         }
       }
       if (newlineIndex === -1 && buffer.length > MAX_LINE_SIZE) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Handshake response too large'));
+        fail(new OutcomeUnknownError(request.op, 'Handshake response too large'));
       }
     };
 
+    const onError = (err: Error) => fail(new OutcomeUnknownError(request.op, err.message));
+    const onClose = () => fail(
+      new OutcomeUnknownError(request.op, 'Connection closed during handshake'),
+    );
+
     socket.on('data', onData);
     signal?.addEventListener('abort', onAbort, { once: true });
-    socket.once('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, err.message));
-      }
-    });
-    socket.once('close', () => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Connection closed during handshake'));
-      }
-    });
-    socket.once('timeout', () => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, 'Handshake timeout'));
-      }
-    });
-    socket.write(line, (error) => {
-      if (error && !resolved) {
-        resolved = true;
-        cleanup();
-        socket.destroy();
-        reject(new OutcomeUnknownError(request.op, `Write failed: ${error.message}`));
-      }
-    });
+    socket.once('error', onError);
+    socket.once('close', onClose);
+    timer = setTimeout(
+      () => fail(new OutcomeUnknownError(request.op, 'Handshake timeout')),
+      remainingTimeout(deadline),
+    );
+    try {
+      socket.write(line, (error) => {
+        if (error) fail(new OutcomeUnknownError(request.op, `Write failed: ${error.message}`));
+      });
+    } catch (error) {
+      fail(new OutcomeUnknownError(
+        request.op,
+        error instanceof Error ? error.message : String(error),
+      ));
+    }
   });
-
-  // Remove timeout after handshake.
-  socket.setTimeout(0);
 
   return { socket, handshake, initialBuffer: remainingBuffer };
 }
@@ -445,53 +471,49 @@ export async function* readLines(
   socket: net.Socket,
   initialBuffer: string | Buffer = ''
 ): AsyncGenerator<string> {
-  const decoder = new TextDecoder('utf-8', { fatal: true });
   let buffer = typeof initialBuffer === 'string'
-    ? initialBuffer
-    : decoder.decode(initialBuffer, { stream: true });
+    ? Buffer.from(initialBuffer, 'utf8')
+    : initialBuffer;
 
-  const ensureBounded = (line: string): void => {
-    if (Buffer.byteLength(line, 'utf8') > MAX_LINE_SIZE) {
+  // Handle lines from initial buffer.
+  let newlineIndex: number;
+  while ((newlineIndex = buffer.indexOf(0x0a)) !== -1) {
+    if (newlineIndex > MAX_LINE_SIZE) {
       throw new DaemonUnavailableError(
         `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`,
       );
     }
-  };
-
-  // Handle lines from initial buffer.
-  let newlineIndex: number;
-  while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-    const line = buffer.slice(0, newlineIndex);
-    buffer = buffer.slice(newlineIndex + 1);
-    ensureBounded(line);
+    const line = decodeLine(buffer.subarray(0, newlineIndex));
+    buffer = buffer.subarray(newlineIndex + 1);
     if (line.trim()) {
       yield line;
     }
   }
+  assertBufferedLineLimit(buffer);
 
   // Continue reading from socket.
   for await (const chunk of socket) {
-    buffer += decoder.decode(chunk as Buffer, { stream: true });
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    buffer = appendChunk(buffer, bytes);
 
-    if (buffer.indexOf('\n') === -1 && Buffer.byteLength(buffer, 'utf8') > MAX_LINE_SIZE) {
-      throw new DaemonUnavailableError(
-        `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`
-      );
-    }
-
-    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      ensureBounded(line);
+    while ((newlineIndex = buffer.indexOf(0x0a)) !== -1) {
+      if (newlineIndex > MAX_LINE_SIZE) {
+        throw new DaemonUnavailableError(
+          `Stream line exceeds MAX_LINE_SIZE (${MAX_LINE_SIZE} bytes)`,
+        );
+      }
+      const line = decodeLine(buffer.subarray(0, newlineIndex));
+      buffer = buffer.subarray(newlineIndex + 1);
       if (line.trim()) {
         yield line;
       }
     }
+    assertBufferedLineLimit(buffer);
   }
 
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    ensureBounded(buffer);
-    yield buffer;
+  if (buffer.length > 0) {
+    assertBufferedLineLimit(buffer);
+    const line = decodeLine(buffer);
+    if (line.trim()) yield line;
   }
 }

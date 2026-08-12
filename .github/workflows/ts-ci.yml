@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "ts/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
       - "ts/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/ts-ci.yml"
 
 jobs:
@@ -16,6 +18,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check SDK hardening contract
+        run: python3 scripts/check_sdk_hardening.py
 
       - uses: actions/setup-node@v4
         with:
@@ -170,4 +175,99 @@ jobs:
             throw new Error('stream event is missing canonical id field');
           }
           console.log('integration smoke passed', { groupId, eventId: event.id });
+          JS
+
+  native-daemon-0433:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Build TypeScript SDK
+        working-directory: ts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install exact native daemon
+        run: cargo install cccc --version '=0.4.33' --locked
+
+      - name: Verify stream gating and stable completion replay
+        run: |
+          set -euo pipefail
+          export CCCC_HOME="$RUNNER_TEMP/cccc-sdk-ts-0433"
+          cccc daemon start
+          cleanup() {
+            cccc daemon stop >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          node --input-type=module <<'JS'
+          import { CCCCClient, IncompatibleDaemonError } from './ts/dist/index.js';
+
+          const client = await CCCCClient.create({ ccccHome: process.env.CCCC_HOME });
+          const created = await client.groupCreate({ title: 'ts-sdk-native-0433' });
+          const groupId = String(created.group_id || '');
+          if (!groupId) throw new Error('groupCreate did not return group_id');
+
+          try {
+            await client.groupStart(groupId);
+            let streamProbeRejected = false;
+            try {
+              await client.assertCompatible({ requireOps: ['events_stream'] });
+            } catch (error) {
+              if (error instanceof IncompatibleDaemonError) streamProbeRejected = true;
+              else throw error;
+            }
+            if (!streamProbeRejected) {
+              throw new Error('native 0.4.33 unexpectedly accepted events_stream probe');
+            }
+
+            await client.actorAdd({
+              groupId,
+              actorId: 'web-ci',
+              runtime: 'web_model',
+              runner: 'headless',
+            });
+            await client.send({
+              groupId,
+              text: 'native runtime completion probe',
+              by: 'user',
+              to: ['web-ci'],
+            });
+            const acquired = await client.webModelRuntimeWaitNextTurn({
+              groupId,
+              actorId: 'web-ci',
+            });
+            const turn = acquired.turn;
+            if (!turn || typeof turn !== 'object') {
+              throw new Error(`waitNextTurn returned no work: ${JSON.stringify(acquired)}`);
+            }
+            const turnId = String(turn.turn_id || '');
+            const eventIds = Array.isArray(turn.event_ids) ? turn.event_ids.map(String) : [];
+            if (!turnId || eventIds.length === 0) {
+              throw new Error(`invalid native turn: ${JSON.stringify(turn)}`);
+            }
+            const deliveryId = `ts-ci:${turnId}`;
+            const options = { groupId, actorId: 'web-ci', turnId, deliveryId, eventIds };
+            const first = await client.webModelRuntimeCompleteTurn(options);
+            const replay = await client.webModelRuntimeCompleteTurn(options);
+            if (first.delivery_id !== deliveryId || replay.delivery_id !== deliveryId) {
+              throw new Error('completion did not preserve delivery_id');
+            }
+            if (!first.read_event || !replay.read_event || first.read_event.id !== replay.read_event.id) {
+              throw new Error('completion replay created a second receipt');
+            }
+          } finally {
+            await client.groupDelete(groupId);
+          }
           JS

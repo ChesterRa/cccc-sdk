@@ -30,6 +30,7 @@ If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared imme
 Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
+- Reliable Rust workers that need identity-bound writes and durable inbox checkpoints
 - Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
 - Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and first-class local memory
 
@@ -91,7 +92,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.0.2"
 ```
 
 ```rust
@@ -115,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python and TypeScript package versions track the current SDK release line; the
-  Rust crate starts at `0.0.1` while its public API settles.
+  Rust crate is on the `0.0.x` line while its public API settles.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
 Compatibility is enforced by **contracts**, not by strict version string matching:
@@ -132,6 +133,8 @@ This repo keeps a mirror under `spec/`:
 
 ```bash
 ./scripts/sync_specs_from_cccc.sh ../cccc
+# Reproduce a tagged mirror when auditing an older compatibility fixture:
+./scripts/sync_specs_from_cccc.sh ../cccc v0.4.33
 ```
 
 The sync command intentionally replaces only the three mirrored standards.

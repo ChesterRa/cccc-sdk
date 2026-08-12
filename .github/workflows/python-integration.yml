@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "python/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/python-integration.yml"
   pull_request:
     paths:
       - "python/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/python-integration.yml"
   workflow_dispatch:
     inputs:
@@ -23,6 +25,9 @@ jobs:
     steps:
       - name: Checkout cccc-sdk
         uses: actions/checkout@v4
+
+      - name: Check SDK hardening contract
+        run: python3 scripts/check_sdk_hardening.py
 
       - name: Checkout cccc (daemon)
         uses: actions/checkout@v4
@@ -51,3 +56,80 @@ jobs:
           trap cleanup EXIT
           cccc daemon start
           python python/examples/compat_check.py
+
+  native-daemon-0433:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Install exact native daemon and Python SDK
+        run: |
+          cargo install cccc --version '=0.4.33' --locked
+          python -m pip install -e python
+
+      - name: Verify stable Web Model completion replay
+        run: |
+          set -euo pipefail
+          export CCCC_HOME="$RUNNER_TEMP/cccc-sdk-python-0433"
+          cccc daemon start
+          cleanup() {
+            cccc daemon stop >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          python - <<'PY'
+          from cccc_sdk import CCCCClient
+
+          client = CCCCClient()
+          created = client.group_create(title="python-sdk-native-0433")
+          group_id = str(created.get("group_id") or "")
+          if not group_id:
+              raise RuntimeError("group_create did not return group_id")
+
+          try:
+              client.group_start(group_id=group_id)
+              client.actor_add(
+                  group_id=group_id,
+                  actor_id="web-ci",
+                  runtime="web_model",
+                  runner="headless",
+              )
+              client.send(
+                  group_id=group_id,
+                  text="native runtime completion probe",
+                  by="user",
+                  to=["web-ci"],
+              )
+              acquired = client.web_model_runtime_wait_next_turn(
+                  group_id=group_id,
+                  actor_id="web-ci",
+              )
+              turn = acquired.get("turn") or {}
+              turn_id = str(turn.get("turn_id") or "")
+              event_ids = list(turn.get("event_ids") or [])
+              if not turn_id or not event_ids:
+                  raise RuntimeError(f"wait_next_turn returned no work: {acquired!r}")
+              delivery_id = f"python-ci:{turn_id}"
+              options = {
+                  "group_id": group_id,
+                  "actor_id": "web-ci",
+                  "turn_id": turn_id,
+                  "delivery_id": delivery_id,
+                  "event_ids": event_ids,
+              }
+              first = client.web_model_runtime_complete_turn(**options)
+              replay = client.web_model_runtime_complete_turn(**options)
+              if first.get("delivery_id") != delivery_id or replay.get("delivery_id") != delivery_id:
+                  raise RuntimeError("completion did not preserve delivery_id")
+              if (first.get("read_event") or {}).get("id") != (replay.get("read_event") or {}).get("id"):
+                  raise RuntimeError("completion replay created a second receipt")
+          finally:
+              client.group_delete(group_id=group_id)
+          PY

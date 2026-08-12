@@ -1,9 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { CCCCClient } from '../src/client.js';
 import { IncompatibleDaemonError } from '../src/errors.js';
 
 type CallCapture = { op: string; args?: Record<string, unknown> };
+
+const targetFixture = JSON.parse(
+  readFileSync(new URL('../../spec/SDK_DAEMON_TARGET_0_4_33.json', import.meta.url), 'utf-8')
+) as {
+  operations: {
+    web_model_runtime_complete_turn: {
+      required_args: string[];
+      request: { args: Record<string, unknown> };
+    };
+  };
+};
 
 async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
   const client = await CCCCClient.create({
@@ -331,5 +343,30 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.equal(calls[1]?.args?.['instruction'], 'Check the latest summary');
     assert.equal(calls[1]?.args?.['text'], 'Include omissions');
     assert.equal(calls[1]?.args?.['source_text'], 'Current meeting notes');
+  });
+
+  it('requires and reuses deliveryId for Web Model completion replay', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    const contract = targetFixture.operations.web_model_runtime_complete_turn;
+    const args = contract.request.args;
+    const options = {
+      groupId: String(args['group_id']),
+      actorId: String(args['actor_id']),
+      turnId: String(args['turn_id']),
+      deliveryId: String(args['delivery_id']),
+      eventIds: args['event_ids'] as string[],
+      status: String(args['status']) as 'done',
+    };
+
+    await client.webModelRuntimeCompleteTurn(options);
+    await client.webModelRuntimeCompleteTurn(options);
+
+    assert.deepEqual(calls[0], calls[1]);
+    assert.equal(calls[0]?.op, 'web_model_runtime_complete_turn');
+    for (const required of contract.required_args) {
+      assert.ok(required in (calls[0]?.args ?? {}), `missing daemon arg: ${required}`);
+    }
+    assert.equal(calls[0]?.args?.['delivery_id'], args['delivery_id']);
   });
 });

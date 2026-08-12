@@ -229,7 +229,26 @@ const recovered = await client.webModelRuntimeRecoverTurn({
   actorId: 'web-model',
   eventIds: ['e_xxx'],
 });
+
+// Complete a runtime-owned turn. Reuse the exact deliveryId after an unknown
+// outcome so the daemon can replay the same completion receipt.
+const acquired = await client.webModelRuntimeWaitNextTurn({
+  groupId,
+  actorId: 'web-model',
+});
+const turn = acquired.turn as { turn_id: string; event_ids: string[] };
+const deliveryId = `worker:${turn.turn_id}`;
+await client.webModelRuntimeCompleteTurn({
+  groupId,
+  actorId: 'web-model',
+  turnId: turn.turn_id,
+  deliveryId,
+  eventIds: turn.event_ids,
+});
 ```
+
+`deliveryId` is required and is the completion replay key. A retry for the
+same acquired turn must reuse the same value.
 
 `termResize()` sends the standard `term_resize` operation. For current Rust
 daemon builds that still expose `terminal_resize`, the SDK falls back only

@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "rust/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/rust-ci.yml"
   pull_request:
     paths:
       - "rust/**"
+      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
       - ".github/workflows/rust-ci.yml"
 
 jobs:
@@ -15,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check SDK hardening contract
+        run: python3 scripts/check_sdk_hardening.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
@@ -23,13 +27,53 @@ jobs:
         run: cargo fmt --check
       - name: Lint
         working-directory: rust
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Test
         working-directory: rust
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
       - name: Package
         working-directory: rust
         run: cargo package --locked
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.74.0"
+      - name: Check declared MSRV
+        working-directory: rust
+        run: cargo check --locked
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test cross-platform cursor replacement
+        working-directory: rust
+        run: cargo test --locked --all-targets
+
+  native-daemon-0433:
+    runs-on: ubuntu-latest
+    env:
+      CCCC_RUN_LIVE_RELIABILITY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install exact native daemon
+        run: cargo install cccc --version '=0.4.33' --locked
+      - name: Run live reliability contract
+        run: |
+          set -euo pipefail
+          export CCCC_HOME="$RUNNER_TEMP/cccc-sdk-rust-0433"
+          cccc daemon start
+          cleanup() {
+            cccc daemon stop >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cargo test --locked --manifest-path rust/Cargo.toml --test live_reliability -- --nocapture
 
   integration:
     runs-on: ubuntu-latest

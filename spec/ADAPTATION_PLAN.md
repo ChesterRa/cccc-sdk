@@ -4,7 +4,8 @@ This plan is based on an operation-by-operation audit of current CCCC `main`
 (the v0.4.34 release-candidate line plus subsequent commits), refreshed on
 2026-08-11 at core revision `7943724bf1025265d0716b2b181b3890efe24051`.
 The SDK source tree targets that contract; Python, TypeScript, and Rust package
-publication remains a separate release process.
+publication remains a separate release process. This audit was revalidated on
+2026-08-12 without changing the pinned core revision.
 
 The goal is contract alignment, not one wrapper per daemon implementation
 detail. Public SDK methods should represent stable capabilities that an
@@ -57,6 +58,15 @@ TypeScript expose explicit outcome-unknown errors; Python provides the same
 distinction, including malformed post-write response envelopes, while retaining
 `DaemonUnavailableError` compatibility. TypeScript cancellation also covers
 the TCP connection phase instead of beginning only after the stream handshake.
+The connection and handshake now share one deadline, buffered stream items stay
+as bytes until a complete line is validated, and cleanup removes only listeners
+owned by the SDK.
+
+The 0.4.33 Web Model wait/complete surface remains available on the newer SDK
+line. Completion requires a caller-stable `delivery_id`; exact replay behavior
+is pinned in `SDK_DAEMON_TARGET_0_4_33.json`. Rust additionally exposes a
+least-privilege identity-bound reliable messaging adapter with durable,
+monotonic inbox checkpoints and explicit reconciliation of unknown outcomes.
 
 ### Current core-side parity blockers
 
@@ -84,17 +94,21 @@ additional SDK-used fields, including actor profile scope/owner, advanced
 current core handlers and tests, but the authoritative standard should be
 expanded before they are described as normative cross-implementation v1.
 
-### Validation evidence (2026-08-11)
+### Validation evidence (2026-08-12)
 
-- Python: 77 contract/transport tests, source compilation, sdist, and wheel
+- Python: 78 contract/transport tests, source compilation, sdist, and wheel
   build passed.
-- TypeScript: 114 tests, strict source and exported-option fixture typechecks,
+- TypeScript: 119 tests, strict source and exported-option fixture typechecks,
   build, and npm package dry-run passed.
-- Rust: formatting, warning-free clippy, 12 tests, and locked crate packaging
-  passed.
+- Rust: formatting, warning-free clippy, 21 tests, locked crate packaging,
+  declared Rust 1.74 MSRV checking, and Windows target checking passed. The
+  exact 0.4.33 daemon reliability round trip remains an opt-in live test and is
+  required by CI.
 - All three mirrored standards match core revision
   `7943724bf1025265d0716b2b181b3890efe24051` byte-for-byte; scheduled CI now
   detects future drift.
+- An isolated CCCC 0.4.34-rc2 Rust daemon accepted the Python, TypeScript, and
+  Rust compatibility probes on 2026-08-12.
 - In the 2026-08-08 live probe, a current Rust daemon bound to the IPv6 loopback
   wrote a connectable `::1`
   descriptor, and Python, TypeScript, and Rust clients all discovered it and

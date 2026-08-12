@@ -17,6 +17,10 @@ CCCC line and exposes the IPC surface available on that line.
   after an exchange has begun.
 - Scheduled CI drift detection for all three mirrored CCCC standards, automatic
   Python integration coverage, and a live Rust-SDK/current-daemon smoke job.
+- Python and TypeScript Web Model wait/complete helpers with a required stable
+  `delivery_id`, plus the exact native 0.4.33 replay fixture.
+- Rust 0.0.2 identity-bound reliable messaging, durable inbox checkpoints, and
+  explicit reconciliation for ambiguous send/reply/read outcomes.
 
 ### Changed
 
@@ -52,6 +56,10 @@ CCCC line and exposes the IPC surface available on that line.
 - TypeScript's `INVALID_REQUEST` constant now matches the daemon's
   `invalid_request` code and includes current request-size and Remote Access
   administrator-token errors.
+- TypeScript connection, response, and stream-handshake phases now share one
+  deadline; handshake cancellation closes the socket, buffered stream data is
+  byte-capped before decoding, and transport cleanup removes only SDK-owned
+  listeners.
 - The daemon IPC mirror now matches current CCCC core, including Remote Access
   administrator-token state and enforcement fields.
 
@@ -63,6 +71,18 @@ CCCC line and exposes the IPC surface available on that line.
   maps and side-effect-free compatibility probing. TypeScript also compiles
   exported option fixtures so documented contract values cannot silently drift
   out of the published declaration surface.
+- Added exact native 0.4.33 completion/reliability jobs, Rust 1.74 MSRV and
+  Windows cursor-replacement jobs, and a static SDK hardening contract gate.
+
+## Rust crate [0.0.2] — Unreleased
+
+### Added
+
+- Least-privilege `IdentityBoundClient` adapters for idempotent send, reply,
+  inbox polling, and mark-read operations.
+- Nullable native cursor decoding, authoritative remote-ahead read-state
+  reconciliation, ledger-order fallback for notifications, and atomic
+  same-directory `FileCursorStore` replacement.
 
 ## Rust crate [0.0.1] — 2026-08-03
 

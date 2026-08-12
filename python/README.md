@@ -222,7 +222,27 @@ recovered = c.web_model_runtime_recover_turn(
     actor_id="web-model",
     event_ids=["e_xxx"],
 )
+
+# Complete a runtime-owned turn. Reuse the exact delivery_id if the caller
+# must retry after an unknown outcome.
+turn = c.web_model_runtime_wait_next_turn(
+    group_id="g_xxx",
+    actor_id="web-model",
+)
+payload = turn["turn"]
+delivery_id = f"worker:{payload['turn_id']}"
+c.web_model_runtime_complete_turn(
+    group_id="g_xxx",
+    actor_id="web-model",
+    turn_id=payload["turn_id"],
+    delivery_id=delivery_id,
+    event_ids=payload["event_ids"],
+)
 ```
+
+`delivery_id` is required and is the completion replay key. A retry for the
+same acquired turn must use the same value; generating a new value can create a
+second completion receipt.
 
 `term_resize()` sends the standard `term_resize` operation. For current Rust
 daemon builds that still expose `terminal_resize`, the SDK falls back only

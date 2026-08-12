@@ -29,6 +29,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 主な用途：
 - リアルタイム更新が必要な Web/IDE プラグイン（`events_stream`）
 - Working Group を監視して自動応答する bot/service
+- identity-bound write と永続 inbox cursor を必要とする高信頼 Rust worker
 - group / actors / shared context / capability ポリシー / Group Space をプログラムから管理する社内ツール
 - `tracked_send`、Context Ops v3 task/agent state、capability discovery、ローカル memory API を使う workflow 連携
 
@@ -90,7 +91,7 @@ python python/examples/auto_ack_attention.py --group g_xxx --actor user
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.0.2"
 ```
 
 Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
@@ -102,7 +103,7 @@ Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検�
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python と TypeScript は現在の SDK リリースラインに追従し、Rust crate は `0.0.1` から開始します。
+- Python と TypeScript は現在の SDK リリースラインに追従し、Rust crate は当面 `0.0.x` 系列です。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：
