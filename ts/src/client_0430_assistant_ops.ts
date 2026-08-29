@@ -81,7 +81,6 @@ export interface CCCC0430AssistantOps {
     artifactPaths?: string[];
     sourceEventId?: string;
     priority?: 'low' | 'normal' | 'high' | 'urgent';
-    requiresAck?: boolean;
     by?: string;
   }): Promise<Record<string, unknown>>;
 }
@@ -98,7 +97,7 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   async assistantVoiceTranscribe(options) {
     void options;
     throw new IncompatibleDaemonError(
-      'assistant_voice_transcribe was removed from Rust daemon IPC; use the HTTP Voice Secretary transcription endpoint'
+      'assistant_voice_transcribe was removed from CCCC daemon IPC; use the HTTP Voice Secretary transcription endpoint'
     );
   },
 
@@ -214,7 +213,6 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
       artifact_paths: options.artifactPaths,
       source_event_id: options.sourceEventId,
       priority: options.priority,
-      requires_ack: options.requiresAck,
       by: options.by ?? 'voice-secretary',
     }));
   },

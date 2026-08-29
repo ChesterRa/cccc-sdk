@@ -37,6 +37,7 @@ async function main() {
     const sendResult = await client.send({
       groupId,
       text: 'Hello from TypeScript SDK!',
+      mode: 'send',
       by: 'user',
     });
     console.log('Message sent:', sendResult);
@@ -67,7 +68,7 @@ async function main() {
   } catch (error) {
     if (error instanceof DaemonUnavailableError) {
       console.error('Daemon unavailable:', error.message);
-      console.error('Please make sure ccccd is running.');
+      console.error('Please make sure the CCCC daemon is running.');
     } else if (error instanceof DaemonAPIError) {
       console.error('API error:', error.code, error.message);
       console.error('Details:', error.details);

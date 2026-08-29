@@ -1,6 +1,32 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
+
+
+MessageMode = Literal["send", "request_reply", "mail"]
+ReplyMessageMode = Literal["send", "mail"]
+MessageHistoryMode = Literal["all", "send", "request_reply", "mail"]
+
+
+def _message_mode(value: MessageMode) -> str:
+    mode = str(value).strip()
+    if mode not in {"send", "request_reply", "mail"}:
+        raise ValueError("message_mode must be send, request_reply, or mail")
+    return mode
+
+
+def _message_history_mode(value: MessageHistoryMode) -> str:
+    mode = str(value).strip()
+    if mode not in {"all", "send", "request_reply", "mail"}:
+        raise ValueError("history mode must be all, send, request_reply, or mail")
+    return mode
+
+
+def _reply_message_mode(value: ReplyMessageMode) -> str:
+    mode = str(value).strip()
+    if mode not in {"send", "mail"}:
+        raise ValueError("reply message_mode must be send or mail")
+    return mode
 
 
 class ChatOpsMixin:
@@ -10,10 +36,9 @@ class ChatOpsMixin:
         group_id: str,
         dst_group_id: str,
         text: str,
+        message_mode: MessageMode,
         by: str = "user",
         to: Optional[List[str]] = None,
-        priority: str = "normal",
-        reply_required: bool = False,
         insight: str = "",
         require_peer_insight: Optional[bool] = None,
     ) -> Dict[str, Any]:
@@ -22,8 +47,7 @@ class ChatOpsMixin:
             "dst_group_id": str(dst_group_id),
             "text": str(text),
             "by": str(by),
-            "priority": str(priority),
-            "reply_required": bool(reply_required),
+            "message_mode": _message_mode(message_mode),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
@@ -38,10 +62,9 @@ class ChatOpsMixin:
         *,
         group_id: str,
         text: str,
+        message_mode: MessageMode,
         by: str = "user",
         to: Optional[List[str]] = None,
-        priority: str = "normal",
-        reply_required: bool = False,
         path: str = "",
         refs: Optional[List[Dict[str, Any]]] = None,
         attachments: Optional[List[Dict[str, Any]]] = None,
@@ -54,8 +77,7 @@ class ChatOpsMixin:
             "group_id": str(group_id),
             "text": str(text),
             "by": str(by),
-            "priority": str(priority),
-            "reply_required": bool(reply_required),
+            "message_mode": _message_mode(message_mode),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
@@ -80,12 +102,11 @@ class ChatOpsMixin:
         *,
         group_id: str,
         paths: List[str],
+        message_mode: MessageMode,
         text: str = "",
         insight: str = "",
         by: str = "user",
         to: Optional[List[str]] = None,
-        priority: str = "normal",
-        reply_required: bool = False,
         client_id: str = "",
     ) -> Dict[str, Any]:
         """Upload active-scope files and send them in one chat message."""
@@ -99,8 +120,7 @@ class ChatOpsMixin:
             "paths": normalized_paths,
             "text": str(text),
             "by": str(by),
-            "priority": str(priority),
-            "reply_required": bool(reply_required),
+            "message_mode": _message_mode(message_mode),
         }
         if to is not None:
             args["to"] = [str(item) for item in to]
@@ -116,10 +136,9 @@ class ChatOpsMixin:
         group_id: str,
         reply_to: str,
         text: str,
+        message_mode: ReplyMessageMode = "send",
         by: str = "user",
         to: Optional[List[str]] = None,
-        priority: str = "normal",
-        reply_required: bool = False,
         refs: Optional[List[Dict[str, Any]]] = None,
         attachments: Optional[List[Dict[str, Any]]] = None,
         client_id: str = "",
@@ -132,8 +151,7 @@ class ChatOpsMixin:
             "reply_to": str(reply_to),
             "text": str(text),
             "by": str(by),
-            "priority": str(priority),
-            "reply_required": bool(reply_required),
+            "message_mode": _reply_message_mode(message_mode),
         }
         if to is not None:
             args["to"] = [str(x) for x in to]
@@ -151,63 +169,98 @@ class ChatOpsMixin:
             args["require_peer_insight"] = bool(require_peer_insight)
         return self.call("reply", args)
 
-    def chat_ack(self, *, group_id: str, actor_id: str, event_id: str, by: Optional[str] = None) -> Dict[str, Any]:
-        """ACK an attention message (self-only in CCCC: by must equal actor_id)."""
-        aid = str(actor_id)
+    def reply_request_cancel(
+        self, *, group_id: str, source_event_id: str, by: str = "user"
+    ) -> Dict[str, Any]:
         return self.call(
-            "chat_ack",
+            "reply_request_cancel",
             {
                 "group_id": str(group_id),
-                "actor_id": aid,
-                "event_id": str(event_id),
-                "by": str(by) if by is not None else aid,
+                "source_event_id": str(source_event_id),
+                "by": str(by),
             },
         )
 
-    def inbox_list(
+    def message_deliver(
+        self,
+        *,
+        group_id: str,
+        source_event_id: str,
+        actor_ids: List[str],
+        by: str = "user",
+        force_ambiguous: bool = False,
+    ) -> Dict[str, Any]:
+        recipients = [str(actor_id).strip() for actor_id in actor_ids]
+        if not recipients or any(not actor_id for actor_id in recipients):
+            raise ValueError("message_deliver requires one or more non-empty actor_ids")
+        return self.call(
+            "message_deliver",
+            {
+                "group_id": str(group_id),
+                "source_event_id": str(source_event_id),
+                "actor_ids": recipients,
+                "by": str(by),
+                "force_ambiguous": bool(force_ambiguous),
+            },
+        )
+
+    def inbox_peek(
         self,
         *,
         group_id: str,
         actor_id: str,
         by: str = "user",
         limit: int = 50,
-        kind_filter: str = "all",
     ) -> Dict[str, Any]:
         return self.call(
-            "inbox_list",
+            "inbox_peek",
             {
                 "group_id": str(group_id),
                 "actor_id": str(actor_id),
                 "by": str(by),
                 "limit": int(limit),
-                "kind_filter": str(kind_filter),
             },
         )
 
-    def inbox_mark_read(self, *, group_id: str, actor_id: str, event_id: str, by: str = "user") -> Dict[str, Any]:
-        return self.call(
-            "inbox_mark_read",
-            {"group_id": str(group_id), "actor_id": str(actor_id), "event_id": str(event_id), "by": str(by)},
-        )
-
-    def inbox_mark_all_read(
-        self, *, group_id: str, actor_id: str, by: str = "user", kind_filter: str = "all"
+    def inbox_read(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        by: str = "user",
+        limit: int = 50,
     ) -> Dict[str, Any]:
         return self.call(
-            "inbox_mark_all_read",
-            {"group_id": str(group_id), "actor_id": str(actor_id), "by": str(by), "kind_filter": str(kind_filter)},
-        )
-
-    def notify_ack(
-        self, *, group_id: str, actor_id: str, notify_event_id: str, by: Optional[str] = None
-    ) -> Dict[str, Any]:
-        aid = str(actor_id)
-        return self.call(
-            "notify_ack",
+            "inbox_read",
             {
                 "group_id": str(group_id),
-                "actor_id": aid,
-                "notify_event_id": str(notify_event_id),
-                "by": str(by) if by is not None else aid,
+                "actor_id": str(actor_id),
+                "by": str(by),
+                "limit": int(limit),
             },
         )
+
+    def message_history(
+        self,
+        *,
+        group_id: str,
+        actor_id: str,
+        by: str = "user",
+        mode: MessageHistoryMode = "all",
+        query: str = "",
+        before_event_id: str = "",
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Inspect actor-visible messages without consuming Mail."""
+        args: Dict[str, Any] = {
+            "group_id": str(group_id),
+            "actor_id": str(actor_id),
+            "by": str(by),
+            "mode": _message_history_mode(mode),
+            "limit": int(limit),
+        }
+        if query:
+            args["query"] = str(query)
+        if before_event_id:
+            args["before_event_id"] = str(before_event_id)
+        return self.call("message_history", args)

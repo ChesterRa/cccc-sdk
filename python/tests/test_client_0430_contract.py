@@ -24,6 +24,7 @@ class TestClient0433Contract(unittest.TestCase):
             client.send(
                 group_id="g_1",
                 text="next?",
+                message_mode="mail",
                 insight="Compatibility is the release gate.",
                 require_peer_insight=True,
             )
@@ -57,6 +58,7 @@ class TestClient0433Contract(unittest.TestCase):
         )
         self.assertEqual(captured[0]["args"]["insight"], "Compatibility is the release gate.")
         self.assertIs(captured[0]["args"]["require_peer_insight"], True)
+        self.assertEqual(captured[0]["args"]["message_mode"], "mail")
         self.assertEqual(captured[4]["args"]["confirm"], "preamble")
         self.assertEqual(captured[5]["args"]["before"], 100)
         self.assertEqual(captured[6]["args"]["after"], 100)
@@ -300,7 +302,6 @@ class TestClient0433Contract(unittest.TestCase):
                 request_text="Review the release",
                 target="@foreman",
                 artifact_paths=["notes/meeting.md"],
-                requires_ack=True,
             )
             client.assistant_voice_document_archive(group_id="g_1", document_path="notes/meeting.md")
 
@@ -308,6 +309,7 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[2]["args"]["document_path"], "notes/meeting.md")
         self.assertEqual(captured[4]["args"]["kind"], "prompt_refine")
         self.assertEqual(captured[7]["args"]["request_text"], "Review the release")
+        self.assertNotIn("requires_ack", captured[7]["args"])
 
     def test_removed_ipc_transcription_fails_clearly(self) -> None:
         with self.assertRaises(IncompatibleDaemonError):

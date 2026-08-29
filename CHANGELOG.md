@@ -3,6 +3,34 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [Unreleased] — targets CCCC 0.4.36
+
+### Changed
+
+- Aligned all mirrored standards and compatibility probes with the single
+  native CCCC daemon. Python, TypeScript, and Rust remain supported client SDK
+  languages; none of them embeds or selects a daemon implementation.
+- Completed the atomic Send / Send + Reply / Mail migration, including
+  agent-only Mail, Mail Inbox consumption, non-consuming message history,
+  manual delivery, reply-request cancellation, and Mail replies that fulfill an
+  existing reply request without prompting the recipient immediately.
+- Added the current Context projection selector and expanded task-list filters,
+  exact batches, atomic status pages, and pagination where first-class task
+  helpers already exist.
+- Reduced legacy Group Space synchronization to its contractually supported
+  read-only status operation. Explicit ingest and source operations remain the
+  mutation path.
+
+### Compatibility
+
+- The bundled daemon reports `implementation="rust"`; compatibility decisions
+  still use IPC version, capabilities, and operation probes rather than the
+  implementation label alone.
+- Internal Web upload preflight and relay-only operations remain available via
+  generic calls but intentionally have no first-class public wrapper.
+- Package versions are deliberately unchanged. Version selection and publishing
+  remain a separate release decision.
+
 ## [0.4.34] — Unreleased
 
 ### Added

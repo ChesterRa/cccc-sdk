@@ -2,9 +2,8 @@
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
-> 状态：**面向 CCCC Daemon IPC v1 的契约优先 SDK**。最近一次打标签的
-> Python/TypeScript 版本面向 CCCC 0.4.32；`main` 上的源码包面向当前 CCCC
-> 0.4.34 候选版契约。发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
+> 状态：**面向 CCCC Daemon IPC v1 的契约优先 SDK**。`main` 上的源码包面向
+> 当前 CCCC daemon 契约。发布仍是独立的 release 步骤。具体范围见 `CHANGELOG.md`
 > 与 `spec/ADAPTATION_PLAN.md`。
 
 CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
@@ -12,12 +11,13 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 ## 与 CCCC 本体的关系
 
 - CCCC 本体仓库：https://github.com/ChesterRa/cccc
-- `cccc`（本体）负责 daemon/web/CLI，以及 `CCCC_HOME` 下的运行时状态。
+- `cccc`（本体）提供唯一的原生 Rust daemon/web/CLI，并负责 `CCCC_HOME` 下的运行时状态。
 - `cccc-sdk`（本仓库）提供 Python、TypeScript 和 Rust 客户端，调用 **Daemon IPC v1**。
+- SDK 语言与 daemon 实现无关：Python、TypeScript 和 Rust 应用连接的是同一个原生 daemon。
 - SDK 不是独立框架，必须连接到已运行的 CCCC daemon。
 
 只要 SDK 与 CCCC Web 指向同一个 `CCCC_HOME`，写入会立即互通
-（消息、ACK、context 操作、automation 配置等）。
+（消息、Inbox 读取、context 操作、automation 配置等）。
 
 ## 本仓库包含
 
@@ -67,7 +67,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
+    require_ops=["groups", "send", "reply", "inbox_read", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
 PY
@@ -77,13 +77,13 @@ PY
 
 ```bash
 # 发送消息
-python python/examples/send.py --group g_xxx --text "hello"
+python python/examples/send.py --group g_xxx --text "hello" --mode send
 
 # 订阅实时事件流
 python python/examples/stream.py --group g_xxx
 
-# 自动 ACK 重要消息（以 user 身份）
-python python/examples/auto_ack_attention.py --group g_xxx --actor user
+# 将有用但不紧急的信息放进收件方 Inbox
+python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 ```
 
 ## 快速开始（Rust）

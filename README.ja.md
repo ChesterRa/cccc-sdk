@@ -2,9 +2,8 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
-> ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。直近でタグ付け
-> された Python/TypeScript 系列は CCCC 0.4.32 を対象とし、`main` のソース
-> パッケージは現在の CCCC 0.4.34 リリース候補契約を対象とします。公開は別の release
+> ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。`main` のソース
+> パッケージは現在の CCCC daemon 契約を対象とします。公開は別の release
 > 手順です。範囲は `CHANGELOG.md` と `spec/ADAPTATION_PLAN.md` を参照してください。
 
 CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** です。
@@ -12,12 +11,13 @@ CCCC SDK は CCCC プラットフォーム向けの **クライアント SDK** �
 ## CCCC 本体との関係
 
 - CCCC 本体リポジトリ: https://github.com/ChesterRa/cccc
-- `cccc`（本体）は daemon/web/CLI を提供し、`CCCC_HOME` の実行状態を管理します。
+- `cccc`（本体）は単一のネイティブ Rust daemon/web/CLI を提供し、`CCCC_HOME` の実行状態を管理します。
 - `cccc-sdk`（このリポジトリ）は Python、TypeScript、Rust から **Daemon IPC v1** を呼ぶクライアントです。
+- SDK 言語は daemon 実装に依存せず、3 言語とも同じネイティブ daemon に接続します。
 - SDK 単体では動作せず、実行中の CCCC daemon が必要です。
 
 SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込みは即時に共有されます
-（メッセージ、ACK、context 操作、automation 更新など）。
+（メッセージ、Inbox 読み取り、context 操作、automation 更新など）。
 
 ## このリポジトリに含まれるもの
 
@@ -67,7 +67,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
+    require_ops=["groups", "send", "reply", "inbox_read", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
 PY
@@ -77,13 +77,13 @@ PY
 
 ```bash
 # メッセージ送信
-python python/examples/send.py --group g_xxx --text "hello"
+python python/examples/send.py --group g_xxx --text "hello" --mode send
 
 # リアルタイムイベント購読
 python python/examples/stream.py --group g_xxx
 
-# 重要（attention）メッセージを自動 ACK（user として）
-python python/examples/auto_ack_attention.py --group g_xxx --actor user
+# 有用だが緊急でない情報を受信者の Inbox に入れる
+python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 ```
 
 ## クイックスタート（Rust）

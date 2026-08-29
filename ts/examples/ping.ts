@@ -28,7 +28,7 @@ async function main() {
   } catch (error) {
     if (error instanceof DaemonUnavailableError) {
       console.error('Daemon unavailable:', error.message);
-      console.error('Please make sure ccccd is running.');
+      console.error('Please make sure the CCCC daemon is running.');
     } else {
       throw error;
     }

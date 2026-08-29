@@ -847,8 +847,14 @@ class CCCCClient(
             ),
         )
 
-    def context_get(self, *, group_id: str) -> Dict[str, Any]:
-        return self.call("context_get", {"group_id": str(group_id)})
+    def context_get(self, *, group_id: str, detail: str = "full") -> Dict[str, Any]:
+        normalized_detail = str(detail).strip()
+        if normalized_detail not in {"overview", "summary", "full"}:
+            raise ValueError("detail must be overview, summary, or full")
+        return self.call(
+            "context_get",
+            {"group_id": str(group_id), "detail": normalized_detail},
+        )
 
     def context_sync(
         self, *, group_id: str, ops: List[Dict[str, Any]], by: str = "system", dry_run: bool = False
@@ -1065,10 +1071,7 @@ class CCCCClient(
         by: str = "user",
         to: Optional[List[str]] = None,
         path: str = "",
-        priority: str = "normal",
-        message_priority: str = "",
         task_priority: str = "",
-        reply_required: bool = True,
         idempotency_key: str = "",
         outcome: str = "",
         status: str = "",
@@ -1096,13 +1099,8 @@ class CCCCClient(
             args["to"] = [str(x) for x in to]
         if path:
             args["path"] = str(path)
-        if priority:
-            args["priority"] = str(priority)
-        if message_priority:
-            args["message_priority"] = str(message_priority)
         if task_priority:
             args["task_priority"] = str(task_priority)
-        args["reply_required"] = bool(reply_required)
         if idempotency_key:
             args["idempotency_key"] = str(idempotency_key)
         if outcome:
@@ -1131,11 +1129,61 @@ class CCCCClient(
             args["require_peer_insight"] = bool(require_peer_insight)
         return self.call("tracked_send", args)
 
-    def task_list(self, *, group_id: str, task_id: str = "") -> Dict[str, Any]:
-        """List all tasks in a group, or fetch a single task (with children) by id."""
+    def task_list(
+        self,
+        *,
+        group_id: str,
+        task_id: str = "",
+        task_ids: Optional[List[str]] = None,
+        status: str = "",
+        statuses: Optional[List[str]] = None,
+        query: str = "",
+        assignee: str = "",
+        attention: str = "",
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+        include_index: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Fetch an exact task, a batch, or a filtered/paged task listing."""
+        if task_id and task_ids:
+            raise ValueError("task_id and task_ids are mutually exclusive")
+        if status and statuses:
+            raise ValueError("status and statuses are mutually exclusive")
+        if offset is not None and limit is None:
+            raise ValueError("offset requires limit")
+        if limit is not None and not 1 <= int(limit) <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        normalized_task_ids = [str(value).strip() for value in task_ids or []]
+        if any(not value for value in normalized_task_ids) or len(normalized_task_ids) > 100:
+            raise ValueError("task_ids must contain at most 100 non-empty ids")
+        normalized_statuses = [str(value).strip() for value in statuses or []]
+        if any(value not in {"planned", "active", "done", "archived"} for value in normalized_statuses):
+            raise ValueError("statuses contains an unsupported status")
+        if status and str(status) not in {"planned", "active", "done", "archived"}:
+            raise ValueError("status must be planned, active, done, or archived")
+        if attention and str(attention) not in {"blocked", "waiting_user", "handoff", "unassigned"}:
+            raise ValueError("attention must be blocked, waiting_user, handoff, or unassigned")
         args: Dict[str, Any] = {"group_id": str(group_id)}
         if task_id:
             args["task_id"] = str(task_id)
+        if normalized_task_ids:
+            args["task_ids"] = ",".join(normalized_task_ids)
+        if status:
+            args["status"] = str(status)
+        if normalized_statuses:
+            args["statuses"] = ",".join(normalized_statuses)
+        if query:
+            args["query"] = str(query)
+        if assignee:
+            args["assignee"] = str(assignee)
+        if attention:
+            args["attention"] = str(attention)
+        if offset is not None:
+            args["offset"] = int(offset)
+        if limit is not None:
+            args["limit"] = int(limit)
+        if include_index is not None:
+            args["include_index"] = bool(include_index)
         return self.call("task_list", args)
 
     # ---------------------------------------------------------------------
@@ -1164,22 +1212,6 @@ class CCCCClient(
         if task_id:
             args["task_id"] = str(task_id)
         return self.call("headless_set_status", args)
-
-    def headless_ack_message(
-        self,
-        *,
-        group_id: str,
-        actor_id: str,
-        message_id: str,
-    ) -> Dict[str, Any]:
-        return self.call(
-            "headless_ack_message",
-            {
-                "group_id": str(group_id),
-                "actor_id": str(actor_id),
-                "message_id": str(message_id),
-            },
-        )
 
     # ---------------------------------------------------------------------
     # Group copy (export/import for duplication/migration)
@@ -1629,7 +1661,6 @@ class CCCCClient(
         priority: str = "normal",
         target_actor_id: str = "",
         im_visibility: str = "",
-        requires_ack: bool = False,
         context: Optional[Dict[str, Any]] = None,
         by: str = "system",
     ) -> Dict[str, Any]:
@@ -1638,7 +1669,6 @@ class CCCCClient(
             "by": str(by),
             "kind": str(kind),
             "priority": str(priority),
-            "requires_ack": bool(requires_ack),
         }
         if message:
             args["message"] = str(message)

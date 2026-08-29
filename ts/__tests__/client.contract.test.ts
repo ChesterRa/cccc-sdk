@@ -31,19 +31,19 @@ describe('client contract parity', () => {
     await client.sendFiles({
       groupId: 'g_1',
       paths: ['reference.png', 'candidate.png'],
+      mode: 'request_reply',
       text: 'inspect',
       to: ['seat-design'],
-      priority: 'attention',
     });
 
     assert.equal(calls[0]?.op, 'send_files');
     assert.deepEqual(calls[0]?.args?.['paths'], ['reference.png', 'candidate.png']);
     assert.deepEqual(calls[0]?.args?.['to'], ['seat-design']);
-    assert.equal(calls[0]?.args?.['priority'], 'attention');
+    assert.equal(calls[0]?.args?.['message_mode'], 'request_reply');
 
-    await assert.rejects(client.sendFiles({ groupId: 'g_1', paths: [] }), /non-empty paths/);
+    await assert.rejects(client.sendFiles({ groupId: 'g_1', paths: [], mode: 'mail' }), /non-empty paths/);
     await assert.rejects(
-      client.sendFiles({ groupId: 'g_1', paths: ['reference.png', '  '] }),
+      client.sendFiles({ groupId: 'g_1', paths: ['reference.png', '  '], mode: 'mail' }),
       /non-empty paths/,
     );
   });
@@ -348,6 +348,7 @@ describe('message ops (cccc 0.4.17)', () => {
     await client.send({
       groupId: 'g_1',
       text: 'see ref',
+      mode: 'send',
       refs: [{ kind: 'task_ref', task_id: 't_42' }],
       attachments: [{ kind: 'file', path: 'blobs/a.txt' }],
       clientId: 'cl_1',
@@ -360,9 +361,10 @@ describe('message ops (cccc 0.4.17)', () => {
     assert.equal(calls[0]?.args?.['client_id'], 'cl_1');
     assert.equal(calls[0]?.args?.['insight'], 'Rollback remains unverified.');
     assert.equal(calls[0]?.args?.['suggested_user_message'], 'Please confirm the rollback evidence.');
+    assert.equal(calls[0]?.args?.['message_mode'], 'send');
   });
 
-  it('reply forwards refs', async () => {
+  it('reply defaults to Send and can use Mail', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
     await client.reply({
@@ -374,9 +376,19 @@ describe('message ops (cccc 0.4.17)', () => {
       suggestedUserMessage: 'Should we widen the frame?',
     });
     assert.equal(calls[0]?.op, 'reply');
+    assert.equal(calls[0]?.args?.['message_mode'], 'send');
     assert.deepEqual(calls[0]?.args?.['refs'], [{ kind: 'presentation_ref', slot_id: 'slot-1' }]);
     assert.equal(calls[0]?.args?.['insight'], 'The current frame may be too narrow.');
     assert.equal(calls[0]?.args?.['suggested_user_message'], 'Should we widen the frame?');
+
+    await client.reply({
+      groupId: 'g_1',
+      replyTo: 'e_origin',
+      text: 'quiet follow-up',
+      mode: 'mail',
+      to: ['peer-2'],
+    });
+    assert.equal(calls[1]?.args?.['message_mode'], 'mail');
   });
 
   it('sendCrossGroup uses only cross-runtime message fields', async () => {
@@ -386,6 +398,7 @@ describe('message ops (cccc 0.4.17)', () => {
       groupId: 'g_src',
       dstGroupId: 'g_dst',
       text: 'relay',
+      mode: 'request_reply',
       insight: 'The destination should challenge this plan independently.',
     });
     assert.equal(calls[0]?.op, 'send_cross_group');
@@ -394,6 +407,62 @@ describe('message ops (cccc 0.4.17)', () => {
     assert.equal(
       calls[0]?.args?.['insight'],
       'The destination should challenge this plan independently.',
+    );
+    assert.equal(calls[0]?.args?.['message_mode'], 'request_reply');
+  });
+
+  it('maps reply cancellation, delivery retry, and Inbox consumption', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+
+    await client.replyRequestCancel({ groupId: 'g_1', sourceEventId: 'e_request' });
+    await client.messageDeliver({
+      groupId: 'g_1',
+      sourceEventId: 'e_mail',
+      actorIds: ['peer-1'],
+      forceAmbiguous: true,
+    });
+    await client.inboxPeek({ groupId: 'g_1', actorId: 'peer-1', limit: 5 });
+    await client.inboxRead({ groupId: 'g_1', actorId: 'peer-1', by: 'peer-1', limit: 3 });
+    await client.messageHistory({
+      groupId: 'g_1',
+      actorId: 'peer-1',
+      mode: 'send',
+      query: 'decision',
+      beforeEventId: 'e_before',
+      limit: 7,
+    });
+
+    assert.deepEqual(calls, [
+      { op: 'reply_request_cancel', args: { group_id: 'g_1', source_event_id: 'e_request', by: 'user' } },
+      {
+        op: 'message_deliver',
+        args: {
+          group_id: 'g_1',
+          source_event_id: 'e_mail',
+          actor_ids: ['peer-1'],
+          by: 'user',
+          force_ambiguous: true,
+        },
+      },
+      { op: 'inbox_peek', args: { group_id: 'g_1', actor_id: 'peer-1', by: 'user', limit: 5 } },
+      { op: 'inbox_read', args: { group_id: 'g_1', actor_id: 'peer-1', by: 'peer-1', limit: 3 } },
+      {
+        op: 'message_history',
+        args: {
+          group_id: 'g_1',
+          actor_id: 'peer-1',
+          by: 'user',
+          mode: 'send',
+          limit: 7,
+          query: 'decision',
+          before_event_id: 'e_before',
+        },
+      },
+    ]);
+    await assert.rejects(
+      client.messageDeliver({ groupId: 'g_1', sourceEventId: 'e_mail', actorIds: [] }),
+      /non-empty actorIds/,
     );
   });
 });
@@ -492,8 +561,7 @@ describe('tracked delegation', () => {
       text: 'please fix bug',
       title: 'Fix bug',
       to: ['@alice'],
-      priority: 'attention',
-      taskPriority: 'attention',
+      taskPriority: 'high',
       idempotencyKey: 'idem-1',
       outcome: 'bug closed',
       status: 'planned',
@@ -527,7 +595,8 @@ describe('tracked delegation', () => {
     assert.equal(args['group_id'], 'g_1');
     assert.equal(args['text'], 'quick task');
     assert.equal(args['by'], 'user');
-    assert.equal(args['reply_required'], true);
+    assert.equal(args['reply_required'], undefined);
+    assert.equal(args['message_priority'], undefined);
     assert.equal(args['idempotency_key'], undefined);
     assert.equal(args['checklist'], undefined);
   });
@@ -541,11 +610,60 @@ describe('tracked delegation', () => {
 
     await client.taskList({ groupId: 'g_1', taskId: 't_3' });
     assert.equal(calls[1]?.args?.['task_id'], 't_3');
+
+    await client.taskList({
+      groupId: 'g_1',
+      taskIds: ['t_3', 't_4'],
+      statuses: ['planned', 'active'],
+      query: 'release',
+      assignee: 'peer1',
+      attention: 'blocked',
+      offset: 20,
+      limit: 20,
+      includeIndex: true,
+    });
+    assert.deepEqual(calls[2]?.args, {
+      group_id: 'g_1',
+      task_ids: 't_3,t_4',
+      statuses: 'planned,active',
+      query: 'release',
+      assignee: 'peer1',
+      attention: 'blocked',
+      offset: 20,
+      limit: 20,
+      include_index: true,
+    });
+
+    await assert.rejects(
+      client.taskList({ groupId: 'g_1', offset: 20 }),
+      /offset requires limit/,
+    );
+  });
+
+  it('maps current Context projection and read-only legacy sync status', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    await client.contextGet('g_1', 'summary');
+    await client.groupSpaceSync({ groupId: 'g_1', lane: 'work' });
+
+    assert.deepEqual(calls, [
+      { op: 'context_get', args: { group_id: 'g_1', detail: 'summary' } },
+      {
+        op: 'group_space_sync',
+        args: {
+          group_id: 'g_1',
+          provider: 'notebooklm',
+          lane: 'work',
+          action: 'status',
+          by: 'user',
+        },
+      },
+    ]);
   });
 });
 
 describe('headless control', () => {
-  it('headlessStatus / setStatus / ackMessage', async () => {
+  it('headlessStatus / setStatus', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
     await client.headlessStatus({ groupId: 'g_1', actorId: 'a1' });
@@ -555,10 +673,6 @@ describe('headless control', () => {
     assert.equal(calls[1]?.op, 'headless_set_status');
     assert.equal(calls[1]?.args?.['status'], 'working');
     assert.equal(calls[1]?.args?.['task_id'], 't_9');
-
-    await client.headlessAckMessage({ groupId: 'g_1', actorId: 'a1', messageId: 'msg_42' });
-    assert.equal(calls[2]?.op, 'headless_ack_message');
-    assert.equal(calls[2]?.args?.['message_id'], 'msg_42');
   });
 });
 
@@ -787,11 +901,10 @@ describe('stream / notify / admin', () => {
       title: 'Heads up',
       priority: 'high',
       imVisibility: 'public',
-      requiresAck: true,
       targetActorId: 'a1',
     });
     assert.equal(calls[1]?.op, 'system_notify');
-    assert.equal(calls[1]?.args?.['requires_ack'], true);
+    assert.equal(calls[1]?.args?.['requires_ack'], undefined);
     assert.equal(calls[1]?.args?.['target_actor_id'], 'a1');
     assert.equal(calls[1]?.args?.['priority'], 'high');
     assert.equal(calls[1]?.args?.['im_visibility'], 'public');

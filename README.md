@@ -2,9 +2,8 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **contract-first SDK for CCCC daemon IPC v1**. The last tagged
-> Python/TypeScript line targets CCCC 0.4.32; source packages on `main` target
-> the current CCCC 0.4.34 release-candidate contract. Publishing remains a separate release step.
+> Status: **contract-first SDK for CCCC daemon IPC v1**. Source packages on
+> `main` target the current CCCC daemon contract. Publishing remains a separate release step.
 > See `CHANGELOG.md` and `spec/ADAPTATION_PLAN.md` for exact scope.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
@@ -12,12 +11,15 @@ CCCC SDK provides **client SDKs** for building applications on top of the CCCC p
 ## Relationship to CCCC Core
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
-- `cccc` (core) ships the daemon/web/CLI and owns runtime state in `CCCC_HOME`.
+- `cccc` (core) ships one native Rust daemon/web/CLI product and owns runtime
+  state in `CCCC_HOME`.
 - `cccc-sdk` (this repo) provides Python, TypeScript, and Rust clients for **Daemon IPC v1**.
+- SDK language is independent of the daemon implementation: Python and
+  TypeScript applications connect to the same native daemon as Rust applications.
 - The SDK is not a standalone framework. It always talks to a running CCCC daemon.
 
 If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared immediately
-(messages, ACKs, context operations, automation updates, etc.).
+(messages, Inbox reads, context operations, automation updates, etc.).
 
 ## What This Repo Contains
 
@@ -68,7 +70,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
+    require_ops=["groups", "send", "reply", "inbox_read", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
 PY
@@ -78,13 +80,13 @@ PY
 
 ```bash
 # send a message
-python python/examples/send.py --group g_xxx --text "hello"
+python python/examples/send.py --group g_xxx --text "hello" --mode send
 
 # subscribe to the live event stream
 python python/examples/stream.py --group g_xxx
 
-# auto-ACK attention messages (as user)
-python python/examples/auto_ack_attention.py --group g_xxx --actor user
+# put useful non-urgent information in the recipient Inbox
+python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 ```
 
 ## Quick start (Rust)
@@ -122,6 +124,10 @@ Compatibility is enforced by **contracts**, not by strict version string matchin
 - IPC version (`ipc_v`)
 - capability discovery (`capabilities`)
 - operation probing (reject `unknown_op`)
+
+The bundled CCCC daemon reports `implementation="rust"`. Third-party compatible
+daemons still need to satisfy the same IPC and capability contract; clients do
+not infer compatibility from the implementation label alone.
 
 See `python/examples/compat_check.py`.
 

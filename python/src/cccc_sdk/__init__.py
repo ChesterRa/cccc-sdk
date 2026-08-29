@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from .client import CCCCClient
+from .client_chat_ops import MessageHistoryMode, MessageMode, ReplyMessageMode
 from .errors import (
     CCCCSDKError,
     DaemonAPIError,
@@ -25,6 +26,9 @@ __version__ = _detect_version()
 
 __all__ = [
     "CCCCClient",
+    "MessageMode",
+    "ReplyMessageMode",
+    "MessageHistoryMode",
     "CCCCSDKError",
     "DaemonAPIError",
     "DaemonConnectionError",

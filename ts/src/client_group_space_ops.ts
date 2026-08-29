@@ -149,8 +149,7 @@ const groupSpaceOps: GroupSpaceOps & ThisType<GroupSpaceClient> = {
       group_id: options.groupId,
       provider: options.provider ?? 'notebooklm',
       lane: options.lane,
-      action: options.action ?? 'status',
-      force: options.force ?? false,
+      action: 'status',
       by: options.by ?? 'user',
     });
   },

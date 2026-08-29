@@ -24,6 +24,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     await client.send({
       groupId: 'g_1',
       text: 'next?',
+      mode: 'mail',
       suggestedUserMessage: 'ship it',
       insight: 'Compatibility is the release gate.',
       requirePeerInsight: true,
@@ -55,6 +56,8 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     ]);
     assert.equal(calls[0]?.args?.['insight'], 'Compatibility is the release gate.');
     assert.equal(calls[0]?.args?.['require_peer_insight'], true);
+    assert.equal(calls[0]?.args?.['message_mode'], 'mail');
+    assert.equal(calls[1]?.args?.['message_mode'], 'send');
     assert.equal(calls[4]?.args?.['confirm'], 'preamble');
     assert.equal(calls[5]?.args?.['before'], 100);
     assert.equal(calls[5]?.args?.['limit_bytes'], 2048);
@@ -273,7 +276,6 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       requestText: 'Review the release',
       target: '@foreman',
       artifactPaths: ['notes/meeting.md'],
-      requiresAck: true,
     });
     await client.assistantVoiceDocumentArchive({ groupId: 'g_1', documentPath: 'notes/meeting.md' });
 
@@ -292,6 +294,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.equal(calls[2]?.args?.['document_path'], 'notes/meeting.md');
     assert.equal(calls[4]?.args?.['kind'], 'prompt_refine');
     assert.equal(calls[7]?.args?.['request_text'], 'Review the release');
+    assert.equal(calls[7]?.args?.['requires_ack'], undefined);
   });
 
   it('fails clearly for the removed daemon IPC transcription operation', async () => {

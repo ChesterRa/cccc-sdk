@@ -35,16 +35,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install cccc + cccc-sdk (editable)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cccc -> target
+
+      - name: Build native CCCC
+        working-directory: cccc
+        run: cargo build --locked -p cccc --bin cccc
+
+      - name: Install cccc-sdk (editable)
         run: |
           python -m pip install -U pip
-          python -m pip install -e cccc
           python -m pip install -e python
 
       - name: Smoke (daemon + sdk)
         run: |
           set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
+          export PATH="$PWD/cccc/target/debug:$PATH"
           cleanup() {
             cccc daemon stop >/dev/null 2>&1 || true
           }

@@ -35,7 +35,7 @@ export {
 // Export type guards.
 export {
   isChatMessageEvent,
-  isChatReadEvent,
+  isMailReadEvent,
   isChatCrossGroupReceiptEvent,
   isStreamEvent,
   isStreamHeartbeat,
@@ -61,6 +61,9 @@ export type {
   // Message types (shared).
   MessageRef,
   MessageAttachment,
+  MessageMode,
+  ReplyMessageMode,
+  MessageHistoryOptions,
   AsyncResultEnvelope,
   // Operation argument types.
   SendOptions,
@@ -88,7 +91,6 @@ export type {
   HeadlessStatus,
   HeadlessStatusOptions,
   HeadlessSetStatusOptions,
-  HeadlessAckMessageOptions,
   GroupCreateOptions,
   GroupUpdateOptions,
   GroupCopyExportOptions,
@@ -186,7 +188,9 @@ export type {
   GroupAutomationUpdateOptions,
   GroupAutomationManageOptions,
   GroupAutomationResetBaselineOptions,
-  InboxListOptions,
+  InboxOptions,
+  MessageDeliverOptions,
+  ReplyRequestCancelOptions,
   ContextSyncOptions,
   CoordinationBriefUpdateOptions,
   CoordinationNoteAddOptions,
@@ -220,11 +224,11 @@ export type {
   SendAndWaitOptions,
   // Strongly-typed event data.
   ChatMessageEventData,
-  ChatReadEventData,
+  MailReadEventData,
   ChatCrossGroupReceiptEventData,
   NotifyReminderEventData,
   ChatMessageEvent,
-  ChatReadEvent,
+  MailReadEvent,
   ChatCrossGroupReceiptEvent,
   // B6: Strongly-typed result types.
   ActorInfo,
@@ -236,11 +240,14 @@ export type {
   GroupCreateResult,
   ActorListResult,
   ActorAddResult,
-  InboxListResult,
+  InboxPeekResult,
+  InboxReadResult,
+  MessageHistoryResult,
   TerminalSnapshotResult,
   WebModelDeliveryPreferencesResult,
   WebModelRuntimeRecoverTurnResult,
   ContextGetResult,
+  ContextDetail,
 } from './types.js';
 
 /** SDK version */

@@ -30,7 +30,7 @@ class CCCC0430AssistantOpsMixin:
     ) -> Dict[str, Any]:
         del group_id, audio_base64, path, mime_type, by
         raise IncompatibleDaemonError(
-            "assistant_voice_transcribe was removed from Rust daemon IPC; "
+            "assistant_voice_transcribe was removed from CCCC daemon IPC; "
             "use the HTTP Voice Secretary transcription endpoint"
         )
 
@@ -239,7 +239,6 @@ class CCCC0430AssistantOpsMixin:
         artifact_paths: Optional[list[str]] = None,
         source_event_id: str = "",
         priority: str = "",
-        requires_ack: Optional[bool] = None,
         by: str = "voice-secretary",
     ) -> Dict[str, Any]:
         return self.call(
@@ -254,7 +253,6 @@ class CCCC0430AssistantOpsMixin:
                     "artifact_paths": [str(path) for path in artifact_paths] if artifact_paths is not None else None,
                     "source_event_id": source_event_id or None,
                     "priority": priority or None,
-                    "requires_ack": requires_ack,
                     "by": str(by),
                 }
             ),

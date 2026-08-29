@@ -6,7 +6,7 @@ import {
 import type { ErrorCode } from '../src/errors.js';
 import {
   isChatMessageEvent,
-  isChatReadEvent,
+  isMailReadEvent,
   isChatCrossGroupReceiptEvent,
   isStreamEvent,
   isStreamHeartbeat,
@@ -68,12 +68,12 @@ describe('isChatMessageEvent', () => {
   it('narrows data type', () => {
     const event: CCCSEvent = {
       id: 'e1', ts: '2024-01-01T00:00:00Z', kind: 'chat.message',
-      group_id: 'g1', data: { text: 'hello', priority: 'normal' },
+      group_id: 'g1', data: { text: 'hello', message_mode: 'mail' },
     };
     if (isChatMessageEvent(event)) {
       // These should be accessible without cast
       assert.equal(event.data.text, 'hello');
-      assert.equal(event.data.priority, 'normal');
+      assert.equal(event.data.message_mode, 'mail');
     } else {
       assert.fail('should be chat.message');
     }
@@ -81,41 +81,41 @@ describe('isChatMessageEvent', () => {
 
   it('returns false for non-chat.message events', () => {
     const event: CCCSEvent = {
-      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'chat.read',
+      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'mail.read',
       group_id: 'g1', data: { actor_id: 'a1', event_id: 'e1' },
     };
     assert.ok(!isChatMessageEvent(event));
   });
 });
 
-describe('isChatReadEvent', () => {
-  it('returns true for chat.read events', () => {
+describe('isMailReadEvent', () => {
+  it('returns true for mail.read events', () => {
     const event: CCCSEvent = {
-      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'chat.read',
+      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'mail.read',
       group_id: 'g1', data: { actor_id: 'a1', event_id: 'e1' },
     };
-    assert.ok(isChatReadEvent(event));
+    assert.ok(isMailReadEvent(event));
   });
 
   it('narrows data type', () => {
     const event: CCCSEvent = {
-      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'chat.read',
+      id: 'e2', ts: '2024-01-01T00:00:00Z', kind: 'mail.read',
       group_id: 'g1', data: { actor_id: 'a1', event_id: 'e1' },
     };
-    if (isChatReadEvent(event)) {
+    if (isMailReadEvent(event)) {
       assert.equal(event.data.actor_id, 'a1');
       assert.equal(event.data.event_id, 'e1');
     } else {
-      assert.fail('should be chat.read');
+      assert.fail('should be mail.read');
     }
   });
 
-  it('returns false for non-chat.read events', () => {
+  it('returns false for non-mail.read events', () => {
     const event: CCCSEvent = {
       id: 'e1', ts: '2024-01-01T00:00:00Z', kind: 'chat.message',
       group_id: 'g1', data: { text: 'hi' },
     };
-    assert.ok(!isChatReadEvent(event));
+    assert.ok(!isMailReadEvent(event));
   });
 });
 
