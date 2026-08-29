@@ -32,8 +32,7 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       checklist: [{ text: 'write tests', status: 'pending' }],
       by: 'user',
       to: ['peer-impl'],
-      priority: 'attention',
-      replyRequired: true,
+      taskPriority: 'high',
       waitingOn: 'actor',
       insight: 'This task closes the release gap.',
       requirePeerInsight: true,
@@ -49,15 +48,14 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
       checklist: [{ text: 'write tests', status: 'pending' }],
       by: 'user',
       to: ['peer-impl'],
-      priority: 'attention',
-      reply_required: true,
+      task_priority: 'high',
       waiting_on: 'actor',
       insight: 'This task closes the release gap.',
       require_peer_insight: true,
     });
   });
 
-  it('trackedSend defaults reply_required to true', async () => {
+  it('trackedSend does not create a reply obligation', async () => {
     const call = await captureCall((client) => client.trackedSend({
       groupId: 'g1',
       title: 'Review SDK',
@@ -65,7 +63,8 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     }));
 
     assert.equal(call.op, 'tracked_send');
-    assert.equal(call.args.reply_required, true);
+    assert.equal(call.args.reply_required, undefined);
+    assert.equal(call.args.message_priority, undefined);
   });
 
   it('coordinationBriefUpdate emits context_sync coordination.brief.update', async () => {

@@ -4,12 +4,12 @@ on:
   push:
     paths:
       - "ts/**"
-      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
       - "ts/**"
-      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/ts-ci.yml"
 
 jobs:
@@ -60,13 +60,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.19.0"
           cache: npm
           cache-dependency-path: ts/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          python-version: "3.12"
+          workspaces: cccc -> target
 
       - name: Install TS SDK deps
         working-directory: ts
@@ -74,31 +76,22 @@ jobs:
           npm ci
           npm run build
 
-      - name: Install cccc daemon
-        run: |
-          python -m pip install -U pip
-          python -m pip install -e cccc
+      - name: Build native CCCC
+        working-directory: cccc
+        run: cargo build --locked -p cccc --bin cccc
 
-      - name: SDK <-> daemon integration smoke
+      - name: SDK against current message and Mail contract
         run: |
           set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
+          export PATH="$PWD/cccc/target/debug:$PATH"
           mkdir -p "$CCCC_HOME"
 
-          python -m cccc.daemon_main run >"$CCCC_HOME/daemon.log" 2>&1 &
-          DAEMON_PID=$!
           cleanup() {
-            kill "$DAEMON_PID" >/dev/null 2>&1 || true
-            wait "$DAEMON_PID" >/dev/null 2>&1 || true
+            cccc daemon stop >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-
-          for i in $(seq 1 120); do
-            if [ -f "$CCCC_HOME/daemon/ccccd.addr.json" ]; then
-              break
-            fi
-            sleep 0.1
-          done
+          cccc daemon start
           test -f "$CCCC_HOME/daemon/ccccd.addr.json"
 
           node --input-type=module <<'JS'
@@ -107,14 +100,13 @@ jobs:
           import fs from 'node:fs/promises';
           import { CCCCClient, discoverEndpoint } from './ts/dist/index.js';
 
-          // Validate daemon TCP endpoint normalization for 0.0.0.0/localhost style descriptors.
           const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-sdk-ts-'));
           const fakeDaemon = path.join(fakeHome, 'daemon');
           await fs.mkdir(fakeDaemon, { recursive: true });
           await fs.writeFile(
             path.join(fakeDaemon, 'ccccd.addr.json'),
             JSON.stringify({ v: 1, transport: 'tcp', host: '0.0.0.0', port: 12345 }),
-            'utf-8'
+            'utf-8',
           );
           const fakeEndpoint = await discoverEndpoint(fakeHome);
           if (fakeEndpoint.host !== '127.0.0.1') {
@@ -132,7 +124,11 @@ jobs:
               'group_preamble_set',
               'group_preamble_reset',
               'send',
+              'reply',
               'send_files',
+              'inbox_peek',
+              'inbox_read',
+              'message_history',
               'events_stream',
               'memory_search',
               'memory_get',
@@ -152,121 +148,53 @@ jobs:
 
           const created = await client.groupCreate({ title: 'ts-integration' });
           const groupId = String(created.group_id || '');
-          if (!groupId) {
-            throw new Error('groupCreate did not return group_id');
-          }
-
-          const eventPromise = (async () => {
-            for await (const item of client.eventsStream({ groupId, by: 'user' })) {
-              if (item.t === 'event') return item.event;
-            }
-            return null;
-          })();
-
-          await new Promise((r) => setTimeout(r, 200));
-          await client.send({ groupId, text: 'hello from ts-ci', by: 'user', to: ['user'] });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timed out waiting for stream event')), 5000)
-          );
-          const event = await Promise.race([eventPromise, timeoutPromise]);
-
-          if (!event || typeof event.id !== 'string' || event.id.length === 0) {
-            throw new Error('stream event is missing canonical id field');
-          }
-          console.log('integration smoke passed', { groupId, eventId: event.id });
-          JS
-
-  native-daemon-0433:
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@1.88.0
-
-      - name: Build TypeScript SDK
-        working-directory: ts
-        run: |
-          npm ci
-          npm run build
-
-      - name: Install exact native daemon
-        run: cargo install cccc --version '=0.4.33' --locked
-
-      - name: Verify stream gating and stable completion replay
-        run: |
-          set -euo pipefail
-          export CCCC_HOME="$RUNNER_TEMP/cccc-sdk-ts-0433"
-          cccc daemon start
-          cleanup() {
-            cccc daemon stop >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          node --input-type=module <<'JS'
-          import { CCCCClient, IncompatibleDaemonError } from './ts/dist/index.js';
-
-          const client = await CCCCClient.create({ ccccHome: process.env.CCCC_HOME });
-          const created = await client.groupCreate({ title: 'ts-sdk-native-0433' });
-          const groupId = String(created.group_id || '');
           if (!groupId) throw new Error('groupCreate did not return group_id');
 
           try {
             await client.groupStart(groupId);
-            let streamProbeRejected = false;
-            try {
-              await client.assertCompatible({ requireOps: ['events_stream'] });
-            } catch (error) {
-              if (error instanceof IncompatibleDaemonError) streamProbeRejected = true;
-              else throw error;
-            }
-            if (!streamProbeRejected) {
-              throw new Error('native 0.4.33 unexpectedly accepted events_stream probe');
-            }
-
             await client.actorAdd({
               groupId,
-              actorId: 'web-ci',
-              runtime: 'web_model',
+              actorId: 'sdk-live',
+              runtime: 'custom',
               runner: 'headless',
+              command: ['/usr/bin/true'],
             });
-            await client.send({
+
+            const eventPromise = (async () => {
+              for await (const item of client.eventsStream({ groupId, by: 'user' })) {
+                if (item.t === 'event') return item.event;
+              }
+              return null;
+            })();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            await client.send({ groupId, text: 'hello from ts-ci', mode: 'send', to: ['user'] });
+            const event = await Promise.race([
+              eventPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error('stream timeout')), 5000)),
+            ]);
+            if (!event || typeof event.id !== 'string' || event.id.length === 0) {
+              throw new Error('stream event is missing canonical id');
+            }
+
+            const mailOptions = {
               groupId,
-              text: 'native runtime completion probe',
-              by: 'user',
-              to: ['web-ci'],
-            });
-            const acquired = await client.webModelRuntimeWaitNextTurn({
-              groupId,
-              actorId: 'web-ci',
-            });
-            const turn = acquired.turn;
-            if (!turn || typeof turn !== 'object') {
-              throw new Error(`waitNextTurn returned no work: ${JSON.stringify(acquired)}`);
+              text: 'TS SDK Mail replay probe',
+              mode: 'mail',
+              to: ['sdk-live'],
+              clientId: `ts-sdk:${groupId}:mail`,
+            };
+            const first = await client.send(mailOptions);
+            const replay = await client.send(mailOptions);
+            if (first.event?.id !== replay.event?.id || replay.duplicate !== true) {
+              throw new Error('stable clientId did not replay the Mail event');
             }
-            const turnId = String(turn.turn_id || '');
-            const eventIds = Array.isArray(turn.event_ids) ? turn.event_ids.map(String) : [];
-            if (!turnId || eventIds.length === 0) {
-              throw new Error(`invalid native turn: ${JSON.stringify(turn)}`);
+            const peeked = await client.inboxPeek({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            const consumed = await client.inboxRead({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            if (peeked.messages?.length !== 1 || consumed.messages?.length !== 1) {
+              throw new Error('Mail was not visible and consumed exactly once');
             }
-            const deliveryId = `ts-ci:${turnId}`;
-            const options = { groupId, actorId: 'web-ci', turnId, deliveryId, eventIds };
-            const first = await client.webModelRuntimeCompleteTurn(options);
-            const replay = await client.webModelRuntimeCompleteTurn(options);
-            if (first.delivery_id !== deliveryId || replay.delivery_id !== deliveryId) {
-              throw new Error('completion did not preserve delivery_id');
-            }
-            if (!first.read_event || !replay.read_event || first.read_event.id !== replay.read_event.id) {
-              throw new Error('completion replay created a second receipt');
-            }
+            const empty = await client.inboxRead({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            if (empty.messages?.length) throw new Error('Mail remained unread after inboxRead');
           } finally {
             await client.groupDelete(groupId);
           }

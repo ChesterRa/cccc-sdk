@@ -4,12 +4,12 @@ on:
   push:
     paths:
       - "python/**"
-      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/python-integration.yml"
   pull_request:
     paths:
       - "python/**"
-      - "spec/SDK_DAEMON_TARGET_0_4_33.json"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/python-integration.yml"
   workflow_dispatch:
     inputs:
@@ -40,16 +40,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install cccc + cccc-sdk (editable)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cccc -> target
+
+      - name: Build native CCCC
+        working-directory: cccc
+        run: cargo build --locked -p cccc --bin cccc
+
+      - name: Install cccc-sdk (editable)
         run: |
           python -m pip install -U pip
-          python -m pip install -e cccc
           python -m pip install -e python
 
-      - name: Smoke (daemon + sdk)
+      - name: Smoke current message and Mail contract
         run: |
           set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
+          export PATH="$PWD/cccc/target/debug:$PATH"
           cleanup() {
             cccc daemon stop >/dev/null 2>&1 || true
           }
@@ -57,38 +71,11 @@ jobs:
           cccc daemon start
           python python/examples/compat_check.py
 
-  native-daemon-0433:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: dtolnay/rust-toolchain@1.88.0
-
-      - name: Install exact native daemon and Python SDK
-        run: |
-          cargo install cccc --version '=0.4.33' --locked
-          python -m pip install -e python
-
-      - name: Verify stable Web Model completion replay
-        run: |
-          set -euo pipefail
-          export CCCC_HOME="$RUNNER_TEMP/cccc-sdk-python-0433"
-          cccc daemon start
-          cleanup() {
-            cccc daemon stop >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
           python - <<'PY'
           from cccc_sdk import CCCCClient
 
           client = CCCCClient()
-          created = client.group_create(title="python-sdk-native-0433")
+          created = client.group_create(title="python-sdk-native-current")
           group_id = str(created.get("group_id") or "")
           if not group_id:
               raise RuntimeError("group_create did not return group_id")
@@ -97,39 +84,32 @@ jobs:
               client.group_start(group_id=group_id)
               client.actor_add(
                   group_id=group_id,
-                  actor_id="web-ci",
-                  runtime="web_model",
+                  actor_id="sdk-live",
+                  runtime="custom",
                   runner="headless",
+                  command=["/usr/bin/true"],
               )
-              client.send(
-                  group_id=group_id,
-                  text="native runtime completion probe",
-                  by="user",
-                  to=["web-ci"],
-              )
-              acquired = client.web_model_runtime_wait_next_turn(
-                  group_id=group_id,
-                  actor_id="web-ci",
-              )
-              turn = acquired.get("turn") or {}
-              turn_id = str(turn.get("turn_id") or "")
-              event_ids = list(turn.get("event_ids") or [])
-              if not turn_id or not event_ids:
-                  raise RuntimeError(f"wait_next_turn returned no work: {acquired!r}")
-              delivery_id = f"python-ci:{turn_id}"
               options = {
                   "group_id": group_id,
-                  "actor_id": "web-ci",
-                  "turn_id": turn_id,
-                  "delivery_id": delivery_id,
-                  "event_ids": event_ids,
+                  "text": "python SDK Mail replay probe",
+                  "message_mode": "mail",
+                  "to": ["sdk-live"],
+                  "client_id": f"python-sdk:{group_id}:mail",
               }
-              first = client.web_model_runtime_complete_turn(**options)
-              replay = client.web_model_runtime_complete_turn(**options)
-              if first.get("delivery_id") != delivery_id or replay.get("delivery_id") != delivery_id:
-                  raise RuntimeError("completion did not preserve delivery_id")
-              if (first.get("read_event") or {}).get("id") != (replay.get("read_event") or {}).get("id"):
-                  raise RuntimeError("completion replay created a second receipt")
+              first = client.send(**options)
+              replay = client.send(**options)
+              if (first.get("event") or {}).get("id") != (replay.get("event") or {}).get("id"):
+                  raise RuntimeError("stable client_id created two Mail events")
+              if replay.get("duplicate") is not True:
+                  raise RuntimeError("Mail replay did not expose duplicate=true")
+
+              peeked = client.inbox_peek(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              consumed = client.inbox_read(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              if len(peeked.get("messages") or []) != 1 or len(consumed.get("messages") or []) != 1:
+                  raise RuntimeError("Mail was not visible and consumed exactly once")
+              empty = client.inbox_read(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              if empty.get("messages"):
+                  raise RuntimeError("Mail remained unread after inbox_read")
           finally:
               client.group_delete(group_id=group_id)
           PY

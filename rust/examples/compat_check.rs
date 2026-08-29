@@ -9,7 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "group_show",
             "send",
             "reply",
-            "inbox_list",
+            "inbox_read",
+            "message_history",
             "context_get",
             "context_sync",
             "group_preamble_get",
@@ -25,9 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let daemon = client.assert_compatible(&requirements)?;
     println!(
         "CCCC {} ({}) is compatible with IPC v{}",
-        daemon.version,
-        daemon.implementation.as_deref().unwrap_or("unknown"),
-        daemon.ipc_v
+        daemon.version, daemon.implementation, daemon.ipc_v
     );
     Ok(())
 }

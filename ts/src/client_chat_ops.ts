@@ -1,8 +1,11 @@
 import type {
   CCCSEvent,
   EventStreamItem,
-  InboxListOptions,
+  InboxOptions,
+  MessageHistoryOptions,
+  MessageDeliverOptions,
   ReplyOptions,
+  ReplyRequestCancelOptions,
   SendAndWaitOptions,
   SendCrossGroupOptions,
   SendFilesOptions,
@@ -31,12 +34,12 @@ export interface ChatOps {
   sendFiles(options: SendFilesOptions): Promise<Record<string, unknown>>;
   sendCrossGroup(options: SendCrossGroupOptions): Promise<Record<string, unknown>>;
   reply(options: ReplyOptions): Promise<Record<string, unknown>>;
-  chatAck(groupId: string, actorId: string, eventId: string, by?: string): Promise<Record<string, unknown>>;
+  replyRequestCancel(options: ReplyRequestCancelOptions): Promise<Record<string, unknown>>;
+  messageDeliver(options: MessageDeliverOptions): Promise<Record<string, unknown>>;
   sendAndWaitForReply(options: SendAndWaitOptions): Promise<CCCSEvent>;
-  inboxList(options: InboxListOptions): Promise<Record<string, unknown>>;
-  inboxMarkRead(groupId: string, actorId: string, eventId: string, by?: string): Promise<Record<string, unknown>>;
-  inboxMarkAllRead(groupId: string, actorId: string, by?: string, kindFilter?: string): Promise<Record<string, unknown>>;
-  notifyAck(groupId: string, actorId: string, notifyEventId: string, by?: string): Promise<Record<string, unknown>>;
+  inboxPeek(options: InboxOptions): Promise<Record<string, unknown>>;
+  inboxRead(options: InboxOptions): Promise<Record<string, unknown>>;
+  messageHistory(options: MessageHistoryOptions): Promise<Record<string, unknown>>;
 }
 
 const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
@@ -45,8 +48,7 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       group_id: options.groupId,
       text: options.text,
       by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
+      message_mode: options.mode,
     };
 
     if (options.to) args['to'] = options.to;
@@ -73,8 +75,7 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       paths: normalizedPaths,
       text: options.text ?? '',
       by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
+      message_mode: options.mode,
     };
     if (options.to) args['to'] = options.to;
     if (options.insight) args['insight'] = options.insight;
@@ -88,8 +89,7 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       dst_group_id: options.dstGroupId,
       text: options.text,
       by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
+      message_mode: options.mode,
     };
 
     if (options.to) args['to'] = options.to;
@@ -105,8 +105,7 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       reply_to: options.replyTo,
       text: options.text,
       by: options.by ?? 'user',
-      priority: options.priority ?? 'normal',
-      reply_required: options.replyRequired ?? false,
+      message_mode: options.mode ?? 'send',
     };
 
     if (options.to) args['to'] = options.to;
@@ -120,12 +119,27 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     return this.call('reply', args);
   },
 
-  async chatAck(groupId, actorId, eventId, by) {
-    return this.call('chat_ack', {
-      group_id: groupId,
-      actor_id: actorId,
-      event_id: eventId,
-      by: by ?? actorId,
+  async replyRequestCancel(options) {
+    return this.call('reply_request_cancel', {
+      group_id: options.groupId,
+      source_event_id: options.sourceEventId,
+      by: options.by ?? 'user',
+    });
+  },
+
+  async messageDeliver(options) {
+    const actorIds = Array.isArray(options.actorIds)
+      ? options.actorIds.map((actorId) => String(actorId).trim())
+      : [];
+    if (actorIds.length === 0 || actorIds.some((actorId) => actorId.length === 0)) {
+      throw new DaemonAPIError('invalid_args', 'messageDeliver requires one or more non-empty actorIds', {});
+    }
+    return this.call('message_deliver', {
+      group_id: options.groupId,
+      source_event_id: options.sourceEventId,
+      actor_ids: actorIds,
+      by: options.by ?? 'user',
+      force_ambiguous: options.forceAmbiguous ?? false,
     });
   },
 
@@ -164,7 +178,7 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     let nextItem = stream.next();
 
     try {
-      const sendResult = await this.send(options) as unknown as SendResult;
+      const sendResult = await this.send({ ...options, mode: 'request_reply' }) as unknown as SendResult;
       const sentEventId = sendResult.event.id;
       while (true) {
         const { value: item, done } = await nextItem;
@@ -193,41 +207,35 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     throw new Error('sendAndWaitForReply: stream ended without reply');
   },
 
-  async inboxList(options) {
-    return this.call('inbox_list', {
+  async inboxPeek(options) {
+    return this.call('inbox_peek', {
       group_id: options.groupId,
       actor_id: options.actorId,
       by: options.by ?? 'user',
       limit: options.limit ?? 50,
-      kind_filter: options.kindFilter ?? 'all',
     });
   },
 
-  async inboxMarkRead(groupId, actorId, eventId, by = 'user') {
-    return this.call('inbox_mark_read', {
-      group_id: groupId,
-      actor_id: actorId,
-      event_id: eventId,
-      by,
+  async inboxRead(options) {
+    return this.call('inbox_read', {
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      by: options.by ?? 'user',
+      limit: options.limit ?? 50,
     });
   },
 
-  async inboxMarkAllRead(groupId, actorId, by = 'user', kindFilter = 'all') {
-    return this.call('inbox_mark_all_read', {
-      group_id: groupId,
-      actor_id: actorId,
-      by,
-      kind_filter: kindFilter,
-    });
-  },
-
-  async notifyAck(groupId, actorId, notifyEventId, by) {
-    return this.call('notify_ack', {
-      group_id: groupId,
-      actor_id: actorId,
-      notify_event_id: notifyEventId,
-      by: by ?? actorId,
-    });
+  async messageHistory(options) {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      actor_id: options.actorId,
+      by: options.by ?? 'user',
+      mode: options.mode ?? 'all',
+      limit: options.limit ?? 50,
+    };
+    if (options.query) args['query'] = options.query;
+    if (options.beforeEventId) args['before_event_id'] = options.beforeEventId;
+    return this.call('message_history', args);
   },
 };
 

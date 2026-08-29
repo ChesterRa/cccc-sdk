@@ -9,9 +9,10 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
 use crate::{
-    discover_endpoint, DaemonEndpoint, DaemonRequest, DaemonResponse, Error, PingResult, Result,
-    TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions,
-    TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
+    discover_endpoint, ContextDetail, DaemonEndpoint, DaemonRequest, DaemonResponse, Error,
+    MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, Result, TerminalHistoryOptions,
+    TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions, TerminalSinceResult,
+    TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
     WebModelDeliveryPreferencesResult, WebModelRuntimeRecoverTurnResult,
 };
 
@@ -210,12 +211,19 @@ impl CCCCClient {
         self.call("group_show", object([("group_id", json!(group_id))]))
     }
 
-    pub fn send(&self, group_id: &str, text: &str, by: &str) -> Result<Map<String, Value>> {
+    pub fn send(
+        &self,
+        group_id: &str,
+        text: &str,
+        message_mode: MessageMode,
+        by: &str,
+    ) -> Result<Map<String, Value>> {
         self.call(
             "send",
             object([
                 ("group_id", json!(group_id)),
                 ("text", json!(text)),
+                ("message_mode", json!(message_mode.as_str())),
                 ("by", json!(by)),
             ]),
         )
@@ -228,32 +236,152 @@ impl CCCCClient {
         text: &str,
         by: &str,
     ) -> Result<Map<String, Value>> {
+        self.reply_with_mode(group_id, reply_to, text, ReplyMessageMode::Send, by)
+    }
+
+    pub fn reply_with_mode(
+        &self,
+        group_id: &str,
+        reply_to: &str,
+        text: &str,
+        message_mode: ReplyMessageMode,
+        by: &str,
+    ) -> Result<Map<String, Value>> {
         self.call(
             "reply",
             object([
                 ("group_id", json!(group_id)),
                 ("reply_to", json!(reply_to)),
                 ("text", json!(text)),
+                ("message_mode", json!(message_mode.as_str())),
                 ("by", json!(by)),
             ]),
         )
     }
 
-    pub fn inbox_list(
+    pub fn reply_request_cancel(
+        &self,
+        group_id: &str,
+        source_event_id: &str,
+        by: &str,
+    ) -> Result<Map<String, Value>> {
+        self.call(
+            "reply_request_cancel",
+            object([
+                ("group_id", json!(group_id)),
+                ("source_event_id", json!(source_event_id)),
+                ("by", json!(by)),
+            ]),
+        )
+    }
+
+    pub fn message_deliver(
+        &self,
+        group_id: &str,
+        source_event_id: &str,
+        actor_ids: &[&str],
+        by: &str,
+        force_ambiguous: bool,
+    ) -> Result<Map<String, Value>> {
+        if actor_ids.is_empty() || actor_ids.iter().any(|actor_id| actor_id.trim().is_empty()) {
+            return Err(Error::InvalidArgument(
+                "message_deliver requires one or more non-empty actor_ids".into(),
+            ));
+        }
+        self.call(
+            "message_deliver",
+            object([
+                ("group_id", json!(group_id)),
+                ("source_event_id", json!(source_event_id)),
+                ("actor_ids", json!(actor_ids)),
+                ("by", json!(by)),
+                ("force_ambiguous", json!(force_ambiguous)),
+            ]),
+        )
+    }
+
+    pub fn inbox_peek(
         &self,
         group_id: &str,
         actor_id: &str,
+        by: &str,
         limit: Option<u32>,
     ) -> Result<Map<String, Value>> {
-        let mut args = object([("group_id", json!(group_id)), ("actor_id", json!(actor_id))]);
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("actor_id", json!(actor_id)),
+            ("by", json!(by)),
+        ]);
         if let Some(limit) = limit {
             args.insert("limit".into(), json!(limit));
         }
-        self.call("inbox_list", args)
+        self.call("inbox_peek", args)
+    }
+
+    pub fn inbox_read(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        by: &str,
+        limit: Option<u32>,
+    ) -> Result<Map<String, Value>> {
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("actor_id", json!(actor_id)),
+            ("by", json!(by)),
+        ]);
+        if let Some(limit) = limit {
+            args.insert("limit".into(), json!(limit));
+        }
+        self.call("inbox_read", args)
+    }
+
+    /// Inspect actor-visible chat history without consuming Mail.
+    #[allow(clippy::too_many_arguments)]
+    pub fn message_history(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        by: &str,
+        mode: MessageHistoryMode,
+        query: Option<&str>,
+        before_event_id: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Map<String, Value>> {
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("actor_id", json!(actor_id)),
+            ("by", json!(by)),
+            ("mode", json!(mode.as_str())),
+        ]);
+        if let Some(query) = query.filter(|value| !value.is_empty()) {
+            args.insert("query".into(), json!(query));
+        }
+        if let Some(before_event_id) = before_event_id.filter(|value| !value.is_empty()) {
+            args.insert("before_event_id".into(), json!(before_event_id));
+        }
+        if let Some(limit) = limit {
+            args.insert("limit".into(), json!(limit));
+        }
+        self.call("message_history", args)
     }
 
     pub fn context_get(&self, group_id: &str) -> Result<Map<String, Value>> {
-        self.call("context_get", object([("group_id", json!(group_id))]))
+        self.context_get_with_detail(group_id, ContextDetail::Full)
+    }
+
+    pub fn context_get_with_detail(
+        &self,
+        group_id: &str,
+        detail: ContextDetail,
+    ) -> Result<Map<String, Value>> {
+        self.call(
+            "context_get",
+            object([
+                ("group_id", json!(group_id)),
+                ("detail", json!(detail.as_str())),
+            ]),
+        )
     }
 
     pub fn context_sync(
@@ -622,7 +750,7 @@ mod tests {
     #[test]
     fn sends_a_valid_ping_envelope() {
         let (endpoint, server) = server_once(
-            "{\"v\":1,\"ok\":true,\"result\":{\"version\":\"0.4.33\",\"ipc_v\":1,\"capabilities\":{}}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"version\":\"0.4.33\",\"implementation\":\"rust\",\"ipc_v\":1,\"capabilities\":{}}}\n",
         );
         let ping = CCCCClient::new(endpoint).ping().expect("ping");
         assert_eq!(ping.version, "0.4.33");
@@ -646,6 +774,87 @@ mod tests {
             Error::Daemon(crate::DaemonError { ref code, .. }) if code == "unknown_op"
         ));
         server.join().expect("server thread");
+    }
+
+    #[test]
+    fn maps_current_message_delivery_and_inbox_operations() {
+        let response = "{\"v\":1,\"ok\":true,\"result\":{}}\n";
+        let (endpoint, server) = server_sequence(vec![response; 7]);
+        let client = CCCCClient::new(endpoint);
+
+        client
+            .send("g_1", "FYI", MessageMode::Mail, "user")
+            .expect("send Mail");
+        client
+            .reply_with_mode(
+                "g_1",
+                "e_request",
+                "quiet follow-up",
+                ReplyMessageMode::Mail,
+                "peer-1",
+            )
+            .expect("reply with Mail");
+        client
+            .reply_request_cancel("g_1", "e_request", "user")
+            .expect("cancel reply request");
+        client
+            .message_deliver("g_1", "e_mail", &["peer-1"], "user", true)
+            .expect("deliver existing message");
+        client
+            .inbox_peek("g_1", "peer-1", "user", Some(5))
+            .expect("peek Inbox");
+        client
+            .inbox_read("g_1", "peer-1", "peer-1", Some(3))
+            .expect("read Inbox");
+        client
+            .message_history(
+                "g_1",
+                "peer-1",
+                "user",
+                MessageHistoryMode::Send,
+                Some("decision"),
+                Some("e_before"),
+                Some(7),
+            )
+            .expect("read message history");
+
+        let requests: Vec<Value> = server
+            .join()
+            .expect("server thread")
+            .iter()
+            .map(|request| serde_json::from_str(request).expect("request JSON"))
+            .collect();
+        assert_eq!(requests[0]["args"]["message_mode"], "mail");
+        assert_eq!(requests[1]["op"], "reply");
+        assert_eq!(requests[1]["args"]["message_mode"], "mail");
+        assert_eq!(requests[2]["op"], "reply_request_cancel");
+        assert_eq!(requests[3]["args"]["actor_ids"], json!(["peer-1"]));
+        assert_eq!(requests[3]["args"]["force_ambiguous"], true);
+        assert_eq!(requests[4]["op"], "inbox_peek");
+        assert_eq!(requests[5]["op"], "inbox_read");
+        assert_eq!(requests[6]["op"], "message_history");
+        assert_eq!(requests[6]["args"]["mode"], "send");
+        assert_eq!(requests[6]["args"]["query"], "decision");
+        assert_eq!(requests[6]["args"]["before_event_id"], "e_before");
+        assert_eq!(requests[6]["args"]["limit"], 7);
+        assert!(matches!(
+            client.message_deliver("g_1", "e_mail", &[], "user", false),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn context_get_uses_the_current_projection_contract() {
+        let (endpoint, server) = server_once("{\"v\":1,\"ok\":true,\"result\":{}}\n");
+        CCCCClient::new(endpoint)
+            .context_get_with_detail("g_1", ContextDetail::Summary)
+            .expect("summary context");
+        let request: Value =
+            serde_json::from_str(&server.join().expect("server thread")).expect("request JSON");
+        assert_eq!(
+            request,
+            json!({"v": 1, "op": "context_get", "args": {"group_id": "g_1", "detail": "summary"}})
+        );
     }
 
     #[test]
@@ -760,7 +969,7 @@ mod tests {
     #[test]
     fn compatibility_probe_accepts_the_bounded_resize_alias() {
         let (endpoint, server) = server_sequence(vec![
-            "{\"v\":1,\"ok\":true,\"result\":{\"version\":\"test\",\"ipc_v\":1,\"capabilities\":{}}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"version\":\"test\",\"implementation\":\"rust\",\"ipc_v\":1,\"capabilities\":{}}}\n",
             "{\"v\":1,\"ok\":false,\"result\":{},\"error\":{\"code\":\"unknown_op\",\"message\":\"unknown\",\"details\":{}}}\n",
             "{\"v\":1,\"ok\":false,\"result\":{},\"error\":{\"code\":\"invalid_request\",\"message\":\"missing args\",\"details\":{}}}\n",
         ]);
@@ -805,7 +1014,7 @@ mod tests {
                 .read_line(&mut request)
                 .expect("read request");
             stream
-                .write_all(b"{\"v\":1,\"ok\":true,\"result\":{\"ipc_v\":1,\"capabilities\":{}}}\n")
+                .write_all(b"{\"v\":1,\"ok\":true,\"result\":{\"implementation\":\"rust\",\"ipc_v\":1,\"capabilities\":{}}}\n")
                 .expect("write response");
         });
 

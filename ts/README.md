@@ -5,7 +5,7 @@ TypeScript/Node.js client for the CCCC daemon (IPC v1).
 ## Relationship to CCCC core
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
-- `cccc` core provides daemon/web/CLI and owns runtime state.
+- `cccc` core provides one native Rust daemon/web/CLI product and owns runtime state.
 - `cccc-sdk` provides Node.js client APIs that call the daemon over IPC.
 
 ## Installation
@@ -14,9 +14,9 @@ TypeScript/Node.js client for the CCCC daemon (IPC v1).
 npm install cccc-sdk
 ```
 
-Compatibility is determined by Daemon IPC v1 contracts and operation probing, not by strict package-version matching.
-
-Omitting the optional `insight` property remains compatible with older IPC v1 daemons. Supplying it requires a daemon whose `chat.message` contract includes `insight`; upgrade the SDK and daemon together when adopting this field.
+Compatibility is determined by Daemon IPC v1 contracts and operation probing,
+not by strict package-version matching. The current message contract is an
+intentional atomic cut: upgrade SDK and daemon together.
 
 ## Quick start
 
@@ -37,8 +37,8 @@ async function main() {
   await client.send({
     groupId,
     text: 'Please check this and reply.',
-    priority: 'attention',
-    replyRequired: true,
+    mode: 'request_reply',
+    to: ['peer-1'],
   });
 }
 
@@ -47,18 +47,28 @@ main().catch(console.error);
 
 ## Message semantics
 
-- `priority`: `'normal' | 'attention'`
-- `replyRequired`: `boolean` (maps to daemon `reply_required`)
+- `mode`: `'mail' | 'send' | 'request_reply'` (required for new messages)
 - `insight`: optional visible, provisional sender perspective for independent recipient judgment
 - `suggestedUserMessage`: optional proposed next human message; stored visibly and never auto-sent
 
 Supported in:
 - `send(options)`
-- `reply(options)`
 - `sendCrossGroup(options)`
-- `trackedSend(options)`
+
+`mail` stores without an immediate runtime prompt, `send` performs a
+best-effort immediate Push, and `request_reply` adds a concrete reply request.
+`reply(options)` defaults to Send and accepts `mode: 'mail'` for an agent-only,
+non-urgent reply; both modes fulfill the original reply request. The visible
+message emitted by `trackedSend(options)` remains Send. Generic ACK operations no longer exist; consume Inbox contents
+with `inboxRead(options)`. Inbox contains only Mail; inspect past direct or Mail
+traffic without changing the Mail cursor through `messageHistory(options)`.
 
 `suggestedUserMessage` is supported by `send(options)` and `reply(options)`.
+
+`contextGet(groupId, detail)` accepts `overview`, `summary`, or `full`.
+`taskList(options)` supports exact batches, filters, atomic status pages, and
+pagination. `groupSpaceSync(options)` is a read-only legacy-status call; use
+explicit ingest/source operations for mutations.
 
 ## Workflow helpers
 
@@ -202,7 +212,7 @@ await client.contextSync({
 
 If you need a daemon op that does not have a dedicated helper yet, you can always fall back to `call()` / `callRaw()`.
 
-## CCCC 0.4.34 compatibility delta
+## Current native-daemon compatibility surface
 
 ```typescript
 // Capture the bounded ANSI screen and exact raw cursor boundary.
@@ -250,8 +260,8 @@ await client.webModelRuntimeCompleteTurn({
 `deliveryId` is required and is the completion replay key. A retry for the
 same acquired turn must reuse the same value.
 
-`termResize()` sends the standard `term_resize` operation. For current Rust
-daemon builds that still expose `terminal_resize`, the SDK falls back only
+`termResize()` sends the standard `term_resize` operation. For older compatible
+daemon builds that expose `terminal_resize`, the SDK falls back only
 after receiving a structured `unknown_op`; transport failures are never
 replayed, and the legacy result is normalized to the standard shape.
 Auto-discovered clients re-read `ccccd.addr.json` when connection

@@ -5,7 +5,7 @@ This package is the **Python client SDK** for CCCC daemon (Daemon IPC v1).
 ## Relationship to CCCC core
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
-- `cccc` core owns daemon/web/CLI and runtime state under `CCCC_HOME`.
+- `cccc` core owns the native Rust daemon/web/CLI and runtime state under `CCCC_HOME`.
 - `cccc-sdk` provides client APIs only and must connect to a running daemon.
 
 It requires a running CCCC daemon. The SDK does **not** ship a daemon.
@@ -16,7 +16,8 @@ This SDK follows daemon contracts rather than strict daemon version strings:
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 - Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, capability discovery, and first-class local memory.
 
-Omitting the optional `insight` argument remains compatible with older IPC v1 daemons. Supplying it requires a daemon whose `chat.message` contract includes `insight`; upgrade the SDK and daemon together when adopting this field.
+The current message contract is an intentional atomic cut. Upgrade the SDK and
+daemon together; old attention/ACK fields are not mapped or silently downgraded.
 
 `send` and `reply` also accept `suggested_user_message`: a visible proposed
 next message for the human user. The daemon stores it as message metadata and
@@ -93,14 +94,40 @@ python examples/stream.py --group g_xxx
 Send a message:
 
 ```bash
-python examples/send.py --group g_xxx --text "hello"
+python examples/send.py --group g_xxx --text "hello" --mode send
 ```
 
-Auto-ACK attention messages (as a recipient):
+Message delivery uses one explicit mode:
 
-```bash
-python examples/auto_ack_attention.py --group g_xxx --actor user
+```python
+c.send(group_id="g_xxx", text="FYI", message_mode="mail")
+c.send(group_id="g_xxx", text="Stop: wrong branch", message_mode="send")
+c.send(
+    group_id="g_xxx",
+    text="Which option should we use?",
+    message_mode="request_reply",
+    to=["peer-1"],
+)
+messages = c.inbox_read(group_id="g_xxx", actor_id="peer-1", by="peer-1")
+history = c.message_history(
+    group_id="g_xxx",
+    actor_id="peer-1",
+    mode="send",
+)
 ```
+
+`mail` stores without an immediate runtime prompt, `send` performs a
+best-effort immediate Push, and `request_reply` adds a concrete reply request.
+`inbox_read` returns and consumes only Mail. Use the non-consuming
+`message_history` helper when past Send, Send + Reply, or Mail traffic is needed.
+Replies default to Send. Use `message_mode="mail"` for a non-urgent reply to
+agent-only recipients; both modes fulfill the original reply request. Generic
+ACK operations no longer exist.
+
+Use `context_get(..., detail="overview" | "summary" | "full")` to control the
+projection cost. `task_list` supports exact batches, filters, atomic status
+pages, and pagination. Legacy `group_space_sync` is read-only status; use
+explicit ingest/source operations for mutations.
 
 Add a coordination note to shared context:
 
@@ -195,7 +222,7 @@ See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
 
-## CCCC 0.4.34 compatibility delta
+## Current native-daemon compatibility surface
 
 ```python
 # Capture the bounded ANSI screen and exact raw cursor boundary.
@@ -244,8 +271,8 @@ c.web_model_runtime_complete_turn(
 same acquired turn must use the same value; generating a new value can create a
 second completion receipt.
 
-`term_resize()` sends the standard `term_resize` operation. For current Rust
-daemon builds that still expose `terminal_resize`, the SDK falls back only
+`term_resize()` sends the standard `term_resize` operation. For older compatible
+daemon builds that expose `terminal_resize`, the SDK falls back only
 after receiving a structured `unknown_op`; transport failures are never
 replayed, and the legacy result is normalized to the standard shape.
 Auto-discovered clients re-read `ccccd.addr.json` when connection

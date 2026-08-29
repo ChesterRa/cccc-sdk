@@ -3,6 +3,38 @@
 `cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
 CCCC line and exposes the IPC surface available on that line.
 
+## [Unreleased] — targets CCCC 0.4.36
+
+### Changed
+
+- Aligned all mirrored standards and compatibility probes with the single
+  native CCCC daemon. Python, TypeScript, and Rust remain supported client SDK
+  languages; none of them embeds or selects a daemon implementation.
+- Completed the atomic Send / Send + Reply / Mail migration, including
+  agent-only Mail, Mail Inbox consumption, non-consuming message history,
+  manual delivery, reply-request cancellation, and Mail replies that fulfill an
+  existing reply request without prompting the recipient immediately.
+- Added the current Context projection selector and expanded task-list filters,
+  exact batches, atomic status pages, and pagination where first-class task
+  helpers already exist.
+- Reduced legacy Group Space synchronization to its contractually supported
+  read-only status operation. Explicit ingest and source operations remain the
+  mutation path.
+- Reworked the Rust identity-bound adapter around explicit message modes,
+  stable `client_id` replay, and the daemon's atomic Mail Inbox transaction;
+  removed its emulation of retired ACK/read cursor operations.
+
+### Compatibility
+
+- The bundled daemon reports `implementation="rust"`; compatibility decisions
+  still use IPC version, capabilities, and operation probes rather than the
+  implementation label alone.
+- Internal Web upload preflight and relay-only operations remain available via
+  generic calls but intentionally have no first-class public wrapper.
+- Python and TypeScript package versions remain unchanged. The Rust hardening
+  branch keeps its already-selected `0.0.2` source version; publishing remains a
+  separate release decision.
+
 ## [0.4.34] — Unreleased
 
 ### Added
@@ -18,9 +50,9 @@ CCCC line and exposes the IPC surface available on that line.
 - Scheduled CI drift detection for all three mirrored CCCC standards, automatic
   Python integration coverage, and a live Rust-SDK/current-daemon smoke job.
 - Python and TypeScript Web Model wait/complete helpers with a required stable
-  `delivery_id`, plus the exact native 0.4.33 replay fixture.
-- Rust 0.0.2 identity-bound reliable messaging, durable inbox checkpoints, and
-  explicit reconciliation for ambiguous send/reply/read outcomes.
+  `delivery_id` replay key.
+- Rust 0.0.2 identity-bound reliable messaging with explicit Send / Send + Reply
+  / Mail modes, stable write keys, and atomic Mail consumption.
 
 ### Changed
 
@@ -71,18 +103,17 @@ CCCC line and exposes the IPC surface available on that line.
   maps and side-effect-free compatibility probing. TypeScript also compiles
   exported option fixtures so documented contract values cannot silently drift
   out of the published declaration surface.
-- Added exact native 0.4.33 completion/reliability jobs, Rust 1.74 MSRV and
-  Windows cursor-replacement jobs, and a static SDK hardening contract gate.
+- Added current native-daemon integration for message replay and atomic Mail
+  consumption, Rust 1.74 MSRV and Windows jobs, and a static SDK hardening gate.
 
 ## Rust crate [0.0.2] — Unreleased
 
 ### Added
 
-- Least-privilege `IdentityBoundClient` adapters for idempotent send, reply,
-  inbox polling, and mark-read operations.
-- Nullable native cursor decoding, authoritative remote-ahead read-state
-  reconciliation, ledger-order fallback for notifications, and atomic
-  same-directory `FileCursorStore` replacement.
+- Least-privilege `IdentityBoundClient` adapters for explicit-mode idempotent
+  send/reply and daemon-owned Mail Inbox operations.
+- Nullable native cursor decoding and direct use of atomic `inbox_read`, without
+  retaining the retired all-message mark-read compatibility model.
 
 ## Rust crate [0.0.1] — 2026-08-03
 

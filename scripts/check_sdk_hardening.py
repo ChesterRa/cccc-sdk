@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "spec" / "SDK_DAEMON_TARGET_0_4_33.json"
-FIXTURE_SHA256 = "616f0c81a73204c5478becfdfe671e4b28d70e232447263c0f594dc53ab78d51"
 
 
 def read(relative: str) -> str:
@@ -28,25 +24,9 @@ def python_method(source: str, name: str) -> ast.FunctionDef | None:
 def main() -> int:
     errors: list[str] = []
 
-    fixture_bytes = FIXTURE.read_bytes()
-    if hashlib.sha256(fixture_bytes).hexdigest() != FIXTURE_SHA256:
-        errors.append("0.4.33 daemon fixture hash changed without an explicit contract review")
-    fixture = json.loads(fixture_bytes)
-    if fixture.get("target", {}).get("version") != "0.4.33":
-        errors.append("daemon fixture must target exactly 0.4.33")
-
-    completion = fixture.get("operations", {}).get("web_model_runtime_complete_turn", {})
+    # Web Model completion remains an idempotent write. Keep its caller-stable
+    # replay key required even though the daemon can synthesize a default.
     required = {"group_id", "actor_id", "turn_id", "delivery_id"}
-    if not required.issubset(set(completion.get("required_args", []))):
-        errors.append("completion fixture is missing required daemon arguments")
-    request_args = completion.get("request", {}).get("args", {})
-    result = completion.get("completion_response", {}).get("result", {})
-    if (
-        completion.get("replay_key") != "delivery_id"
-        or result.get("delivery_id") != request_args.get("delivery_id")
-    ):
-        errors.append("completion fixture does not preserve delivery_id across replay")
-
     python_source = read("python/src/cccc_sdk/client_0430_runtime_ops.py")
     method = python_method(python_source, "web_model_runtime_complete_turn")
     if method is None:
@@ -75,9 +55,10 @@ def main() -> int:
     transport = read("ts/src/transport.ts")
     transport_markers = {
         "remainingTimeout(deadline)": "TypeScript transport does not share one deadline",
-        "signal?.removeEventListener('abort', onAbort)": "TypeScript handshake abort cleanup is missing",
-        "assertBufferedLineLimit(remaining)": "TypeScript handshake remainder is not byte-capped",
+        "signal?.removeEventListener('abort', onAbort)": "TypeScript abort cleanup is missing",
+        "assertBufferedLineLimit(remaining)": "TypeScript stream remainder is not byte-capped",
         "initialBuffer: Buffer": "TypeScript stream buffering is not byte-accurate",
+        "OutcomeUnknownError": "TypeScript exchange failures lack an outcome-unknown boundary",
     }
     for marker, message in transport_markers.items():
         if marker not in transport:
@@ -86,34 +67,45 @@ def main() -> int:
         errors.append("TypeScript transport still removes unrelated socket listeners")
 
     reliable = read("rust/src/reliable.rs")
-    rust_markers = {
-        'alias = "duplicate"': "Rust does not map duplicate to replayed",
-        'deserialize_with = "deserialize_nullable_string"': "Rust cursor is not nullable-wire compatible",
-        '"message_read_status"': "Rust remote-ahead reconciliation lacks read-status verification",
-        '"ledger_window"': "Rust notification reconciliation lacks ledger-order fallback",
-        "NamedTempFile::new_in": "Rust cursor writes do not use a unique same-directory temp file",
-        ".persist(&self.path)": "Rust cursor writes do not atomically replace the checkpoint",
+    required_reliable_markers = {
+        "MessageMode": "Rust reliable send does not require an explicit message mode",
+        "ReplyMessageMode": "Rust reliable reply does not constrain reply modes",
+        '"client_id"': "Rust reliable writes do not carry a stable client_id",
+        '"inbox_peek"': "Rust reliable adapter lacks non-consuming Mail inspection",
+        '"inbox_read"': "Rust reliable adapter lacks atomic Mail consumption",
+        'alias = "duplicate"': "Rust does not expose daemon duplicate replay state",
     }
-    for marker, message in rust_markers.items():
+    for marker, message in required_reliable_markers.items():
         if marker not in reliable:
             errors.append(message)
-    if 'tempfile = "=3.20.0"' not in read("rust/Cargo.toml"):
-        errors.append("Rust tempfile dependency is not pinned for the declared MSRV")
+
+    retired_markers = {
+        '"inbox_list"': "retired inbox_list leaked into the Rust adapter",
+        '"inbox_mark_read"': "retired inbox_mark_read leaked into the Rust adapter",
+        '"message_read_status"': "legacy per-message read status leaked into the Rust adapter",
+        "FileCursorStore": "a competing local Mail cursor remains in the Rust adapter",
+        "PersistentInbox": "legacy persistent inbox emulation remains in the Rust adapter",
+    }
+    for marker, message in retired_markers.items():
+        if marker in reliable:
+            errors.append(message)
 
     workflows = {
         name: read(f".github/workflows/{name}")
         for name in ("python-integration.yml", "ts-ci.yml", "rust-ci.yml")
     }
-    install = "cargo install cccc --version '=0.4.33' --locked"
     for name, workflow in workflows.items():
-        if install not in workflow:
-            errors.append(f"{name} does not test the exact native 0.4.33 daemon")
+        if "repository: ChesterRa/cccc" not in workflow:
+            errors.append(f"{name} does not test against the current CCCC repository")
+        if "cargo install cccc --version '=0.4.33'" in workflow:
+            errors.append(f"{name} still pins the retired pre-message-cut daemon")
+
     rust_ci = workflows["rust-ci.yml"]
     for marker, message in (
         ('toolchain: "1.74.0"', "Rust CI does not enforce the declared 1.74 MSRV"),
-        ("runs-on: windows-latest", "Rust CI does not test Windows cursor replacement"),
-        ('CCCC_RUN_LIVE_RELIABILITY: "1"', "Rust CI does not execute live reliability assertions"),
-        ("--test live_reliability", "Rust CI does not run the native reliability test"),
+        ("runs-on: windows-latest", "Rust CI does not test Windows"),
+        ('CCCC_RUN_LIVE_RELIABILITY: "1"', "Rust CI does not run live reliability checks"),
+        ("--test live_reliability", "Rust CI does not run the live reliability test"),
     ):
         if marker not in rust_ci:
             errors.append(message)
@@ -123,7 +115,7 @@ def main() -> int:
             print(f"ERROR: {error}")
         return 1
 
-    print("SDK hardening contract OK: completion replay, stream safety, reliable cursor, CI matrix")
+    print("SDK hardening contract OK: replay keys, transport safety, atomic Mail, current native CI")
     return 0
 
 

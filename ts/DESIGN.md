@@ -33,9 +33,10 @@ Out of scope:
 
 ## Contract mapping rules
 
-- SDK uses daemon canonical field names at the wire level (`group_id`, `reply_required`, ...).
-- Public API uses camelCase option names (`groupId`, `replyRequired`, ...).
-- Message priority is strict: `'normal' | 'attention'`.
+- SDK uses daemon canonical field names at the wire level (`group_id`, `message_mode`, ...).
+- Public API uses camelCase option names (`groupId`, `sourceEventId`, ...).
+- New messages require one strict mode: `'mail' | 'send' | 'request_reply'`.
+- Reply and tracked-send helpers do not expose a second delivery/obligation control.
 - `groupAutomationManage` is strict `actions[]` mode (no legacy alias fields).
 
 ## Error model

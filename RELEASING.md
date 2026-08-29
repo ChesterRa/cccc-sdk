@@ -7,9 +7,12 @@ This repo is a monorepo with three deliverables:
 
 ## Versioning policy
 
-- SDK version tracks the supported CCCC line: next release `0.4.34`.
-- RC sequence is SDK-owned (`0.4.34rcN` for Python, `0.4.34-rc.N` for npm).
-- Rust 0.0.1 is published; the next source release is 0.0.2 while its public API settles.
+- SDK version tracks the supported CCCC line, but contract synchronization does
+  not choose or modify the next package version.
+- RC sequence is SDK-owned (PEP 440 `X.Y.ZrcN` for Python and SemVer
+  `X.Y.Z-rc.N` for npm).
+- The Rust crate begins at `0.0.1`; the current hardening branch prepares
+  `0.0.2`, but publishing remains a separate release decision.
 - Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
 
 ## 0) Sync specs (recommended)
@@ -44,10 +47,7 @@ Edit `python/pyproject.toml` (`project.version`).
 
 ### Publish RC to TestPyPI
 
-```bash
-git tag v0.4.34rcN
-git push origin v0.4.34rcN
-```
+Create and push the Python RC tag only after the release version is approved.
 
 This triggers `.github/workflows/python-publish-testpypi.yml`.
 
@@ -56,15 +56,13 @@ Install check:
 ```bash
 python -m pip install --index-url https://pypi.org/simple \
   --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==0.4.34rcN
+  cccc-sdk==X.Y.ZrcN
 ```
 
 ### Publish stable to PyPI
 
-```bash
-git tag v0.4.34
-git push origin v0.4.34
-```
+Create and push the stable tag only after all three deliverables and the target
+CCCC release have passed their release gates.
 
 This triggers `.github/workflows/python-publish.yml`.
 
@@ -75,8 +73,8 @@ This triggers `.github/workflows/python-publish.yml`.
 Edit `ts/package.json` (`version`).
 
 Examples:
-- RC: `0.4.34-rc.N`
-- Stable: `0.4.34`
+- RC: `X.Y.Z-rc.N`
+- Stable: `X.Y.Z`
 
 ### Local checks
 
@@ -116,7 +114,7 @@ cargo package --locked
 ```
 
 The Rust CI matrix also runs the full suite on Windows and the opt-in reliable
-messaging test against the exact native CCCC 0.4.33 daemon.
+messaging test against the current native CCCC daemon.
 
 ### Publish
 

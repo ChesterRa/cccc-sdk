@@ -1,21 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { CCCCClient } from '../src/client.js';
 import { IncompatibleDaemonError } from '../src/errors.js';
 
 type CallCapture = { op: string; args?: Record<string, unknown> };
-
-const targetFixture = JSON.parse(
-  readFileSync(new URL('../../spec/SDK_DAEMON_TARGET_0_4_33.json', import.meta.url), 'utf-8')
-) as {
-  operations: {
-    web_model_runtime_complete_turn: {
-      required_args: string[];
-      request: { args: Record<string, unknown> };
-    };
-  };
-};
 
 async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
   const client = await CCCCClient.create({
@@ -28,7 +16,7 @@ async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
   return client;
 }
 
-describe('cccc 0.4.33 JSON op alignment', () => {
+describe('current native CCCC JSON op alignment', () => {
   it('maps current message, group preamble, and terminal operations', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -36,6 +24,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     await client.send({
       groupId: 'g_1',
       text: 'next?',
+      mode: 'mail',
       suggestedUserMessage: 'ship it',
       insight: 'Compatibility is the release gate.',
       requirePeerInsight: true,
@@ -67,6 +56,8 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     ]);
     assert.equal(calls[0]?.args?.['insight'], 'Compatibility is the release gate.');
     assert.equal(calls[0]?.args?.['require_peer_insight'], true);
+    assert.equal(calls[0]?.args?.['message_mode'], 'mail');
+    assert.equal(calls[1]?.args?.['message_mode'], 'send');
     assert.equal(calls[4]?.args?.['confirm'], 'preamble');
     assert.equal(calls[5]?.args?.['before'], 100);
     assert.equal(calls[5]?.args?.['limit_bytes'], 2048);
@@ -285,7 +276,6 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       requestText: 'Review the release',
       target: '@foreman',
       artifactPaths: ['notes/meeting.md'],
-      requiresAck: true,
     });
     await client.assistantVoiceDocumentArchive({ groupId: 'g_1', documentPath: 'notes/meeting.md' });
 
@@ -304,6 +294,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.equal(calls[2]?.args?.['document_path'], 'notes/meeting.md');
     assert.equal(calls[4]?.args?.['kind'], 'prompt_refine');
     assert.equal(calls[7]?.args?.['request_text'], 'Review the release');
+    assert.equal(calls[7]?.args?.['requires_ack'], undefined);
   });
 
   it('fails clearly for the removed daemon IPC transcription operation', async () => {
@@ -348,15 +339,13 @@ describe('cccc 0.4.33 JSON op alignment', () => {
   it('requires and reuses deliveryId for Web Model completion replay', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
-    const contract = targetFixture.operations.web_model_runtime_complete_turn;
-    const args = contract.request.args;
     const options = {
-      groupId: String(args['group_id']),
-      actorId: String(args['actor_id']),
-      turnId: String(args['turn_id']),
-      deliveryId: String(args['delivery_id']),
-      eventIds: args['event_ids'] as string[],
-      status: String(args['status']) as 'done',
+      groupId: 'g_1',
+      actorId: 'web-model',
+      turnId: 'turn-1',
+      deliveryId: 'worker:turn-1',
+      eventIds: ['e_1'],
+      status: 'done' as const,
     };
 
     await client.webModelRuntimeCompleteTurn(options);
@@ -364,9 +353,9 @@ describe('cccc 0.4.33 JSON op alignment', () => {
 
     assert.deepEqual(calls[0], calls[1]);
     assert.equal(calls[0]?.op, 'web_model_runtime_complete_turn');
-    for (const required of contract.required_args) {
+    for (const required of ['group_id', 'actor_id', 'turn_id', 'delivery_id']) {
       assert.ok(required in (calls[0]?.args ?? {}), `missing daemon arg: ${required}`);
     }
-    assert.equal(calls[0]?.args?.['delivery_id'], args['delivery_id']);
+    assert.equal(calls[0]?.args?.['delivery_id'], options.deliveryId);
   });
 });

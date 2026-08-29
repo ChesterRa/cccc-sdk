@@ -55,8 +55,9 @@ import type {
   GroupCreateResult,
   ActorListResult,
   ActorAddResult,
-  InboxListResult,
+  InboxReadResult,
   ContextGetResult,
+  ContextDetail,
   CapabilityUseOptions,
   MemorySearchOptions,
   MemoryGetOptions,
@@ -67,7 +68,6 @@ import type {
   TaskListOptions,
   HeadlessStatusOptions,
   HeadlessSetStatusOptions,
-  HeadlessAckMessageOptions,
   GroupCopyExportOptions,
   GroupCopyPreviewImportOptions,
   GroupCopyImportOptions,
@@ -966,8 +966,8 @@ export class CCCCClient {
   /**
    * Get group context
    */
-  async contextGet(groupId: string): Promise<Record<string, unknown>> {
-    return this.call('context_get', { group_id: groupId });
+  async contextGet(groupId: string, detail: ContextDetail = 'full'): Promise<ContextGetResult> {
+    return this.call('context_get', { group_id: groupId, detail }) as unknown as Promise<ContextGetResult>;
   }
 
   /**
@@ -1118,10 +1118,7 @@ export class CCCCClient {
     if (options.insight) args['insight'] = options.insight;
     if (options.to) args['to'] = options.to;
     if (options.path) args['path'] = options.path;
-    if (options.priority) args['priority'] = options.priority;
-    if (options.messagePriority) args['message_priority'] = options.messagePriority;
     if (options.taskPriority) args['task_priority'] = options.taskPriority;
-    args['reply_required'] = options.replyRequired ?? true;
     if (options.idempotencyKey) args['idempotency_key'] = options.idempotencyKey;
     if (options.outcome) args['outcome'] = options.outcome;
     if (options.status) args['status'] = options.status;
@@ -1142,8 +1139,33 @@ export class CCCCClient {
    * List all tasks in a group, or fetch a single task (with children) by id.
    */
   async taskList(options: TaskListOptions): Promise<Record<string, unknown>> {
+    if (options.taskId && options.taskIds?.length) {
+      throw new DaemonAPIError('invalid_args', 'taskId and taskIds are mutually exclusive', {});
+    }
+    if (options.status && options.statuses?.length) {
+      throw new DaemonAPIError('invalid_args', 'status and statuses are mutually exclusive', {});
+    }
+    if (options.offset !== undefined && options.limit === undefined) {
+      throw new DaemonAPIError('invalid_args', 'offset requires limit', {});
+    }
+    if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 100)) {
+      throw new DaemonAPIError('invalid_args', 'limit must be an integer from 1 through 100', {});
+    }
+    const taskIds = options.taskIds?.map((value) => value.trim()) ?? [];
+    if (taskIds.some((value) => value.length === 0) || taskIds.length > 100) {
+      throw new DaemonAPIError('invalid_args', 'taskIds must contain at most 100 non-empty ids', {});
+    }
     const args: Record<string, unknown> = { group_id: options.groupId };
     if (options.taskId) args['task_id'] = options.taskId;
+    if (taskIds.length) args['task_ids'] = taskIds.join(',');
+    if (options.status) args['status'] = options.status;
+    if (options.statuses?.length) args['statuses'] = options.statuses.join(',');
+    if (options.query) args['query'] = options.query;
+    if (options.assignee) args['assignee'] = options.assignee;
+    if (options.attention) args['attention'] = options.attention;
+    if (options.offset !== undefined) args['offset'] = options.offset;
+    if (options.limit !== undefined) args['limit'] = options.limit;
+    if (options.includeIndex !== undefined) args['include_index'] = options.includeIndex;
     return this.call('task_list', args);
   }
 
@@ -1166,14 +1188,6 @@ export class CCCCClient {
     };
     if (options.taskId) args['task_id'] = options.taskId;
     return this.call('headless_set_status', args);
-  }
-
-  async headlessAckMessage(options: HeadlessAckMessageOptions): Promise<Record<string, unknown>> {
-    return this.call('headless_ack_message', {
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      message_id: options.messageId,
-    });
   }
 
   // ============================================================
@@ -1520,7 +1534,6 @@ export class CCCCClient {
       by: options.by ?? 'system',
       kind: options.kind ?? 'info',
       priority: options.priority ?? 'normal',
-      requires_ack: options.requiresAck ?? false,
     };
     if (options.message) args['message'] = options.message;
     if (options.title) args['title'] = options.title;

@@ -1,6 +1,8 @@
 # CCCC Rust SDK
 
-Official blocking Rust client for CCCC Daemon IPC v1.
+Official blocking Rust client for the native CCCC Daemon IPC v1. SDK language
+does not constrain application architecture; Python and TypeScript clients use
+the same daemon contract.
 
 ## Install
 
@@ -12,7 +14,7 @@ cccc-sdk = "0.0.2"
 ## Quick start
 
 ```rust
-use cccc_sdk::{CCCCClient, CompatibilityRequirements};
+use cccc_sdk::{CCCCClient, CompatibilityRequirements, MessageMode, ReplyMessageMode};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = CCCCClient::discover()?;
@@ -26,6 +28,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let groups = client.groups()?;
     println!("{groups:#?}");
+    client.send("g_xxx", "FYI", MessageMode::Mail, "user")?;
+    client.reply_with_mode(
+        "g_xxx",
+        "e_request",
+        "quiet follow-up",
+        ReplyMessageMode::Mail,
+        "peer-1",
+    )?;
     Ok(())
 }
 ```
@@ -34,8 +44,9 @@ The client discovers `${CCCC_HOME}/daemon/ccccd.addr.json`, supports Unix
 sockets and TCP, and falls back to `${CCCC_HOME}/daemon/ccccd.sock` on Unix.
 
 Common helpers include `ping`, `groups`, `group_show`, `send`, `reply`,
-`inbox_list`, `context_get`, `context_sync`, cursor-based terminal reads, and
-the CCCC 0.4.34 Web Model delivery-preference/recovery operations. Use `call`
+`inbox_peek`, `inbox_read`, `message_history`, `message_deliver`, `reply_request_cancel`,
+`context_get`, `context_get_with_detail`, `context_sync`, cursor-based terminal
+reads, and Web Model delivery-preference/recovery operations. Use `call`
 for every other non-streaming operation:
 
 ```rust
@@ -51,7 +62,7 @@ let preamble = client.call("group_preamble_get", args)?;
 ```
 
 Terminal helpers return typed cursor payloads. `term_resize` uses the standard
-operation name and falls back to the temporary Rust-daemon
+operation name and falls back to the compatibility
 `terminal_resize` alias only after `unknown_op`; the legacy success payload is
 normalized to the standard typed result:
 
@@ -76,20 +87,24 @@ a connection-establishment failure. Once request exchange begins, failures are
 reported as `Error::OutcomeUnknown` and are never replayed automatically.
 Clients created with `new(endpoint)` keep that explicit endpoint.
 
-## Reliable messaging
+## Identity-bound reliable messaging
 
-Rust 0.0.2 adds an `IdentityBoundClient` that exposes only idempotent chat and
-inbox operations. A caller supplies a `WorkloadIdentityHook`; the adapter binds
-the verified principal and evidence to every request instead of treating the
-wire-level `by` field as authentication.
+Rust 0.0.2 adds an `IdentityBoundClient` that exposes only current idempotent
+message writes and Mail Inbox operations. A caller supplies a
+`WorkloadIdentityHook`; the adapter binds the principal and evidence to every
+request instead of treating the wire-level `by` field as authentication. The
+receiving daemon or gateway remains responsible for verifying that evidence.
 
-`FileCursorStore` persists the last fully processed event through a unique
-same-directory temporary file and atomic replacement. `PersistentInbox`
-reconciles a saved cursor before polling, accepts native `event_id: null` for a
-fresh actor, maps native `duplicate: true` to `replayed`, and verifies a
-remote-ahead cursor through `message_read_status` or immutable ledger order.
-The adapter intentionally has no generic `call`, shutdown, configuration, or
-credential methods.
+`send_idempotent` requires an explicit `MessageMode`, recipients, and stable
+`client_id`; `reply_idempotent` similarly requires a Send-or-Mail reply mode.
+After `Error::OutcomeUnknown`, retry with the exact same arguments and key so
+the daemon can return the original event with `replayed=true`.
+
+Mail consumption uses the daemon's atomic `inbox_read` transaction. The SDK
+does not recreate the retired `inbox_list`, `inbox_mark_read`, or generic ACK
+model, and it does not maintain a second competing cursor. `inbox_peek` remains
+available for non-consuming inspection. The adapter intentionally has no
+generic `call`, shutdown, configuration, or credential methods.
 
 `assert_compatible` probes requested operation names and rejects an advertised
 capability whose actual operation returns `unknown_op`.

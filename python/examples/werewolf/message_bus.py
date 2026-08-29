@@ -80,8 +80,9 @@ class SDKMessageBus(MessageBus):
         self.client.send(
             group_id=self.group_id,
             text=content,
+            message_mode="send",
             by=sender,
-            to=recipients
+            to=recipients,
         )
 
     def get_messages(self, recipient: str) -> list:

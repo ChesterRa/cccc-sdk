@@ -1,23 +1,10 @@
 use cccc_sdk::{
-    AuthenticatedPrincipal, CCCCClient, CursorStore, IdentityBoundClient, InboxCursor, Result,
+    AuthenticatedPrincipal, CCCCClient, IdentityBoundClient, MessageMode, ReplyMessageMode, Result,
     WorkloadIdentityEvidence, WorkloadIdentityHook,
 };
 use serde_json::{json, Map, Value};
 
 struct LiveTestIdentity(&'static str);
-
-#[derive(Clone, Copy)]
-struct EmptyCursorStore;
-
-impl CursorStore for EmptyCursorStore {
-    fn load(&self) -> Result<Option<InboxCursor>> {
-        Ok(None)
-    }
-
-    fn save(&self, _cursor: &InboxCursor) -> Result<()> {
-        Ok(())
-    }
-}
 
 impl WorkloadIdentityHook for LiveTestIdentity {
     fn principal(&self) -> Result<AuthenticatedPrincipal> {
@@ -44,7 +31,7 @@ fn object(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Map<Strin
 }
 
 #[test]
-fn daemon_0433_replays_real_writes_and_reconciles_mark_read() {
+fn current_daemon_replays_writes_and_consumes_only_mail() {
     if std::env::var_os("CCCC_RUN_LIVE_RELIABILITY").is_none() {
         return;
     }
@@ -54,7 +41,7 @@ fn daemon_0433_replays_real_writes_and_reconciles_mark_read() {
         .call(
             "group_create",
             object([
-                ("title", json!("cccc-sdk 0.0.2 live reliability test")),
+                ("title", json!("cccc-sdk live reliability test")),
                 ("by", json!("user")),
             ]),
         )
@@ -77,77 +64,81 @@ fn daemon_0433_replays_real_writes_and_reconciles_mark_read() {
                 ("by", json!("user")),
             ]),
         )?;
-        let client = IdentityBoundClient::new(raw.clone(), LiveTestIdentity("user"))?;
-        let peer = IdentityBoundClient::new(raw.clone(), LiveTestIdentity("sdk-live"))?;
-        let fresh = peer
-            .persistent_inbox(&group_id, "sdk-live", EmptyCursorStore)
-            .poll(1)?;
-        if !fresh.cursor.event_id.is_empty() || !fresh.cursor.ts.is_empty() {
+
+        let sender = IdentityBoundClient::new(raw.clone(), LiveTestIdentity("user"))?;
+        let recipient = IdentityBoundClient::new(raw.clone(), LiveTestIdentity("sdk-live"))?;
+
+        let send_key = format!("cccc-sdk-live:{group_id}:mail");
+        let first = sender.send_idempotent(
+            &group_id,
+            "live Mail idempotency probe",
+            MessageMode::Mail,
+            &["sdk-live"],
+            &send_key,
+        )?;
+        let replay = sender.reconcile_send(
+            &group_id,
+            "live Mail idempotency probe",
+            MessageMode::Mail,
+            &["sdk-live"],
+            &send_key,
+        )?;
+        if first.event.id != replay.event.id || !replay.replayed {
             return Err(cccc_sdk::Error::ReconciliationRequired(
-                "fresh native daemon cursor was not normalized to empty strings".into(),
+                "stable Mail client_id did not replay the original event".into(),
             ));
         }
 
-        let send_key = format!("cccc-sdk-live:{group_id}:send");
-        let first = client.send_idempotent(&group_id, "live idempotency probe", &send_key)?;
-        let replay = client.reconcile_send(&group_id, "live idempotency probe", &send_key)?;
-        if first.event.id != replay.event.id {
-            return Err(cccc_sdk::Error::ReconciliationRequired(format!(
-                "send key produced two events: {} and {}",
-                first.event.id, replay.event.id
-            )));
-        }
-        if !replay.replayed {
+        let peeked = recipient.inbox_peek(&group_id, "sdk-live", 10)?;
+        if peeked
+            .messages
+            .iter()
+            .all(|event| event.id != first.event.id)
+        {
             return Err(cccc_sdk::Error::ReconciliationRequired(
-                "native duplicate=true was not exposed as replayed=true".into(),
+                "Mail event was absent from inbox_peek".into(),
             ));
         }
-
-        let second_key = format!("cccc-sdk-live:{group_id}:send:second");
-        let second =
-            client.send_idempotent(&group_id, "live remote-ahead cursor probe", &second_key)?;
+        let consumed = recipient.inbox_read(&group_id, "sdk-live", 10)?;
+        if consumed
+            .messages
+            .iter()
+            .all(|event| event.id != first.event.id)
+        {
+            return Err(cccc_sdk::Error::ReconciliationRequired(
+                "atomic inbox_read did not return the Mail event".into(),
+            ));
+        }
+        if !recipient
+            .inbox_read(&group_id, "sdk-live", 10)?
+            .messages
+            .is_empty()
+        {
+            return Err(cccc_sdk::Error::ReconciliationRequired(
+                "Mail event remained unread after atomic inbox_read".into(),
+            ));
+        }
 
         let reply_key = format!("cccc-sdk-live:{group_id}:reply");
-        let first_reply = peer.reply_idempotent(
+        let reply = recipient.reply_idempotent(
             &group_id,
             &first.event.id,
             "live reply idempotency probe",
+            ReplyMessageMode::Send,
+            &["user"],
             &reply_key,
         )?;
-        let replay_reply = peer.reconcile_reply(
+        let replay_reply = recipient.reconcile_reply(
             &group_id,
             &first.event.id,
             "live reply idempotency probe",
+            ReplyMessageMode::Send,
+            &["user"],
             &reply_key,
         )?;
-        if first_reply.event.id != replay_reply.event.id {
-            return Err(cccc_sdk::Error::ReconciliationRequired(format!(
-                "reply key produced two events: {} and {}",
-                first_reply.event.id, replay_reply.event.id
-            )));
-        }
-        if !replay_reply.replayed {
+        if reply.event.id != replay_reply.event.id || !replay_reply.replayed {
             return Err(cccc_sdk::Error::ReconciliationRequired(
-                "native reply duplicate=true was not exposed as replayed=true".into(),
-            ));
-        }
-
-        let first_cursor = InboxCursor {
-            event_id: first.event.id.clone(),
-            ts: first.event.ts.clone(),
-        };
-        let second_cursor = InboxCursor {
-            event_id: second.event.id,
-            ts: second.event.ts,
-        };
-        let second_mark_key = format!("cccc-sdk-live:{group_id}:mark:{}", second_cursor.event_id);
-        peer.mark_read_idempotent(&group_id, "sdk-live", &second_cursor, &second_mark_key)?;
-        let first_mark_key = format!("cccc-sdk-live:{group_id}:mark:{}", first_cursor.event_id);
-        let reconciled =
-            peer.reconcile_mark_read(&group_id, "sdk-live", &first_cursor, &first_mark_key)?;
-        if reconciled.wrote {
-            return Err(cccc_sdk::Error::ReconciliationRequired(
-                "remote-ahead read cursor repeated an older mark_read".into(),
+                "stable reply client_id did not replay the original event".into(),
             ));
         }
         Ok::<(), cccc_sdk::Error>(())

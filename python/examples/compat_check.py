@@ -8,7 +8,6 @@ from cccc_sdk import CCCCClient
 def main() -> int:
     c = CCCCClient()
     daemon = c.ping()
-    implementation = str(daemon.get("implementation") or "")
     required_ops = [
         "groups",
         "group_show",
@@ -18,13 +17,12 @@ def main() -> int:
         "send",
         "send_files",
         "reply",
-        "inbox_list",
-        "inbox_mark_read",
-        "inbox_mark_all_read",
+        "inbox_peek",
+        "inbox_read",
         "context_get",
         "context_sync",
-        "chat_ack",
-        "notify_ack",
+        "message_deliver",
+        "reply_request_cancel",
         "send_cross_group",
         "memory_search",
         "memory_get",
@@ -35,13 +33,13 @@ def main() -> int:
         "group_reset",
         "group_copy_export_file",
         "terminal_history",
+        "terminal_since",
+        "terminal_snapshot",
         "term_resize",
         "web_model_delivery_preferences_get",
         "web_model_delivery_preferences_update",
         "web_model_runtime_recover_turn",
     ]
-    if implementation == "rust":
-        required_ops.extend(["terminal_since", "terminal_snapshot"])
     info = c.assert_compatible(
         require_ipc_v=1,
         require_ops=required_ops,

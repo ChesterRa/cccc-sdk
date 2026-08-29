@@ -100,8 +100,8 @@ export interface ChatMessageEventData {
   text: string;
   insight?: string | null;
   format?: string;
-  priority?: 'normal' | 'attention';
-  reply_required?: boolean;
+  /** Absent only on immutable messages written before the current contract. */
+  message_mode?: MessageMode;
   to?: string[];
   reply_to?: string | null;
   quote_text?: string | null;
@@ -118,6 +118,7 @@ export interface ChatMessageEventData {
   remote_reply_to?: string[] | null;
   dst_group_id?: string | null;
   dst_to?: string[] | null;
+  dst_message_mode?: MessageMode | null;
   refs?: unknown[];
   attachments?: unknown[];
   thread?: string;
@@ -127,8 +128,8 @@ export interface ChatMessageEventData {
   suggested_user_message?: string | null;
 }
 
-/** Data payload for `chat.read` events */
-export interface ChatReadEventData {
+/** Data payload for `mail.read` events */
+export interface MailReadEventData {
   actor_id: string;
   event_id: string;
 }
@@ -151,7 +152,6 @@ export interface NotifyReminderEventData {
   message?: string;
   snippet?: string;
   priority?: string;
-  requires_ack?: boolean;
 }
 
 /** A chat.message event with strongly-typed data */
@@ -160,10 +160,10 @@ export interface ChatMessageEvent extends CCCSEvent {
   data: ChatMessageEventData & Record<string, unknown>;
 }
 
-/** A chat.read event with strongly-typed data */
-export interface ChatReadEvent extends CCCSEvent {
-  kind: 'chat.read';
-  data: ChatReadEventData & Record<string, unknown>;
+/** A mail.read event with strongly-typed data */
+export interface MailReadEvent extends CCCSEvent {
+  kind: 'mail.read';
+  data: MailReadEventData & Record<string, unknown>;
 }
 
 /** A cross-group delivery receipt with strongly-typed data. */
@@ -177,9 +177,9 @@ export function isChatMessageEvent(event: CCCSEvent): event is ChatMessageEvent 
   return event.kind === 'chat.message';
 }
 
-/** Type guard: is this event a chat.read? */
-export function isChatReadEvent(event: CCCSEvent): event is ChatReadEvent {
-  return event.kind === 'chat.read';
+/** Type guard: is this event a mail.read? */
+export function isMailReadEvent(event: CCCSEvent): event is MailReadEvent {
+  return event.kind === 'mail.read';
 }
 
 /** Type guard: is this event a chat.cross_group_receipt? */
@@ -244,15 +244,17 @@ export interface MessageAttachment {
 }
 
 /** Send message options */
+export type MessageMode = 'send' | 'request_reply' | 'mail';
+export type ReplyMessageMode = 'send' | 'mail';
+
 export interface SendOptions {
   groupId: string;
   text: string;
+  mode: MessageMode;
   insight?: string;
   suggestedUserMessage?: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'attention';
-  replyRequired?: boolean;
   path?: string;
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
@@ -264,12 +266,11 @@ export interface SendOptions {
 export interface SendFilesOptions {
   groupId: string;
   paths: string[];
+  mode: MessageMode;
   text?: string;
   insight?: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'attention';
-  replyRequired?: boolean;
   clientId?: string;
 }
 
@@ -278,11 +279,10 @@ export interface SendCrossGroupOptions {
   groupId: string;
   dstGroupId: string;
   text: string;
+  mode: MessageMode;
   insight?: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'attention';
-  replyRequired?: boolean;
   requirePeerInsight?: boolean;
 }
 
@@ -291,12 +291,12 @@ export interface ReplyOptions {
   groupId: string;
   replyTo: string;
   text: string;
+  /** Defaults to Send. Mail is valid only when every reply recipient is an agent. */
+  mode?: ReplyMessageMode;
   insight?: string;
   suggestedUserMessage?: string;
   by?: string;
   to?: string[];
-  priority?: 'normal' | 'attention';
-  replyRequired?: boolean;
   refs?: MessageRef[];
   attachments?: MessageAttachment[];
   clientId?: string;
@@ -316,12 +316,8 @@ export interface TrackedSendOptions {
   by?: string;
   to?: string[];
   path?: string;
-  /** Top-level priority (default 'normal'). Applies to message unless messagePriority overrides. */
-  priority?: 'normal' | 'attention';
-  messagePriority?: 'normal' | 'attention';
-  taskPriority?: 'normal' | 'attention';
-  /** Defaults to true (a tracked delegation always expects a reply). */
-  replyRequired?: boolean;
+  /** Task-domain priority. The linked visible message always uses Send. */
+  taskPriority?: string;
   /** Used to dedupe retries. Daemon caches the result of the first successful call. */
   idempotencyKey?: string;
   outcome?: string;
@@ -344,6 +340,17 @@ export interface TrackedSendOptions {
 export interface TaskListOptions {
   groupId: string;
   taskId?: string;
+  taskIds?: string[];
+  status?: 'planned' | 'active' | 'done' | 'archived';
+  statuses?: Array<'planned' | 'active' | 'done' | 'archived'>;
+  query?: string;
+  /** Use `__unassigned__` for tasks without an assignee. */
+  assignee?: string;
+  attention?: 'blocked' | 'waiting_user' | 'handoff' | 'unassigned';
+  offset?: number;
+  /** Page size from 1 through 100. */
+  limit?: number;
+  includeIndex?: boolean;
 }
 
 /** Built-in actor kind flag. */
@@ -440,13 +447,6 @@ export interface HeadlessSetStatusOptions {
   actorId: string;
   status: HeadlessStatus;
   taskId?: string;
-}
-
-/** Headless ack-message options */
-export interface HeadlessAckMessageOptions {
-  groupId: string;
-  actorId: string;
-  messageId: string;
 }
 
 /** Group copy: export the current group as a portable package. */
@@ -785,11 +785,9 @@ export interface SystemNotifyOptions {
   message?: string;
   title?: string;
   kind?: string;
-  /** `attention` is retained for source compatibility with earlier SDK releases. */
-  priority?: 'low' | 'normal' | 'high' | 'urgent' | 'attention';
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
   targetActorId?: string;
   imVisibility?: 'internal' | 'public';
-  requiresAck?: boolean;
   context?: Record<string, unknown>;
   by?: string;
 }
@@ -1136,8 +1134,6 @@ export interface GroupSpaceJobsOptions {
 export interface GroupSpaceSyncOptions {
   groupId: string;
   lane: GroupSpaceLane;
-  action?: 'status' | 'run';
-  force?: boolean;
   provider?: GroupSpaceProvider;
   by?: string;
 }
@@ -1207,7 +1203,6 @@ export interface AutomationActionNotify {
   snippet_ref?: string | null;
   message?: string;
   priority?: AutomationNotifyPriority;
-  requires_ack?: boolean;
 }
 
 /** Automation action (group state) */
@@ -1308,13 +1303,33 @@ export interface GroupAutomationResetBaselineOptions {
   expectedVersion?: number;
 }
 
-/** Inbox list options */
-export interface InboxListOptions {
+/** Read or peek at an actor Inbox. Reading advances the read cursor. */
+export interface InboxOptions {
   groupId: string;
   actorId: string;
   by?: string;
   limit?: number;
-  kindFilter?: string;
+}
+
+/** Inspect actor-visible chat history without consuming Mail. */
+export interface MessageHistoryOptions extends InboxOptions {
+  mode?: 'all' | MessageMode;
+  query?: string;
+  beforeEventId?: string;
+}
+
+export interface ReplyRequestCancelOptions {
+  groupId: string;
+  sourceEventId: string;
+  by?: string;
+}
+
+export interface MessageDeliverOptions {
+  groupId: string;
+  sourceEventId: string;
+  actorIds: string[];
+  by?: string;
+  forceAmbiguous?: boolean;
 }
 
 /** Context sync options */
@@ -1430,21 +1445,22 @@ export interface EventsStreamOptions {
 // Result types (daemon response payloads)
 // ============================================================
 
-/** Result of send / reply / sendCrossGroup */
+/** Result of send, sendFiles, or reply. */
 export interface SendResult {
   event: CCCSEvent;
-  ack_event: CCCSEvent | null;
+  /** Canonical mode stored on the event; replies always return `send`. */
+  message_mode: MessageMode;
 }
 
 /** Options for sendAndWaitForReply */
-export interface SendAndWaitOptions extends SendOptions {
+export type SendAndWaitOptions = Omit<SendOptions, 'mode'> & {
   /** Actor ID that will listen for the reply (used to open events stream). */
   listenAs: string;
   /** Timeout in ms to wait for a reply (default 60_000). */
   waitTimeoutMs?: number;
   /** AbortSignal to cancel the wait. */
   signal?: AbortSignal;
-}
+};
 
 // ============================================================
 // B6: Strongly-typed result types for all methods
@@ -1488,9 +1504,13 @@ export interface GroupInfo {
 
 /** Result of ping */
 export interface PingResult {
+  version: string;
+  implementation: string;
+  pid: number;
+  ts: string;
   ipc_v: number;
-  version?: string;
-  capabilities?: Record<string, boolean>;
+  capabilities: Record<string, unknown>;
+  compatibility?: string;
   [key: string]: unknown;
 }
 
@@ -1520,13 +1540,25 @@ export interface ActorAddResult {
   actor_id: string;
 }
 
-/** Result of inbox_list */
-export interface InboxListResult {
+/** Result of inbox_peek */
+export interface InboxPeekResult {
   messages: CCCSEvent[];
-  cursor?: {
+  cursor: {
     event_id: string;
     ts: string;
   };
+}
+
+/** Result of inbox_read */
+export interface InboxReadResult extends InboxPeekResult {
+  event: CCCSEvent | null;
+  cursor: InboxPeekResult['cursor'] & { updated_at?: string };
+}
+
+/** Result of message_history. */
+export interface MessageHistoryResult {
+  messages: CCCSEvent[];
+  has_more: boolean;
 }
 
 export interface TerminalSnapshotResult {
@@ -1697,22 +1729,37 @@ export interface MemoryRemeWriteOptions {
   dedupQuery?: string;
 }
 
-/** Result of context_get */
+export type ContextDetail = 'overview' | 'summary' | 'full';
+
+/** Result of context_get; omitted projections depend on the requested detail. */
 export interface ContextGetResult {
   version: string;
-  vision?: string | null;
-  sketch?: string | null;
-  milestones?: unknown[];
-  notes?: unknown[];
-  references?: unknown[];
+  tasks_version: string;
+  coordination: {
+    brief: {
+      objective: string;
+      current_focus: string;
+      constraints: string[];
+      project_brief: string;
+      project_brief_stale: boolean;
+      updated_by: string;
+      updated_at: string;
+    };
+    tasks?: Array<Record<string, unknown>>;
+    recent_decisions?: Array<Record<string, unknown>>;
+    recent_handoffs?: Array<Record<string, unknown>>;
+  };
+  agent_states: Array<Record<string, unknown>>;
+  actors_runtime?: Array<Record<string, unknown>>;
   tasks_summary?: {
     total: number;
     done: number;
     active: number;
     planned: number;
+    archived: number;
+    root_count?: number;
   };
-  active_task?: unknown;
-  presence?: {
-    agents: unknown[];
-  };
+  attention?: Record<string, unknown>;
+  board?: Record<string, Array<Record<string, unknown>>>;
+  meta?: Record<string, unknown>;
 }

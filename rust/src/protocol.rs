@@ -36,10 +36,85 @@ pub struct PingResult {
     pub ipc_v: u32,
     #[serde(default)]
     pub capabilities: Map<String, Value>,
-    #[serde(default)]
-    pub implementation: Option<String>,
+    pub implementation: String,
     #[serde(default)]
     pub compatibility: Option<String>,
+}
+
+/// Delivery policy for a newly stored chat message.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageMode {
+    Send,
+    RequestReply,
+    Mail,
+}
+
+/// Delivery policy for a reply. Replies cannot create another reply obligation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplyMessageMode {
+    Send,
+    Mail,
+}
+
+impl ReplyMessageMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Send => "send",
+            Self::Mail => "mail",
+        }
+    }
+}
+
+/// Projection requested from `context_get`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextDetail {
+    Overview,
+    Summary,
+    Full,
+}
+
+impl ContextDetail {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Summary => "summary",
+            Self::Full => "full",
+        }
+    }
+}
+
+/// Optional mode filter for non-consuming message history reads.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageHistoryMode {
+    All,
+    Send,
+    RequestReply,
+    Mail,
+}
+
+impl MessageHistoryMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Send => "send",
+            Self::RequestReply => "request_reply",
+            Self::Mail => "mail",
+        }
+    }
+}
+
+impl MessageMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Send => "send",
+            Self::RequestReply => "request_reply",
+            Self::Mail => "mail",
+        }
+    }
 }
 
 /// Optional arguments for `terminal_history`.

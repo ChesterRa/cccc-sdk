@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from cccc_sdk.client import CCCCClient
@@ -10,14 +8,7 @@ from cccc_sdk.errors import IncompatibleDaemonError
 from cccc_sdk.transport import DaemonEndpoint
 
 
-TARGET_FIXTURE = json.loads(
-    (Path(__file__).resolve().parents[2] / "spec" / "SDK_DAEMON_TARGET_0_4_33.json").read_text(
-        encoding="utf-8"
-    )
-)
-
-
-class TestClient0433Contract(unittest.TestCase):
+class TestCurrentNativeContract(unittest.TestCase):
     def _client(self) -> CCCCClient:
         return CCCCClient(endpoint=DaemonEndpoint(transport="tcp", host="127.0.0.1", port=9000))
 
@@ -33,6 +24,7 @@ class TestClient0433Contract(unittest.TestCase):
             client.send(
                 group_id="g_1",
                 text="next?",
+                message_mode="mail",
                 insight="Compatibility is the release gate.",
                 require_peer_insight=True,
             )
@@ -66,6 +58,7 @@ class TestClient0433Contract(unittest.TestCase):
         )
         self.assertEqual(captured[0]["args"]["insight"], "Compatibility is the release gate.")
         self.assertIs(captured[0]["args"]["require_peer_insight"], True)
+        self.assertEqual(captured[0]["args"]["message_mode"], "mail")
         self.assertEqual(captured[4]["args"]["confirm"], "preamble")
         self.assertEqual(captured[5]["args"]["before"], 100)
         self.assertEqual(captured[6]["args"]["after"], 100)
@@ -309,7 +302,6 @@ class TestClient0433Contract(unittest.TestCase):
                 request_text="Review the release",
                 target="@foreman",
                 artifact_paths=["notes/meeting.md"],
-                requires_ack=True,
             )
             client.assistant_voice_document_archive(group_id="g_1", document_path="notes/meeting.md")
 
@@ -317,6 +309,7 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[2]["args"]["document_path"], "notes/meeting.md")
         self.assertEqual(captured[4]["args"]["kind"], "prompt_refine")
         self.assertEqual(captured[7]["args"]["request_text"], "Review the release")
+        self.assertNotIn("requires_ack", captured[7]["args"])
 
     def test_removed_ipc_transcription_fails_clearly(self) -> None:
         with self.assertRaises(IncompatibleDaemonError):
@@ -359,12 +352,21 @@ class TestClient0433Contract(unittest.TestCase):
 
     def test_web_model_completion_requires_and_reuses_delivery_id(self) -> None:
         captured: list[dict] = []
-        contract = TARGET_FIXTURE["operations"]["web_model_runtime_complete_turn"]
-        args = contract["request"]["args"]
+        args = {
+            "group_id": "g_1",
+            "actor_id": "web-model",
+            "turn_id": "turn-1",
+            "delivery_id": "worker:turn-1",
+            "event_ids": ["e_1"],
+            "status": "done",
+        }
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
             captured.append(request)
-            return contract["completion_response"]
+            return {
+                "ok": True,
+                "result": {"delivery_id": args["delivery_id"], "duplicate": True},
+            }
 
         with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
             client = self._client()
@@ -380,7 +382,9 @@ class TestClient0433Contract(unittest.TestCase):
 
         self.assertEqual(captured[0], captured[1])
         self.assertEqual(captured[0]["op"], "web_model_runtime_complete_turn")
-        self.assertTrue(set(contract["required_args"]).issubset(captured[0]["args"]))
+        self.assertTrue(
+            {"group_id", "actor_id", "turn_id", "delivery_id"}.issubset(captured[0]["args"])
+        )
         self.assertEqual(captured[0]["args"]["delivery_id"], args["delivery_id"])
 
 

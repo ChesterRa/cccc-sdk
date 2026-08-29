@@ -181,8 +181,6 @@ class GroupSpaceOpsMixin:
         *,
         group_id: str,
         lane: str,
-        action: str = "status",
-        force: bool = False,
         provider: str = "notebooklm",
         by: str = "user",
     ) -> Dict[str, Any]:
@@ -192,8 +190,7 @@ class GroupSpaceOpsMixin:
                 "group_id": str(group_id),
                 "provider": str(provider),
                 "lane": str(lane),
-                "action": str(action),
-                "force": bool(force),
+                "action": "status",
                 "by": str(by),
             },
         )

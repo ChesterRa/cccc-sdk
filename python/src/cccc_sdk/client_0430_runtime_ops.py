@@ -6,7 +6,7 @@ from .client_0430_shared import _compact
 
 
 class CCCC0430RuntimeOpsMixin:
-    """Web Model runtime operations retained from the CCCC 0.4.33 contract."""
+    """Web Model runtime operations supported by the current native contract."""
 
     def web_model_runtime_wait_next_turn(
         self,

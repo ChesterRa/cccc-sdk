@@ -12,7 +12,7 @@ class TestClientContractParity(unittest.TestCase):
     def _client(self) -> CCCCClient:
         return CCCCClient(endpoint=DaemonEndpoint(transport="tcp", host="127.0.0.1", port=9000))
 
-    def test_send_includes_attention_and_reply_required(self) -> None:
+    def test_send_includes_message_mode(self) -> None:
         captured: list[dict] = []
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
@@ -23,17 +23,17 @@ class TestClientContractParity(unittest.TestCase):
             self._client().send(
                 group_id="g_1",
                 text="hello",
+                message_mode="request_reply",
                 by="user",
-                priority="attention",
-                reply_required=True,
             )
 
         self.assertEqual(len(captured), 1)
         req = captured[0]
         self.assertEqual(req.get("op"), "send")
         args = req.get("args") if isinstance(req.get("args"), dict) else {}
-        self.assertEqual(args.get("priority"), "attention")
-        self.assertIs(args.get("reply_required"), True)
+        self.assertEqual(args.get("message_mode"), "request_reply")
+        self.assertNotIn("priority", args)
+        self.assertNotIn("reply_required", args)
 
     def test_send_files_maps_paths_into_one_daemon_operation(self) -> None:
         captured: list[dict] = []
@@ -46,23 +46,23 @@ class TestClientContractParity(unittest.TestCase):
             self._client().send_files(
                 group_id="g_1",
                 paths=["reference.png", "candidate.png"],
+                message_mode="request_reply",
                 text="inspect",
                 to=["seat-design"],
-                priority="attention",
             )
 
         self.assertEqual(captured[0].get("op"), "send_files")
         args = captured[0].get("args") or {}
         self.assertEqual(args.get("paths"), ["reference.png", "candidate.png"])
         self.assertEqual(args.get("to"), ["seat-design"])
-        self.assertEqual(args.get("priority"), "attention")
+        self.assertEqual(args.get("message_mode"), "request_reply")
 
         with self.assertRaisesRegex(ValueError, "non-empty paths"):
-            self._client().send_files(group_id="g_1", paths=[])
+            self._client().send_files(group_id="g_1", paths=[], message_mode="mail")
         with self.assertRaisesRegex(ValueError, "non-empty paths"):
-            self._client().send_files(group_id="g_1", paths=["reference.png", "  "])
+            self._client().send_files(group_id="g_1", paths=["reference.png", "  "], message_mode="mail")
 
-    def test_reply_includes_reply_required(self) -> None:
+    def test_reply_defaults_to_send_and_accepts_mail(self) -> None:
         captured: list[dict] = []
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
@@ -75,7 +75,6 @@ class TestClientContractParity(unittest.TestCase):
                 reply_to="e_origin",
                 text="roger",
                 by="peer1",
-                reply_required=True,
             )
 
         self.assertEqual(len(captured), 1)
@@ -83,9 +82,30 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(req.get("op"), "reply")
         args = req.get("args") if isinstance(req.get("args"), dict) else {}
         self.assertEqual(args.get("reply_to"), "e_origin")
-        self.assertIs(args.get("reply_required"), True)
+        self.assertEqual(args.get("message_mode"), "send")
+        self.assertNotIn("reply_required", args)
 
-    def test_send_cross_group_includes_reply_required(self) -> None:
+        captured.clear()
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            self._client().reply(
+                group_id="g_1",
+                reply_to="e_origin",
+                text="quiet follow-up",
+                message_mode="mail",
+                by="peer1",
+                to=["peer2"],
+            )
+        self.assertEqual(captured[0]["args"]["message_mode"], "mail")
+
+        with self.assertRaisesRegex(ValueError, "send or mail"):
+            self._client().reply(  # type: ignore[arg-type]
+                group_id="g_1",
+                reply_to="e_origin",
+                text="invalid",
+                message_mode="request_reply",
+            )
+
+    def test_send_cross_group_includes_message_mode(self) -> None:
         captured: list[dict] = []
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
@@ -97,15 +117,81 @@ class TestClientContractParity(unittest.TestCase):
                 group_id="g_src",
                 dst_group_id="g_dst",
                 text="relay",
+                message_mode="request_reply",
                 by="user",
-                reply_required=True,
             )
 
         self.assertEqual(len(captured), 1)
         req = captured[0]
         self.assertEqual(req.get("op"), "send_cross_group")
         args = req.get("args") if isinstance(req.get("args"), dict) else {}
-        self.assertIs(args.get("reply_required"), True)
+        self.assertEqual(args.get("message_mode"), "request_reply")
+
+    def test_reply_cancellation_delivery_and_inbox_ops_map_current_contract(self) -> None:
+        captured, client = self._capture({})
+        client.reply_request_cancel(group_id="g_1", source_event_id="e_request")
+        client.message_deliver(
+            group_id="g_1",
+            source_event_id="e_mail",
+            actor_ids=["peer-1"],
+            force_ambiguous=True,
+        )
+        client.inbox_peek(group_id="g_1", actor_id="peer-1", limit=5)
+        client.inbox_read(group_id="g_1", actor_id="peer-1", by="peer-1", limit=3)
+        client.message_history(
+            group_id="g_1",
+            actor_id="peer-1",
+            mode="send",
+            query="decision",
+            before_event_id="e_before",
+            limit=7,
+        )
+
+        self.assertEqual(
+            [(request["op"], request["args"]) for request in captured],
+            [
+                (
+                    "reply_request_cancel",
+                    {"group_id": "g_1", "source_event_id": "e_request", "by": "user"},
+                ),
+                (
+                    "message_deliver",
+                    {
+                        "group_id": "g_1",
+                        "source_event_id": "e_mail",
+                        "actor_ids": ["peer-1"],
+                        "by": "user",
+                        "force_ambiguous": True,
+                    },
+                ),
+                (
+                    "inbox_peek",
+                    {"group_id": "g_1", "actor_id": "peer-1", "by": "user", "limit": 5},
+                ),
+                (
+                    "inbox_read",
+                    {"group_id": "g_1", "actor_id": "peer-1", "by": "peer-1", "limit": 3},
+                ),
+                (
+                    "message_history",
+                    {
+                        "group_id": "g_1",
+                        "actor_id": "peer-1",
+                        "by": "user",
+                        "mode": "send",
+                        "query": "decision",
+                        "before_event_id": "e_before",
+                        "limit": 7,
+                    },
+                ),
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "non-empty actor_ids"):
+            client.message_deliver(group_id="g_1", source_event_id="e_mail", actor_ids=[])
+        with self.assertRaisesRegex(ValueError, "message_mode"):
+            client.send(group_id="g_1", text="bad", message_mode="attention")  # type: ignore[arg-type]
+        with self.assertRaisesRegex(ValueError, "history mode"):
+            client.message_history(group_id="g_1", actor_id="peer-1", mode="attention")  # type: ignore[arg-type]
 
     def test_group_automation_manage_requires_actions(self) -> None:
         client = self._client()
@@ -129,8 +215,7 @@ class TestClientContractParity(unittest.TestCase):
                 checklist=[{"text": "write tests", "status": "pending"}],
                 by="user",
                 to=["peer-impl"],
-                priority="attention",
-                reply_required=True,
+                task_priority="high",
                 waiting_on="actor",
                 insight="This task closes the release gap.",
                 require_peer_insight=True,
@@ -150,8 +235,7 @@ class TestClientContractParity(unittest.TestCase):
                 "checklist": [{"text": "write tests", "status": "pending"}],
                 "by": "user",
                 "to": ["peer-impl"],
-                "priority": "attention",
-                "reply_required": True,
+                "task_priority": "high",
                 "waiting_on": "actor",
                 "insight": "This task closes the release gap.",
                 "require_peer_insight": True,
@@ -169,7 +253,7 @@ class TestClientContractParity(unittest.TestCase):
             with self.assertRaises(IncompatibleDaemonError):
                 client.assert_compatible(require_ops=["events_stream"])
 
-    def test_tracked_send_defaults_reply_required_to_true(self) -> None:
+    def test_tracked_send_does_not_create_reply_obligation(self) -> None:
         captured: list[dict] = []
 
         def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
@@ -180,7 +264,8 @@ class TestClientContractParity(unittest.TestCase):
             self._client().tracked_send(group_id="g_1", title="Review SDK", text="please review")
 
         args = captured[0].get("args") if isinstance(captured[0].get("args"), dict) else {}
-        self.assertIs(args.get("reply_required"), True)
+        self.assertNotIn("reply_required", args)
+        self.assertNotIn("message_priority", args)
 
     def test_context_v3_helpers_emit_context_sync_ops(self) -> None:
         captured: list[dict] = []
@@ -823,6 +908,7 @@ class TestClientContractParity(unittest.TestCase):
         client.send(
             group_id="g_1",
             text="see ref",
+            message_mode="send",
             refs=[{"kind": "task_ref", "task_id": "t_42"}],
             attachments=[{"kind": "file", "path": "blobs/a.txt"}],
             client_id="cl_1",
@@ -835,6 +921,7 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args["client_id"], "cl_1")
         self.assertEqual(args["insight"], "Rollback remains unverified.")
         self.assertEqual(args["suggested_user_message"], "Please confirm the rollback evidence.")
+        self.assertEqual(args["message_mode"], "send")
 
     def test_reply_includes_refs(self) -> None:
         captured, client = self._capture({"event": {"id": "e_r"}})
@@ -857,12 +944,14 @@ class TestClientContractParity(unittest.TestCase):
             group_id="g_src",
             dst_group_id="g_dst",
             text="cross",
+            message_mode="request_reply",
             insight="The destination should challenge this plan independently.",
         )
         args = captured[0]["args"]
         self.assertNotIn("refs", args)
         self.assertNotIn("attachments", args)
         self.assertEqual(args["insight"], "The destination should challenge this plan independently.")
+        self.assertEqual(args["message_mode"], "request_reply")
 
     def test_actor_add_supports_capability_hidden_and_profile_scope(self) -> None:
         captured, client = self._capture({"actor": {"id": "a1"}})
@@ -896,8 +985,7 @@ class TestClientContractParity(unittest.TestCase):
             insight="We may be optimizing the wrong layer.",
             title="Fix bug",
             to=["@alice"],
-            priority="attention",
-            task_priority="attention",
+            task_priority="high",
             idempotency_key="idem-1",
             outcome="bug closed",
             status="planned",
@@ -914,8 +1002,7 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["op"], "tracked_send")
         self.assertEqual(args["title"], "Fix bug")
         self.assertEqual(args["to"], ["@alice"])
-        self.assertEqual(args["priority"], "attention")
-        self.assertEqual(args["task_priority"], "attention")
+        self.assertEqual(args["task_priority"], "high")
         self.assertEqual(args["idempotency_key"], "idem-1")
         self.assertEqual(args["insight"], "We may be optimizing the wrong layer.")
         self.assertEqual(args["outcome"], "bug closed")
@@ -937,8 +1024,8 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(args["group_id"], "g_1")
         self.assertEqual(args["text"], "quick task")
         self.assertEqual(args["by"], "user")
-        self.assertEqual(args["priority"], "normal")
-        self.assertIs(args["reply_required"], True)
+        self.assertNotIn("priority", args)
+        self.assertNotIn("reply_required", args)
         self.assertNotIn("idempotency_key", args)
         self.assertNotIn("checklist", args)
         self.assertNotIn("refs", args)
@@ -953,6 +1040,59 @@ class TestClientContractParity(unittest.TestCase):
         client.task_list(group_id="g_1", task_id="t_3")
         self.assertEqual(captured[0]["args"]["task_id"], "t_3")
 
+        captured.clear()
+        client.task_list(
+            group_id="g_1",
+            task_ids=["t_3", "t_4"],
+            statuses=["planned", "active"],
+            query="release",
+            assignee="peer1",
+            attention="blocked",
+            offset=20,
+            limit=20,
+            include_index=True,
+        )
+        self.assertEqual(
+            captured[0]["args"],
+            {
+                "group_id": "g_1",
+                "task_ids": "t_3,t_4",
+                "statuses": "planned,active",
+                "query": "release",
+                "assignee": "peer1",
+                "attention": "blocked",
+                "offset": 20,
+                "limit": 20,
+                "include_index": True,
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "offset requires limit"):
+            client.task_list(group_id="g_1", offset=20)
+
+    def test_context_projection_and_group_space_sync_are_current(self) -> None:
+        captured, client = self._capture({})
+        client.context_get(group_id="g_1", detail="summary")
+        client.group_space_sync(group_id="g_1", lane="work")
+        self.assertEqual(
+            captured,
+            [
+                {"v": 1, "op": "context_get", "args": {"group_id": "g_1", "detail": "summary"}},
+                {
+                    "v": 1,
+                    "op": "group_space_sync",
+                    "args": {
+                        "group_id": "g_1",
+                        "provider": "notebooklm",
+                        "lane": "work",
+                        "action": "status",
+                        "by": "user",
+                    },
+                },
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "overview, summary, or full"):
+            client.context_get(group_id="g_1", detail="everything")
+
     def test_headless_ops_map_args(self) -> None:
         captured, client = self._capture({"state": {"status": "idle"}})
         client.headless_status(group_id="g_1", actor_id="a1")
@@ -964,11 +1104,6 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["op"], "headless_set_status")
         self.assertEqual(captured[0]["args"]["status"], "working")
         self.assertEqual(captured[0]["args"]["task_id"], "t_9")
-
-        captured.clear()
-        client.headless_ack_message(group_id="g_1", actor_id="a1", message_id="msg_42")
-        self.assertEqual(captured[0]["op"], "headless_ack_message")
-        self.assertEqual(captured[0]["args"]["message_id"], "msg_42")
 
     def test_group_copy_ops(self) -> None:
         captured, client = self._capture({"package_b64": "AAAA"})
@@ -1240,12 +1375,11 @@ class TestClientContractParity(unittest.TestCase):
             kind="info",
             priority="high",
             im_visibility="public",
-            requires_ack=True,
             target_actor_id="a1",
         )
         self.assertEqual(captured[0]["op"], "system_notify")
         self.assertEqual(captured[0]["args"]["title"], "Heads up")
-        self.assertIs(captured[0]["args"]["requires_ack"], True)
+        self.assertNotIn("requires_ack", captured[0]["args"])
         self.assertEqual(captured[0]["args"]["target_actor_id"], "a1")
         self.assertEqual(captured[0]["args"]["priority"], "high")
         self.assertEqual(captured[0]["args"]["im_visibility"], "public")

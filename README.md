@@ -2,9 +2,8 @@
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-> Status: **contract-first SDK for CCCC daemon IPC v1**. The last tagged
-> Python/TypeScript line targets CCCC 0.4.32; source packages on `main` target
-> the current CCCC 0.4.34 release-candidate contract. Publishing remains a separate release step.
+> Status: **contract-first SDK for CCCC daemon IPC v1**. Source packages on
+> `main` target the current CCCC daemon contract. Publishing remains a separate release step.
 > See `CHANGELOG.md` and `spec/ADAPTATION_PLAN.md` for exact scope.
 
 CCCC SDK provides **client SDKs** for building applications on top of the CCCC platform.
@@ -12,12 +11,15 @@ CCCC SDK provides **client SDKs** for building applications on top of the CCCC p
 ## Relationship to CCCC Core
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
-- `cccc` (core) ships the daemon/web/CLI and owns runtime state in `CCCC_HOME`.
+- `cccc` (core) ships one native Rust daemon/web/CLI product and owns runtime
+  state in `CCCC_HOME`.
 - `cccc-sdk` (this repo) provides Python, TypeScript, and Rust clients for **Daemon IPC v1**.
+- SDK language is independent of the daemon implementation: Python and
+  TypeScript applications connect to the same native daemon as Rust applications.
 - The SDK is not a standalone framework. It always talks to a running CCCC daemon.
 
 If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared immediately
-(messages, ACKs, context operations, automation updates, etc.).
+(messages, Inbox reads, context operations, automation updates, etc.).
 
 ## What This Repo Contains
 
@@ -30,7 +32,7 @@ If SDK clients and CCCC Web use the same `CCCC_HOME`, all writes are shared imme
 Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
-- Reliable Rust workers that need identity-bound writes and durable inbox checkpoints
+- Reliable Rust workers that need identity-bound idempotent writes and atomic Mail consumption
 - Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
 - Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and first-class local memory
 
@@ -69,7 +71,7 @@ from cccc_sdk import CCCCClient
 c = CCCCClient()
 c.assert_compatible(
     require_ipc_v=1,
-    require_ops=["groups", "send", "reply", "inbox_list", "context_get", "context_sync"],
+    require_ops=["groups", "send", "reply", "inbox_read", "context_get", "context_sync"],
 )
 print("OK: daemon is compatible")
 PY
@@ -79,13 +81,13 @@ PY
 
 ```bash
 # send a message
-python python/examples/send.py --group g_xxx --text "hello"
+python python/examples/send.py --group g_xxx --text "hello" --mode send
 
 # subscribe to the live event stream
 python python/examples/stream.py --group g_xxx
 
-# auto-ACK attention messages (as user)
-python python/examples/auto_ack_attention.py --group g_xxx --actor user
+# put useful non-urgent information in the recipient Inbox
+python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 ```
 
 ## Quick start (Rust)
@@ -124,6 +126,10 @@ Compatibility is enforced by **contracts**, not by strict version string matchin
 - capability discovery (`capabilities`)
 - operation probing (reject `unknown_op`)
 
+The bundled CCCC daemon reports `implementation="rust"`. Third-party compatible
+daemons still need to satisfy the same IPC and capability contract; clients do
+not infer compatibility from the implementation label alone.
+
 See `python/examples/compat_check.py`.
 
 ## Specs (contracts)
@@ -133,8 +139,8 @@ This repo keeps a mirror under `spec/`:
 
 ```bash
 ./scripts/sync_specs_from_cccc.sh ../cccc
-# Reproduce a tagged mirror when auditing an older compatibility fixture:
-./scripts/sync_specs_from_cccc.sh ../cccc v0.4.33
+# Reproduce a tagged mirror when auditing an older contract:
+./scripts/sync_specs_from_cccc.sh ../cccc v0.4.35
 ```
 
 The sync command intentionally replaces only the three mirrored standards.
