@@ -29,6 +29,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 典型场景：
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
+- 需要身份绑定幂等写入与原子 Mail 消费的可靠 Rust worker
 - 以编程方式创建/管理 group、actors、共享 context、capability 策略与 Group Space 的内部工具
 - 使用 `tracked_send`、Context Ops v3 任务/agent state、capability discovery、本地 memory API 的工作流集成
 
@@ -90,7 +91,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.0.2"
 ```
 
 Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
@@ -101,7 +102,7 @@ Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python 和 TypeScript 包版本跟随当前 SDK 发布线；Rust crate 从 `0.0.1` 起步。
+- Python 和 TypeScript 包版本跟随当前 SDK 发布线；Rust crate 暂处于 `0.0.x` 版本线。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

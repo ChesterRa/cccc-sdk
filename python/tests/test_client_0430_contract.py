@@ -8,7 +8,7 @@ from cccc_sdk.errors import IncompatibleDaemonError
 from cccc_sdk.transport import DaemonEndpoint
 
 
-class TestClient0433Contract(unittest.TestCase):
+class TestCurrentNativeContract(unittest.TestCase):
     def _client(self) -> CCCCClient:
         return CCCCClient(endpoint=DaemonEndpoint(transport="tcp", host="127.0.0.1", port=9000))
 
@@ -349,6 +349,43 @@ class TestClient0433Contract(unittest.TestCase):
         self.assertEqual(captured[1]["args"]["instruction"], "Check the latest summary")
         self.assertEqual(captured[1]["args"]["text"], "Include omissions")
         self.assertEqual(captured[1]["args"]["source_text"], "Current meeting notes")
+
+    def test_web_model_completion_requires_and_reuses_delivery_id(self) -> None:
+        captured: list[dict] = []
+        args = {
+            "group_id": "g_1",
+            "actor_id": "web-model",
+            "turn_id": "turn-1",
+            "delivery_id": "worker:turn-1",
+            "event_ids": ["e_1"],
+            "status": "done",
+        }
+
+        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
+            captured.append(request)
+            return {
+                "ok": True,
+                "result": {"delivery_id": args["delivery_id"], "duplicate": True},
+            }
+
+        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
+            client = self._client()
+            for _ in range(2):
+                client.web_model_runtime_complete_turn(
+                    group_id=args["group_id"],
+                    actor_id=args["actor_id"],
+                    turn_id=args["turn_id"],
+                    delivery_id=args["delivery_id"],
+                    event_ids=args["event_ids"],
+                    status=args["status"],
+                )
+
+        self.assertEqual(captured[0], captured[1])
+        self.assertEqual(captured[0]["op"], "web_model_runtime_complete_turn")
+        self.assertTrue(
+            {"group_id", "actor_id", "turn_id", "delivery_id"}.issubset(captured[0]["args"])
+        )
+        self.assertEqual(captured[0]["args"]["delivery_id"], args["delivery_id"])
 
 
 if __name__ == "__main__":

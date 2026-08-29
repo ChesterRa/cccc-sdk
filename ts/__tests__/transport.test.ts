@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
 import { Readable } from 'node:stream';
 import {
+  callDaemon,
   discoverEndpoint,
   defaultHome,
   openEventsStream,
@@ -13,6 +14,52 @@ import {
   MAX_LINE_SIZE,
   DEFAULT_TIMEOUT_MS,
 } from '../src/transport.js';
+import type { DaemonEndpoint, DaemonRequest } from '../src/types.js';
+
+interface TestServer {
+  endpoint: DaemonEndpoint;
+  sockets: Set<net.Socket>;
+  close(): Promise<void>;
+}
+
+async function startServer(onConnection: (socket: net.Socket) => void): Promise<TestServer> {
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+    onConnection(socket);
+    socket.resume();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('test server did not bind a TCP port');
+  }
+  return {
+    endpoint: {
+      transport: 'tcp',
+      host: '127.0.0.1',
+      port: address.port,
+      path: '',
+    },
+    sockets,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    },
+  };
+}
+
+const streamRequest: DaemonRequest = {
+  v: 1,
+  op: 'events_stream',
+  args: { group_id: 'g1', by: 'user' },
+};
 
 describe('defaultHome', () => {
   it('returns CCCC_HOME env if set', () => {
@@ -248,6 +295,61 @@ describe('openEventsStream abort handling', () => {
       if (guard !== undefined) clearTimeout(guard);
       net.Socket.prototype.connect = originalConnect;
     }
+  });
+});
+
+describe('daemon response deadlines', () => {
+  it('times out after TCP connect when the daemon never responds', async () => {
+    const server = await startServer(() => undefined);
+    const started = Date.now();
+    try {
+      await assert.rejects(
+        callDaemon(server.endpoint, { v: 1, op: 'ping', args: {} }, 50),
+        /Response timeout/,
+      );
+      assert.ok(Date.now() - started < 1_000, 'response timeout should be bounded');
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('event stream handshake safety', () => {
+  it('rejects a daemon that accepts the socket but never handshakes', async () => {
+    const server = await startServer(() => undefined);
+    const started = Date.now();
+    try {
+      await assert.rejects(
+        openEventsStream(server.endpoint, streamRequest, 50),
+        /Handshake timeout/,
+      );
+      assert.ok(Date.now() - started < 1_000, 'handshake timeout should be bounded');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('honors AbortSignal while waiting for the handshake', async () => {
+    const server = await startServer(() => undefined);
+    const controller = new AbortController();
+    try {
+      const pending = openEventsStream(server.endpoint, streamRequest, 5_000, controller.signal);
+      setTimeout(() => controller.abort(), 20);
+      await assert.rejects(pending, /aborted/);
+      const closeDeadline = Date.now() + 1_000;
+      while (server.sockets.size !== 0 && Date.now() < closeDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(server.sockets.size, 0, 'aborting the handshake must close the socket');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('applies the byte cap to data buffered with the handshake', async () => {
+    const socket = Readable.from([]) as unknown as net.Socket;
+    const lines = readLines(socket, Buffer.alloc(MAX_LINE_SIZE + 1, 0x78));
+    await assert.rejects(lines.next(), /Stream line exceeds MAX_LINE_SIZE/);
   });
 });
 

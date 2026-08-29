@@ -11,7 +11,8 @@ This repo is a monorepo with three deliverables:
   not choose or modify the next package version.
 - RC sequence is SDK-owned (PEP 440 `X.Y.ZrcN` for Python and SemVer
   `X.Y.Z-rc.N` for npm).
-- The Rust crate begins at `0.0.1` while its public API settles.
+- The Rust crate begins at `0.0.1`; the current hardening branch prepares
+  `0.0.2`, but publishing remains a separate release decision.
 - Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
 
 ## 0) Sync specs (recommended)
@@ -19,6 +20,9 @@ This repo is a monorepo with three deliverables:
 ```bash
 ./scripts/sync_specs_from_cccc.sh ../cccc
 ./scripts/check_specs_against_cccc.sh ../cccc
+# Reproducible audit against a committed core revision:
+./scripts/check_specs_against_cccc.sh ../cccc <git-ref>
+python3 scripts/check_sdk_hardening.py
 ```
 
 ## 1) Python release (PyPI/TestPyPI)
@@ -103,10 +107,14 @@ npm publish --access public
 ```bash
 cd rust
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo +1.74.0 check --locked
 cargo package --locked
 ```
+
+The Rust CI matrix also runs the full suite on Windows and the opt-in reliable
+messaging test against the current native CCCC daemon.
 
 ### Publish
 

@@ -20,6 +20,9 @@ CCCC line and exposes the IPC surface available on that line.
 - Reduced legacy Group Space synchronization to its contractually supported
   read-only status operation. Explicit ingest and source operations remain the
   mutation path.
+- Reworked the Rust identity-bound adapter around explicit message modes,
+  stable `client_id` replay, and the daemon's atomic Mail Inbox transaction;
+  removed its emulation of retired ACK/read cursor operations.
 
 ### Compatibility
 
@@ -28,8 +31,9 @@ CCCC line and exposes the IPC surface available on that line.
   implementation label alone.
 - Internal Web upload preflight and relay-only operations remain available via
   generic calls but intentionally have no first-class public wrapper.
-- Package versions are deliberately unchanged. Version selection and publishing
-  remain a separate release decision.
+- Python and TypeScript package versions remain unchanged. The Rust hardening
+  branch keeps its already-selected `0.0.2` source version; publishing remains a
+  separate release decision.
 
 ## [0.4.34] — Unreleased
 
@@ -45,6 +49,10 @@ CCCC line and exposes the IPC surface available on that line.
   after an exchange has begun.
 - Scheduled CI drift detection for all three mirrored CCCC standards, automatic
   Python integration coverage, and a live Rust-SDK/current-daemon smoke job.
+- Python and TypeScript Web Model wait/complete helpers with a required stable
+  `delivery_id` replay key.
+- Rust 0.0.2 identity-bound reliable messaging with explicit Send / Send + Reply
+  / Mail modes, stable write keys, and atomic Mail consumption.
 
 ### Changed
 
@@ -80,6 +88,10 @@ CCCC line and exposes the IPC surface available on that line.
 - TypeScript's `INVALID_REQUEST` constant now matches the daemon's
   `invalid_request` code and includes current request-size and Remote Access
   administrator-token errors.
+- TypeScript connection, response, and stream-handshake phases now share one
+  deadline; handshake cancellation closes the socket, buffered stream data is
+  byte-capped before decoding, and transport cleanup removes only SDK-owned
+  listeners.
 - The daemon IPC mirror now matches current CCCC core, including Remote Access
   administrator-token state and enforcement fields.
 
@@ -91,6 +103,17 @@ CCCC line and exposes the IPC surface available on that line.
   maps and side-effect-free compatibility probing. TypeScript also compiles
   exported option fixtures so documented contract values cannot silently drift
   out of the published declaration surface.
+- Added current native-daemon integration for message replay and atomic Mail
+  consumption, Rust 1.74 MSRV and Windows jobs, and a static SDK hardening gate.
+
+## Rust crate [0.0.2] — Unreleased
+
+### Added
+
+- Least-privilege `IdentityBoundClient` adapters for explicit-mode idempotent
+  send/reply and daemon-owned Mail Inbox operations.
+- Nullable native cursor decoding and direct use of atomic `inbox_read`, without
+  retaining the retired all-message mark-read compatibility model.
 
 ## Rust crate [0.0.1] — 2026-08-03
 

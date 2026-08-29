@@ -25,6 +25,7 @@ Out of scope:
 
 - `src/transport.ts`: endpoint discovery, socket I/O, events stream handshake.
 - `src/client.ts`: high-level SDK methods.
+- `src/client_0430_runtime_ops.ts`: retained Web Model wait/complete operations.
 - `src/client_0434_ops.ts`: current terminal/Web Model contract additions.
 - `src/types.ts`: IPC-facing option and payload types.
 - `src/errors.ts`: typed error hierarchy.
@@ -43,6 +44,8 @@ Out of scope:
 - Connection-establishment failures -> `DaemonConnectionError` and one safe
   endpoint rediscovery for auto-discovered clients.
 - Failures after exchange begins -> `OutcomeUnknownError` and no automatic replay.
+- Connection/response/handshake phases share one caller deadline; stream bytes
+  are capped before UTF-8 decoding.
 - Oversized requests -> `RequestTooLargeError` before connecting.
 - Daemon `ok:false` responses -> `DaemonAPIError` with `code/message/details/raw`.
 - Compatibility failures -> `IncompatibleDaemonError`.

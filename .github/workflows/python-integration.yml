@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "python/**"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/python-integration.yml"
   pull_request:
     paths:
       - "python/**"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/python-integration.yml"
   workflow_dispatch:
     inputs:
@@ -23,6 +25,9 @@ jobs:
     steps:
       - name: Checkout cccc-sdk
         uses: actions/checkout@v4
+
+      - name: Check SDK hardening contract
+        run: python3 scripts/check_sdk_hardening.py
 
       - name: Checkout cccc (daemon)
         uses: actions/checkout@v4
@@ -54,7 +59,7 @@ jobs:
           python -m pip install -U pip
           python -m pip install -e python
 
-      - name: Smoke (daemon + sdk)
+      - name: Smoke current message and Mail contract
         run: |
           set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
@@ -65,3 +70,46 @@ jobs:
           trap cleanup EXIT
           cccc daemon start
           python python/examples/compat_check.py
+
+          python - <<'PY'
+          from cccc_sdk import CCCCClient
+
+          client = CCCCClient()
+          created = client.group_create(title="python-sdk-native-current")
+          group_id = str(created.get("group_id") or "")
+          if not group_id:
+              raise RuntimeError("group_create did not return group_id")
+
+          try:
+              client.group_start(group_id=group_id)
+              client.actor_add(
+                  group_id=group_id,
+                  actor_id="sdk-live",
+                  runtime="custom",
+                  runner="headless",
+                  command=["/usr/bin/true"],
+              )
+              options = {
+                  "group_id": group_id,
+                  "text": "python SDK Mail replay probe",
+                  "message_mode": "mail",
+                  "to": ["sdk-live"],
+                  "client_id": f"python-sdk:{group_id}:mail",
+              }
+              first = client.send(**options)
+              replay = client.send(**options)
+              if (first.get("event") or {}).get("id") != (replay.get("event") or {}).get("id"):
+                  raise RuntimeError("stable client_id created two Mail events")
+              if replay.get("duplicate") is not True:
+                  raise RuntimeError("Mail replay did not expose duplicate=true")
+
+              peeked = client.inbox_peek(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              consumed = client.inbox_read(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              if len(peeked.get("messages") or []) != 1 or len(consumed.get("messages") or []) != 1:
+                  raise RuntimeError("Mail was not visible and consumed exactly once")
+              empty = client.inbox_read(group_id=group_id, actor_id="sdk-live", by="sdk-live")
+              if empty.get("messages"):
+                  raise RuntimeError("Mail remained unread after inbox_read")
+          finally:
+              client.group_delete(group_id=group_id)
+          PY

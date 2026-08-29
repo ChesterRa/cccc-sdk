@@ -7,11 +7,14 @@
 mod client;
 mod endpoint;
 mod error;
+mod identity;
 mod protocol;
+mod reliable;
 
 pub use client::{CCCCClient, CompatibilityRequirements};
 pub use endpoint::{discover_endpoint, DaemonEndpoint};
 pub use error::{DaemonError, Error, Result};
+pub use identity::{AuthenticatedPrincipal, WorkloadIdentityEvidence, WorkloadIdentityHook};
 pub use protocol::{
     ContextDetail, DaemonRequest, DaemonResponse, MessageHistoryMode, MessageMode, PingResult,
     ReplyMessageMode, TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult,
@@ -20,3 +23,4 @@ pub use protocol::{
     WebModelDeliveryPreferencesResult, WebModelRecoveredTurn, WebModelRecoveredTurnDelivery,
     WebModelRuntimeRecoverTurnResult,
 };
+pub use reliable::{Event, IdentityBoundClient, InboxCursor, InboxPage, MessageWriteResult};

@@ -697,6 +697,34 @@ export interface TerminalSnapshotOptions {
   by?: string;
 }
 
+/** Read the next coalesced turn for one Web Model runtime actor. */
+export interface WebModelRuntimeWaitNextTurnOptions {
+  groupId: string;
+  actorId: string;
+  by?: string;
+  limit?: number;
+  kindFilter?: 'all' | 'chat' | 'notify';
+}
+
+export type WebModelRuntimeCompletionStatus =
+  | 'done'
+  | 'partial'
+  | 'failed'
+  | 'cancelled';
+
+/** Complete a previously acquired Web Model turn with a stable replay key. */
+export interface WebModelRuntimeCompleteTurnOptions {
+  groupId: string;
+  actorId: string;
+  turnId: string;
+  deliveryId: string;
+  eventIds?: string[];
+  latestEventId?: string;
+  status?: WebModelRuntimeCompletionStatus;
+  summary?: string;
+  by?: string;
+}
+
 export type WebModelDeliveryMode = 'standard' | 'image_compat';
 
 export interface WebModelDeliveryPreferencesGetOptions {

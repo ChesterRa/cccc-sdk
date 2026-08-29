@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "ts/**"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
       - "ts/**"
+      - "scripts/check_sdk_hardening.py"
       - ".github/workflows/ts-ci.yml"
 
 jobs:
@@ -16,6 +18,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check SDK hardening contract
+        run: python3 scripts/check_sdk_hardening.py
 
       - uses: actions/setup-node@v4
         with:
@@ -75,7 +80,7 @@ jobs:
         working-directory: cccc
         run: cargo build --locked -p cccc --bin cccc
 
-      - name: SDK <-> daemon integration smoke
+      - name: SDK against current message and Mail contract
         run: |
           set -euo pipefail
           export CCCC_HOME="$PWD/.tmp_cccc_home"
@@ -95,14 +100,13 @@ jobs:
           import fs from 'node:fs/promises';
           import { CCCCClient, discoverEndpoint } from './ts/dist/index.js';
 
-          // Validate daemon TCP endpoint normalization for 0.0.0.0/localhost style descriptors.
           const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-sdk-ts-'));
           const fakeDaemon = path.join(fakeHome, 'daemon');
           await fs.mkdir(fakeDaemon, { recursive: true });
           await fs.writeFile(
             path.join(fakeDaemon, 'ccccd.addr.json'),
             JSON.stringify({ v: 1, transport: 'tcp', host: '0.0.0.0', port: 12345 }),
-            'utf-8'
+            'utf-8',
           );
           const fakeEndpoint = await discoverEndpoint(fakeHome);
           if (fakeEndpoint.host !== '127.0.0.1') {
@@ -120,7 +124,11 @@ jobs:
               'group_preamble_set',
               'group_preamble_reset',
               'send',
+              'reply',
               'send_files',
+              'inbox_peek',
+              'inbox_read',
+              'message_history',
               'events_stream',
               'memory_search',
               'memory_get',
@@ -140,27 +148,54 @@ jobs:
 
           const created = await client.groupCreate({ title: 'ts-integration' });
           const groupId = String(created.group_id || '');
-          if (!groupId) {
-            throw new Error('groupCreate did not return group_id');
-          }
+          if (!groupId) throw new Error('groupCreate did not return group_id');
 
-          const eventPromise = (async () => {
-            for await (const item of client.eventsStream({ groupId, by: 'user' })) {
-              if (item.t === 'event') return item.event;
+          try {
+            await client.groupStart(groupId);
+            await client.actorAdd({
+              groupId,
+              actorId: 'sdk-live',
+              runtime: 'custom',
+              runner: 'headless',
+              command: ['/usr/bin/true'],
+            });
+
+            const eventPromise = (async () => {
+              for await (const item of client.eventsStream({ groupId, by: 'user' })) {
+                if (item.t === 'event') return item.event;
+              }
+              return null;
+            })();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            await client.send({ groupId, text: 'hello from ts-ci', mode: 'send', to: ['user'] });
+            const event = await Promise.race([
+              eventPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error('stream timeout')), 5000)),
+            ]);
+            if (!event || typeof event.id !== 'string' || event.id.length === 0) {
+              throw new Error('stream event is missing canonical id');
             }
-            return null;
-          })();
 
-          await new Promise((r) => setTimeout(r, 200));
-          await client.send({ groupId, text: 'hello from ts-ci', mode: 'send', by: 'user', to: ['user'] });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timed out waiting for stream event')), 5000)
-          );
-          const event = await Promise.race([eventPromise, timeoutPromise]);
-
-          if (!event || typeof event.id !== 'string' || event.id.length === 0) {
-            throw new Error('stream event is missing canonical id field');
+            const mailOptions = {
+              groupId,
+              text: 'TS SDK Mail replay probe',
+              mode: 'mail',
+              to: ['sdk-live'],
+              clientId: `ts-sdk:${groupId}:mail`,
+            };
+            const first = await client.send(mailOptions);
+            const replay = await client.send(mailOptions);
+            if (first.event?.id !== replay.event?.id || replay.duplicate !== true) {
+              throw new Error('stable clientId did not replay the Mail event');
+            }
+            const peeked = await client.inboxPeek({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            const consumed = await client.inboxRead({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            if (peeked.messages?.length !== 1 || consumed.messages?.length !== 1) {
+              throw new Error('Mail was not visible and consumed exactly once');
+            }
+            const empty = await client.inboxRead({ groupId, actorId: 'sdk-live', by: 'sdk-live' });
+            if (empty.messages?.length) throw new Error('Mail remained unread after inboxRead');
+          } finally {
+            await client.groupDelete(groupId);
           }
-          console.log('integration smoke passed', { groupId, eventId: event.id });
           JS

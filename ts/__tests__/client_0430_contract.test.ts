@@ -16,7 +16,7 @@ async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
   return client;
 }
 
-describe('cccc 0.4.33 JSON op alignment', () => {
+describe('current native CCCC JSON op alignment', () => {
   it('maps current message, group preamble, and terminal operations', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -334,5 +334,28 @@ describe('cccc 0.4.33 JSON op alignment', () => {
     assert.equal(calls[1]?.args?.['instruction'], 'Check the latest summary');
     assert.equal(calls[1]?.args?.['text'], 'Include omissions');
     assert.equal(calls[1]?.args?.['source_text'], 'Current meeting notes');
+  });
+
+  it('requires and reuses deliveryId for Web Model completion replay', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    const options = {
+      groupId: 'g_1',
+      actorId: 'web-model',
+      turnId: 'turn-1',
+      deliveryId: 'worker:turn-1',
+      eventIds: ['e_1'],
+      status: 'done' as const,
+    };
+
+    await client.webModelRuntimeCompleteTurn(options);
+    await client.webModelRuntimeCompleteTurn(options);
+
+    assert.deepEqual(calls[0], calls[1]);
+    assert.equal(calls[0]?.op, 'web_model_runtime_complete_turn');
+    for (const required of ['group_id', 'actor_id', 'turn_id', 'delivery_id']) {
+      assert.ok(required in (calls[0]?.args ?? {}), `missing daemon arg: ${required}`);
+    }
+    assert.equal(calls[0]?.args?.['delivery_id'], options.deliveryId);
   });
 });

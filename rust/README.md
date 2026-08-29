@@ -8,7 +8,7 @@ the same daemon contract.
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.0.2"
 ```
 
 ## Quick start
@@ -87,10 +87,29 @@ a connection-establishment failure. Once request exchange begins, failures are
 reported as `Error::OutcomeUnknown` and are never replayed automatically.
 Clients created with `new(endpoint)` keep that explicit endpoint.
 
+## Identity-bound reliable messaging
+
+Rust 0.0.2 adds an `IdentityBoundClient` that exposes only current idempotent
+message writes and Mail Inbox operations. A caller supplies a
+`WorkloadIdentityHook`; the adapter binds the principal and evidence to every
+request instead of treating the wire-level `by` field as authentication. The
+receiving daemon or gateway remains responsible for verifying that evidence.
+
+`send_idempotent` requires an explicit `MessageMode`, recipients, and stable
+`client_id`; `reply_idempotent` similarly requires a Send-or-Mail reply mode.
+After `Error::OutcomeUnknown`, retry with the exact same arguments and key so
+the daemon can return the original event with `replayed=true`.
+
+Mail consumption uses the daemon's atomic `inbox_read` transaction. The SDK
+does not recreate the retired `inbox_list`, `inbox_mark_read`, or generic ACK
+model, and it does not maintain a second competing cursor. `inbox_peek` remains
+available for non-consuming inspection. The adapter intentionally has no
+generic `call`, shutdown, configuration, or credential methods.
+
 `assert_compatible` probes requested operation names and rejects an advertised
 capability whose actual operation returns `unknown_op`.
 
 Streaming upgrade operations such as `events_stream` and `term_attach` are not
-exposed as iterators in 0.0.1. `assert_compatible` deliberately skips unsafe
+exposed as iterators in 0.0.2. `assert_compatible` deliberately skips unsafe
 duplex probes; a reusable stream API will be added only with stable ownership,
 close, and backpressure semantics.
