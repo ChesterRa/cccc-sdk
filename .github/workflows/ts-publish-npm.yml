@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Required for npm Trusted Publishing (OIDC) and provenance attestations.
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +23,12 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 20 ships npm 10.
+      - name: Upgrade npm for Trusted Publishing
+        run: |
+          npm install -g npm@11
+          npm --version
 
       - name: Validate version
         working-directory: ts
@@ -58,8 +66,11 @@ jobs:
             echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
+      # Preferred auth is the npmjs.com Trusted Publisher for this workflow
+      # (no secret, no expiry). NPM_TOKEN is only a fallback while the trusted
+      # publisher is not configured yet; delete the secret once it is.
       - name: Publish to npm
         working-directory: ts
-        run: npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public
+        run: npm publish --tag ${{ steps.npm-tag.outputs.tag }} --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
