@@ -60,17 +60,16 @@ not establish Windows/macOS or hosted-service acceptance.
 A commit is not permission to push a tag or publish. Confirm the matching CCCC
 release exists, candidate checks pass, and publication is authorized.
 
-- A stable `vX.Y.Z` tag triggers the Python and npm publishing workflows. They
-  check coordinated versions and run package tests before publishing. The
-  Python workflow requires the `PYPI_API_TOKEN` repository secret.
-- npm publishes through npm Trusted Publishing (OIDC) and needs no secret. The
-  publisher is configured on npmjs.com under package `cccc-sdk` → Settings →
-  Trusted Publisher: GitHub Actions, owner `ChesterRa`, repository `cccc-sdk`,
-  workflow `ts-publish-npm.yml`, no environment. Renaming the workflow file or
-  moving the repository requires recreating that connection.
-- Publish the same Rust version with `cargo publish --manifest-path rust/Cargo.toml
-  --locked --registry crates-io`, using the maintainer's crates.io credentials.
-- Do not also publish Python/npm manually while their workflows are running.
+- A stable `vX.Y.Z` tag triggers the Python, npm and Rust publishing
+  workflows. They check coordinated versions and run package tests before
+  publishing.
+- Python publishes with the `PYPI_API_TOKEN` repository secret.
+- npm and crates.io publish through Trusted Publishing (OIDC) and need no
+  secret. Each has a publisher bound to GitHub Actions, owner `ChesterRa`,
+  repository `cccc-sdk`, no environment: npmjs.com uses workflow
+  `ts-publish-npm.yml`, crates.io uses workflow `rust-publish.yml`. Renaming a
+  workflow file or moving the repository requires recreating that connection.
+- Do not also publish manually while the workflows are running.
   Registry versions are immutable; check individual workflow outcomes before
   retrying a partially completed release.
 
