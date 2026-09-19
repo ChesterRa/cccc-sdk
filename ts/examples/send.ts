@@ -1,81 +1,49 @@
 /**
- * Example: create group and send messages
- *
- * Run: npx tsx examples/send.ts
+ * Create a temporary paused Group, deliver Mail and reply without starting AI.
+ * Run from ts/: npx tsx examples/send.ts
  */
-
-import { CCCCClient, DaemonUnavailableError, DaemonAPIError } from '../src/index.js';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { CCCCClient } from '../src/index.js';
 
 async function main() {
+  const client = await CCCCClient.create();
+  const project = await mkdtemp(join(tmpdir(), 'cccc-sdk-example-'));
+  let groupId: string | undefined;
   try {
-    console.log('Connecting to daemon...');
-    const client = await CCCCClient.create();
-
-    // Create group.
-    console.log('\nCreating group...');
-    const group = await client.groupCreate({ title: 'TS SDK Test Group' });
-    const groupId = group['group_id'] as string;
-    console.log('Group created:', groupId);
-
-    // Show group details.
-    console.log('\nLoading group details...');
-    const groupInfo = await client.groupShow(groupId);
-    console.log('Group info:', JSON.stringify(groupInfo, null, 2));
-
-    // Add actor.
-    console.log('\nAdding actor...');
-    const actor = await client.actorAdd({
+    const group = await client.groupCreate({ title: 'TS SDK example' });
+    assert.equal(typeof group['group_id'], 'string');
+    groupId = group['group_id'] as string;
+    await client.groupSetState(groupId, 'paused');
+    await client.attach(project, groupId);
+    await client.actorAdd({
       groupId,
       actorId: 'bot-1',
-      title: 'Test Bot',
-      runtime: 'external',
+      runtime: 'custom',
+      command: [process.execPath, '-e', ''],
     });
-    console.log('Actor added:', actor);
-
-    // Send message.
-    console.log('\nSending message...');
-    const sendResult = await client.send({
-      groupId,
-      text: 'Hello from TypeScript SDK!',
-      mode: 'send',
-      by: 'user',
+    const sent = await client.send({
+      groupId, text: 'Hello from TypeScript SDK!', mode: 'mail', to: ['bot-1'],
     });
-    console.log('Message sent:', sendResult);
-
-    // Reply message.
-    const eventId = ((sendResult['event'] as { id?: string } | undefined)?.id ?? '') as string;
-    if (eventId) {
-      console.log('\nSending reply...');
-      const replyResult = await client.reply({
-        groupId,
-        replyTo: eventId,
-        text: 'This is a reply.',
-        by: 'bot-1',
-      });
-      console.log('Reply sent:', replyResult);
-    }
-
-    // List all groups.
-    console.log('\nCurrent groups:');
-    const groups = await client.groups();
-    console.log(JSON.stringify(groups, null, 2));
-
-    // Cleanup: delete test group.
-    console.log('\nDeleting test group...');
-    await client.groupDelete(groupId);
-    console.log('Group deleted.');
-
-  } catch (error) {
-    if (error instanceof DaemonUnavailableError) {
-      console.error('Daemon unavailable:', error.message);
-      console.error('Please make sure the CCCC daemon is running.');
-    } else if (error instanceof DaemonAPIError) {
-      console.error('API error:', error.code, error.message);
-      console.error('Details:', error.details);
-    } else {
-      throw error;
+    console.log('Message sent:', sent);
+    await client.inboxRead({ groupId, actorId: 'bot-1', by: 'bot-1' });
+    const event = sent['event'] as { id: string };
+    const reply = await client.reply({
+      groupId, replyTo: event.id, text: 'Mail received.', by: 'bot-1',
+    });
+    console.log('Reply sent:', reply);
+  } finally {
+    try {
+      if (groupId) await client.groupDelete(groupId);
+    } finally {
+      await rm(project, { recursive: true, force: true });
     }
   }
 }
 
-main().catch(console.error);
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

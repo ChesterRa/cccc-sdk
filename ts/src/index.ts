@@ -43,6 +43,10 @@ export {
 
 // Export all types.
 export type {
+  ConnectCatalogOptions,
+  ConnectSendOptions,
+  ConnectSendFilesOptions,
+  ConnectGroupRef,
   // Core types.
   DaemonEndpoint,
   DaemonRequest,

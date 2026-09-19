@@ -31,8 +31,8 @@ async function main() {
     requireOps: ['groups', 'send', 'reply', 'tracked_send', 'context_sync'],
   });
 
-  const group = await client.groupCreate({ title: 'TS demo' });
-  const groupId = group.group.group_id;
+  // Use an existing Group and an Agent ID from that Group.
+  const groupId = 'g_your_group_id';
 
   await client.send({
     groupId,
@@ -42,7 +42,10 @@ async function main() {
   });
 }
 
-main().catch(console.error);
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
 ```
 
 ## Message semantics
@@ -153,12 +156,10 @@ const client = await CCCCClient.create();
 
 const upsert = await client.actorProfileUpsert({
   profile: {
-    name: 'Codex PTY',
+    name: 'Codex',
     runtime: 'codex',
-    runner: 'pty',
-    command: ['codex', 'exec'],
+    command: ['codex'],
     submit: 'enter',
-    env: { CODEX_MODEL: 'gpt-5' },
     capabilityDefaults: {
       autoloadCapabilities: ['pack:space'],
       defaultScope: 'actor',
@@ -258,7 +259,7 @@ not assume otherwise.
 ## CCCC 0.4.33 compatibility delta
 
 ```typescript
-// Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
+// Deliberately rotate provider session metadata for Claude, Codex and Grok.
 await client.actorNewSession(groupId, 'reviewer');
 
 // Page through retained PTY output by cursor.
@@ -426,3 +427,31 @@ npm run build
 ## License
 
 Apache-2.0
+
+## CCCC 0.4.40 alignment
+
+All three SDK package versions are 0.4.40; `spec/core.json` records the supported
+core revision. The matching release number is not a replacement for IPC and
+capability checks.
+
+Qualified Connect sends require a stable caller-owned retry key:
+
+```ts
+await client.connectSend({ groupId: 'local', instanceId: 'remote-instance', targetGroupId: 'remote-group',
+  clientId: 'retained-caller-key', text: 'Please review', mode: 'mail' });
+```
+
+Use `connect_catalog` / `connectCatalog` to read authorized cached peers and
+`connect_send_files` / `connectSendFiles` to send files from the daemon's project
+scope. Accepted means queued locally, not confirmed delivery. Keep the same key
+and body after an uncertain result; the SDK never automatically replays a send.
+Connect replies use the local received event ID with the ordinary reply helper.
+
+`context_sync(if_version=...)` / `contextSync({ ifVersion })` rejects stale
+updates with `version_conflict`. Reload before deciding whether to reapply.
+Terminal history accepts `render_before` / `renderBefore` alongside `before`.
+
+Compatibility requirements that lack an advertised capability and an audited
+safe probe now fail instead of being executed or silently skipped. Retired
+Presentation browser and Voice model-install helpers fail locally with migration
+guidance; their interactive replacement belongs to CCCC Web, not daemon IPC.

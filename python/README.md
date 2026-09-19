@@ -143,7 +143,7 @@ python examples/send_cross_group.py --src g_src --dst g_dst --text "hello from s
 
 ## Actor Profiles (global reusable runtime presets)
 
-`cccc` supports global Actor Profiles so you can reuse runtime/runner/command/env across groups.
+`cccc` supports global Actor Profiles so you can reuse runtime/command/env across groups.
 
 ```python
 from cccc_sdk import CCCCClient
@@ -156,12 +156,10 @@ profiles = c.actor_profile_list()
 # create or update a profile
 profile = c.actor_profile_upsert(
     profile={
-        "name": "Codex PTY",
+        "name": "Codex",
         "runtime": "codex",
-        "runner": "pty",
-        "command": ["codex", "exec"],
+        "command": ["codex"],
         "submit": "enter",
-        "env": {"CODEX_MODEL": "gpt-5"},
         "capability_defaults": {
             "autoload_capabilities": ["pack:space"],
             "default_scope": "actor",
@@ -268,7 +266,7 @@ not assume otherwise.
 ## CCCC 0.4.33 compatibility delta
 
 ```python
-# Deliberately rotate provider session metadata for Claude/Codex/Grok PTY.
+# Deliberately rotate provider session metadata for Claude, Codex and Grok.
 c.actor_new_session(group_id="g_xxx", actor_id="reviewer")
 
 # Page through retained PTY output by cursor.
@@ -408,3 +406,31 @@ Use `call()` for intentionally low-level or newly added non-streaming ops that
 do not yet have a dedicated helper. Duplex browser/VNC/PTY attach operations
 remain outside this request/response client and require a separate streaming
 transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.
+
+## CCCC 0.4.40 alignment
+
+All three SDK package versions are 0.4.40; `spec/core.json` records the supported
+core revision. The matching release number is not a replacement for IPC and
+capability checks.
+
+Qualified Connect sends require a stable caller-owned retry key:
+
+```python
+client.connect_send(group_id="local", instance_id="remote-instance", target_group_id="remote-group",
+                    client_id="retained-caller-key", text="Please review", message_mode="mail")
+```
+
+Use `connect_catalog` / `connectCatalog` to read authorized cached peers and
+`connect_send_files` / `connectSendFiles` to send files from the daemon's project
+scope. Accepted means queued locally, not confirmed delivery. Keep the same key
+and body after an uncertain result; the SDK never automatically replays a send.
+Connect replies use the local received event ID with the ordinary reply helper.
+
+`context_sync(if_version=...)` / `contextSync({ ifVersion })` rejects stale
+updates with `version_conflict`. Reload before deciding whether to reapply.
+Terminal history accepts `render_before` / `renderBefore` alongside `before`.
+
+Compatibility requirements that lack an advertised capability and an audited
+safe probe now fail instead of being executed or silently skipped. Retired
+Presentation browser and Voice model-install helpers fail locally with migration
+guidance; their interactive replacement belongs to CCCC Web, not daemon IPC.

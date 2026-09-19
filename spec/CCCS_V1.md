@@ -130,6 +130,11 @@ When a send request omits recipients or supplies an empty list, the daemon MUST 
 
 Internal assistants such as Voice Secretary are not members of `@all`, `@peers`, or `@foreman`; they MUST be addressed by their explicit actor ID.
 
+Selector membership describes the logical audience, not permission to start a runtime.
+A user broadcast to `@all` or `@peers` MUST NOT re-enable disabled actors. Explicitly
+targeted user wake actions follow the daemon IPC lifecycle contract; disabled recipients
+remain part of the message audience and history.
+
 **Compatibility**
 - Implementations MAY accept the literal token `"user"` as equivalent to `@user`.
 
@@ -184,10 +189,17 @@ data: {
 
   // Cross-group provenance (relay/forward)
   src_group_id?: string | null
+  src_instance_id?: string | null              // Connect-qualified remote source
+  src_instance_name?: string | null            // account-owned display-name snapshot; never routing authority
+  src_group_title?: string | null              // source name snapshot
   src_event_id?: string | null
 
   // Cross-group destination metadata (optional send record)
   dst_group_id?: string | null
+  dst_instance_id?: string | null              // Connect-qualified remote destination
+  dst_instance_name?: string | null            // account-owned display-name snapshot; never routing authority
+  dst_group_title?: string | null              // destination name snapshot
+  dst_actor_titles?: Record<string, string>     // destination Actor title snapshots
   dst_to?: string[] | null
   dst_message_mode?: "send" | "request_reply" | "mail" | null
 
@@ -220,6 +232,10 @@ data: {
   of whether that reply uses `message_mode="send"` or `message_mode="mail"`.
   Reply operations MUST NOT use `message_mode="request_reply"`; a reply cannot
   create a nested generic reply obligation.
+- Connect replies fulfill only the original remote instance/Actor/generation
+  obligation. Live consumers resolve this identity from the canonical Connect
+  envelope and original request, never from the display sender or an identically
+  named local Actor; see `CCCC_CONNECT_V1.md`.
 - `request_reply` MUST NOT use an empty recipient list or a broadcast selector
   (`@all`, `@peers`, or `@foreman`). The daemon MUST materialize and validate a
   concrete recipient set before appending the message.
@@ -253,6 +269,9 @@ data: {
   invalid because CCCS v1 does not define a human Mail Inbox.
 - "Inclusive" means the referenced Mail event itself is considered read.
 - If a client cannot efficiently determine ordering, it SHOULD treat `event_id` as an opaque watermark maintained by the daemon.
+- A late status snapshot MUST NOT make an already consumed Mail unread again.
+  The daemon still owns the current recipient set, including Actor generation
+  changes; clients MUST NOT restore recipients removed by an authoritative snapshot.
 
 ### 6.3 `chat.reply_request.cancelled`
 
@@ -275,6 +294,21 @@ data: {
   that recipient is `replied`; otherwise the cancellation state is
   `cancelled`. Later replies remain visible but do not change `cancelled` back
   into `replied`.
+- Clients merging live events with HTTP snapshots MUST NOT reopen a terminal
+  obligation when an older pending snapshot arrives. A terminal daemon snapshot
+  remains authoritative for resolving reply versus cancellation by append order.
+
+For Connect, the daemon derives the exact qualified original request and persists
+cancellation through the same durable outbox as messages. Only the original Actor
+generation or a participating Group's human may originate it. A received control
+is not forwarded automatically. Local obligation cancellation and remote
+`connect_cancellation` propagation are distinct: queued, sent, failed or
+unconfirmed. It does not retract a message or stop an Actor task. A terminal
+`chat.cross_group_receipt` with `action="cancel"` addresses the control via
+`source_event_id` and the local original message via `original_event_id`.
+A cancellation for an original absent after its delivery deadline may record
+`source_event_id:null, not_delivered:true`; it changes no obligation.
+See [CCCC_CONNECT_V1.md](CCCC_CONNECT_V1.md) for authority and recovery.
 
 ### 6.4 `runtime.delivery`
 
@@ -404,6 +438,14 @@ type ReferenceV1 =
       // extra fields MAY exist; clients MUST ignore unknown fields
     }
   | {
+      kind: "connect_group_ref"
+      instance_id: string
+      group_id: string
+      instance_name?: string
+      group_title?: string
+      token?: string
+    }
+  | {
       kind: "task_ref"
       task_id: string
       title?: string
@@ -413,6 +455,12 @@ type ReferenceV1 =
 ```
 
 **Rules**
+- `kind="connect_group_ref"` identifies a remote Group mentioned in the message,
+  qualified by both Instance and Group ID. Names and `token` are display snapshots.
+  It is advisory context, never a destination, access grant or automatic send.
+  Consumers MUST NOT interpret its Group ID as a local destination. When asked to
+  contact it, Agents use `cccc_connect(instance_id, target_group_id)` to discover
+  the current target, then ordinary Connect messaging with both destination IDs.
 - Attachments SHOULD include content hashes where possible (`sha256`) to enable reproducibility/auditing.
 - `path` MUST be stable and retrievable within the group’s storage scope.
 - `kind="presentation_ref"` is a structured evidence anchor into a group Presentation slot.
@@ -435,6 +483,18 @@ CCCS v1 does not mandate a transport, but implementations SHOULD provide a way t
 ## 9. Cross‑Group Relay / Forward (Provenance)
 
 CCCS v1 standardizes cross-group provenance via `src_group_id/src_event_id` on the **destination** message.
+
+Connect messages additionally qualify remote Group IDs with `src_instance_id` /
+`dst_instance_id`; consumers MUST NOT treat such a remote Group ID as a local
+Group navigation or authorization target. The device transport,
+immutable message metadata, durable acceptance and terminal delivery receipts are
+specified in [CCCC_CONNECT_V1.md](CCCC_CONNECT_V1.md). Those extensions do not
+grant remote history, Context, TUI or arbitrary tool access. Cross-member
+connections also pin an immutable `connection_id` to the logical delivery and
+its replies/cancellations. Group resource generations change on import or
+replacement, so restored IDs/history cannot restore an old sharing grant.
+Neither a fresh connection nor a same-ID local Actor may fulfill an old remote
+obligation.
 
 ### 9.1 Relay Semantics
 
@@ -575,7 +635,7 @@ Runtime acceptance:
     "source_event_id": "01HZY2... (opaque)",
     "delivery_id": "delivery:foreman:01HZY2...",
     "state": "accepted",
-    "transport": "codex_app_server"
+    "transport": "managed_session"
   }
 }
 ```
@@ -602,3 +662,22 @@ Destination group message:
   }
 }
 ```
+
+### Historical manual Bridge receipts
+
+Manual Group Bridge is retired. Original message events and source scope are not
+rewritten. Startup finalization may append `chat.cross_group_receipt` with
+`group_bridge_retired=true`, the original source Event/operation/registration and
+idempotency key, and `status=sent|failed|unconfirmed`. Unconfirmed is not proof of
+failure or permission to resend. Receipts and a deduplicated internal user notice
+must be committed before their old queue records are removed. No remote grant is
+inferred from history. Read-only status projections may annotate affected messages
+with `_retired_bridge=true`; replay must preserve it and consumers must not offer
+an active reply through that retired route. See [Daemon IPC](CCCC_DAEMON_IPC_V1.md#8172-cccc-connect-and-manual-bridge-retirement).
+
+Standalone Direct Group connections use the same cross-instance provenance,
+Actor generation, immutable connection ID and durable receipt rules. Their
+`direct-<UUID>` grant authorizes only the paired Group generations and carries no
+membership account/device authority. Removal or replacement cannot redirect an
+existing delivery or let a new connection fulfill its obligation. See the
+[Direct connection specification](CCCC_CONNECT_V1.md#standalone-direct-group-connections).

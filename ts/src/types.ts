@@ -112,10 +112,17 @@ export interface ChatMessageEventData {
   sender_title?: string | null;
   sender_runtime?: string | null;
   sender_avatar_path?: string | null;
+  src_instance_id?: string | null;
+  src_instance_name?: string | null;
+  src_group_title?: string | null;
   src_group_id?: string | null;
   src_event_id?: string | null;
   src_by?: string | null;
   remote_reply_to?: string[] | null;
+  dst_instance_id?: string | null;
+  dst_instance_name?: string | null;
+  dst_group_title?: string | null;
+  dst_actor_titles?: Record<string, string>;
   dst_group_id?: string | null;
   dst_to?: string[] | null;
   dst_message_mode?: MessageMode | null;
@@ -224,6 +231,7 @@ export interface CompatibilityOptions {
  * Daemon accepts arbitrary `kind` values; the typed forms are the most common.
  */
 export type MessageRef =
+  | ConnectGroupRef
   | { kind: 'file'; path: string; title?: string; sha?: string; bytes?: number; [extra: string]: unknown }
   | { kind: 'url'; url: string; title?: string; [extra: string]: unknown }
   | { kind: 'commit'; sha: string; title?: string; [extra: string]: unknown }
@@ -387,7 +395,6 @@ export interface ActorAddOptions {
   actorId?: string;
   title?: string;
   runtime?: AgentRuntime;
-  runner?: 'pty' | 'headless' | (string & {});
   command?: string[];
   env?: Record<string, string>;
   envPrivate?: Record<string, string>;
@@ -671,6 +678,7 @@ export interface TerminalTailOptions {
 
 /** Read a cursor-paginated PTY transcript page. */
 export interface TerminalHistoryOptions {
+  renderBefore?: number;
   groupId: string;
   actorId: string;
   before?: number;
@@ -1306,6 +1314,7 @@ export interface MessageDeliverOptions {
 
 /** Context sync options */
 export interface ContextSyncOptions {
+  ifVersion?: string;
   groupId: string;
   ops: Record<string, unknown>[];
   by?: string;
@@ -1734,4 +1743,42 @@ export interface ContextGetResult {
   attention?: Record<string, unknown>;
   board?: Record<string, Array<Record<string, unknown>>>;
   meta?: Record<string, unknown>;
+}
+
+/** Read cached authorized peers; never refreshes peers or starts Actors. */
+export interface ConnectCatalogOptions {
+  groupId: string;
+  instanceId?: string;
+  targetGroupId?: string;
+  by?: string;
+  after?: string;
+  limit?: number;
+}
+/** Remote acceptance is durable queueing, not proof of delivery. */
+export interface ConnectSendOptions {
+  groupId: string;
+  instanceId: string;
+  targetGroupId: string;
+  /** Required stable retry key, at most 128 UTF-8 bytes. */
+  clientId: string;
+  text: string;
+  mode: MessageMode;
+  by?: string;
+  to?: string[];
+  format?: string;
+  insight?: string;
+  attachments?: Record<string, unknown>[];
+}
+export interface ConnectSendFilesOptions extends Omit<ConnectSendOptions, 'text' | 'attachments' | 'format'> {
+  text?: string;
+  paths: string[];
+}
+/** A mention identifies a remote Group; it does not send to that Group. */
+export interface ConnectGroupRef {
+  kind: 'connect_group_ref';
+  instance_name?: string;
+  group_title?: string;
+  token?: string;
+  instance_id: string;
+  group_id: string;
 }

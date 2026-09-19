@@ -87,11 +87,8 @@ export interface CCCC0430AssistantOps {
 
 const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   async assistantVoiceModelInstall(options) {
-    return this.call('assistant_voice_model_install', compactRecord({
-      group_id: options.groupId,
-      model_id: options.modelId,
-      by: options.by ?? 'user',
-    }));
+    void options;
+    throw new IncompatibleDaemonError('assistant_voice_model_install is no longer served by daemon IPC; use CCCC Web Voice settings');
   },
 
   async assistantVoiceTranscribe(options) {

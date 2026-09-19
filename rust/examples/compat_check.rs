@@ -8,6 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "groups",
             "group_show",
             "send",
+            "tracked_send",
             "reply",
             "inbox_read",
             "message_history",

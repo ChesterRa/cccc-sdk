@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 from .client_0430_ops import CCCC0430OpsMixin
 from .client_0434_ops import CCCC0434OpsMixin
 from .client_chat_ops import ChatOpsMixin
+from .client_connect_ops import ConnectOpsMixin
 from .client_group_space_ops import GroupSpaceOpsMixin
 from .client_group_space_provider_ops import GroupSpaceProviderOpsMixin
 from .errors import (
@@ -31,6 +32,7 @@ class CCCCClient(
     CCCC0434OpsMixin,
     CCCC0430OpsMixin,
     ChatOpsMixin,
+    ConnectOpsMixin,
     GroupSpaceOpsMixin,
     GroupSpaceProviderOpsMixin,
 ):
@@ -115,32 +117,58 @@ class CCCCClient(
             if bool(want) and not bool(caps.get(k)):
                 raise IncompatibleDaemonError(f"daemon capability missing: {k}=true is required")
 
-        _UNPROBABLE_OPS = {
-            "ping",
-            "shutdown",
-            "group_create",
-            "registry_reconcile",
-            "capability_allowlist_update",
-            "capability_allowlist_reset",
-            "remote_access_configure",
-            "remote_access_start",
-            "remote_access_stop",
-            "group_space_provider_credential_update",
-            "group_space_provider_auth",
-            "term_attach",
-            "presentation_browser_attach",
-            "presentation_browser_vnc_attach",
-            "web_model_browser_attach",
-            "web_model_browser_vnc_attach",
-            "space_provider_auth_browser_attach",
-            "space_provider_auth_browser_vnc_attach",
-            "runtime_hermes_prepare",
-            "runtime_hermes_mcp_test",
+        # Only audited operations whose empty arguments cannot perform work.
+        # Newly added operations are unprobeable until explicitly reviewed.
+        safe_empty_probes = {
+            "groups",
+            "group_show",
+            "group_preamble_get",
+            "group_preamble_set",
+            "group_preamble_reset",
+            "send",
+            "tracked_send",
+            "send_files",
+            "reply",
+            "inbox_peek",
+            "inbox_read",
+            "context_get",
+            "context_sync",
+            "message_deliver",
+            "message_history",
+            "reply_request_cancel",
+            "send_cross_group",
+            "memory_search",
+            "memory_get",
+            "memory_write",
+            "memory_profile_get",
+            "memory_health",
+            "actor_new_session",
+            "group_reset",
+            "group_copy_export_file",
+            "terminal_history",
+            "terminal_since",
+            "terminal_snapshot",
+            "term_resize",
+            "web_model_delivery_preferences_get",
+            "web_model_delivery_preferences_update",
+            "web_model_runtime_recover_turn",
+            "events_stream",
+            "connect_catalog",
+            "connect_send",
+            "connect_send_files",
         }
         for op in (require_ops or []):
             op_name = str(op or "").strip()
-            if not op_name or op_name in _UNPROBABLE_OPS:
+            if op_name == "ping":
                 continue
+            if caps.get(op_name) is False:
+                raise IncompatibleDaemonError(f"daemon does not support op: {op_name}")
+            if op_name not in safe_empty_probes:
+                if caps.get(op_name) is True:
+                    continue
+                raise IncompatibleDaemonError(
+                    f"cannot safely verify op: {op_name}; no advertised capability or safe probe"
+                )
             try:
                 # Use an empty args probe: a supported op should return a structured error
                 # (missing_group_id, invalid_request, etc.), but not "unknown_op".
@@ -269,7 +297,6 @@ class CCCCClient(
         actor_id: str = "",
         title: str = "",
         runtime: str = "",
-        runner: str = "pty",
         command: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
         env_private: Optional[Dict[str, str]] = None,
@@ -289,8 +316,6 @@ class CCCCClient(
             args["title"] = str(title)
         if runtime:
             args["runtime"] = str(runtime)
-        if runner:
-            args["runner"] = str(runner)
         if command is not None:
             args["command"] = [str(x) for x in command]
         if env is not None:
@@ -857,11 +882,12 @@ class CCCCClient(
         )
 
     def context_sync(
-        self, *, group_id: str, ops: List[Dict[str, Any]], by: str = "system", dry_run: bool = False
+        self, *, group_id: str, ops: List[Dict[str, Any]], by: str = "system", dry_run: bool = False,
+        if_version: Optional[str] = None
     ) -> Dict[str, Any]:
         return self.call(
             "context_sync",
-            {"group_id": str(group_id), "by": str(by), "ops": list(ops), "dry_run": bool(dry_run)},
+            _compact({"group_id": str(group_id), "by": str(by), "ops": list(ops), "dry_run": bool(dry_run), "if_version": if_version}),
         )
 
     def _context_op(
@@ -1386,31 +1412,15 @@ class CCCCClient(
         height: int = 800,
         by: str = "user",
     ) -> Dict[str, Any]:
-        return self.call(
-            "presentation_browser_open",
-            {
-                "group_id": str(group_id),
-                "slot": str(slot),
-                "url": str(url),
-                "width": int(width),
-                "height": int(height),
-                "by": str(by),
-            },
-        )
+        raise IncompatibleDaemonError('presentation_browser_open is no longer served by daemon IPC; use the CCCC Web Presentation browser surface')
 
     def presentation_browser_info(self, *, group_id: str, slot: str = "") -> Dict[str, Any]:
-        args: Dict[str, Any] = {"group_id": str(group_id)}
-        if slot:
-            args["slot"] = str(slot)
-        return self.call("presentation_browser_info", args)
+        raise IncompatibleDaemonError('presentation_browser_info is no longer served by daemon IPC; use the CCCC Web Presentation browser surface')
 
     def presentation_browser_close(
         self, *, group_id: str, slot: str = "", by: str = "user"
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
-        if slot:
-            args["slot"] = str(slot)
-        return self.call("presentation_browser_close", args)
+        raise IncompatibleDaemonError('presentation_browser_close is no longer served by daemon IPC; use the CCCC Web Presentation browser surface')
 
     # ---------------------------------------------------------------------
     # Built-in assistant (PET / Voice Secretary) lifecycle

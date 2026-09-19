@@ -8,7 +8,7 @@ the same daemon contract.
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.4.40"
 ```
 
 ## Quick start
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let groups = client.groups()?;
     println!("{groups:#?}");
-    client.send("g_xxx", "FYI", MessageMode::Mail, "user")?;
+    client.send("g_xxx", "FYI", MessageMode::Send, "user")?;
     client.reply_with_mode(
         "g_xxx",
         "e_request",
@@ -91,6 +91,6 @@ Clients created with `new(endpoint)` keep that explicit endpoint.
 capability whose actual operation returns `unknown_op`.
 
 Streaming upgrade operations such as `events_stream` and `term_attach` are not
-exposed as iterators in 0.0.1. `assert_compatible` deliberately skips unsafe
-duplex probes; a reusable stream API will be added only with stable ownership,
+exposed as iterators in 0.4.40. `assert_compatible` uses advertised capabilities
+for unsafe duplex operations and rejects unverified requirements; a reusable stream API will be added only with stable ownership,
 close, and backpressure semantics.

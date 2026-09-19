@@ -213,7 +213,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       chatId: 'chat-1',
       threadId: '1710000000.100',
     });
-    await client.assistantVoiceModelInstall({ groupId: 'g_1', modelId: 'sensevoice-small' });
+    await assert.rejects(client.assistantVoiceModelInstall({ groupId: 'g_1', modelId: 'sensevoice-small' }), /no longer served/);
 
     assert.deepEqual(calls.map((call) => call.op), [
       'im_bind_chat',
@@ -221,7 +221,6 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       'im_list_pending',
       'im_reject_pending',
       'im_revoke_chat',
-      'assistant_voice_model_install',
     ]);
     assert.deepEqual(calls[0]?.args, { group_id: 'g_1', key: 'bind-key' });
     assert.deepEqual(calls[1]?.args, { group_id: 'g_1' });
@@ -232,11 +231,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       chat_id: 'chat-1',
       thread_id: '1710000000.100',
     });
-    assert.deepEqual(calls[5]?.args, {
-      group_id: 'g_1',
-      model_id: 'sensevoice-small',
-      by: 'user',
-    });
+
   });
 
   it('maps current Voice Secretary request/response operations', async () => {

@@ -14,10 +14,7 @@ class CCCC0430AssistantOpsMixin:
         model_id: str,
         by: str = "user",
     ) -> Dict[str, Any]:
-        return self.call(
-            "assistant_voice_model_install",
-            {"group_id": str(group_id), "model_id": str(model_id), "by": str(by)},
-        )
+        raise IncompatibleDaemonError('assistant_voice_model_install is no longer served by daemon IPC; use the CCCC Web Voice settings')
 
     def assistant_voice_transcribe(
         self,

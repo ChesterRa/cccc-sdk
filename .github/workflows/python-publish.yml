@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check coordinated SDK versions
+        run: python3 scripts/check_release_versions.py
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

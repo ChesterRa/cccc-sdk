@@ -242,7 +242,8 @@ class TestClient0433Contract(unittest.TestCase):
             client.im_list_pending(group_id="g_1")
             client.im_reject_pending(group_id="g_1", key="bind-key")
             client.im_revoke_chat(group_id="g_1", chat_id="chat-1", thread_id="1710000000.100")
-            client.assistant_voice_model_install(group_id="g_1", model_id="sensevoice-small")
+            with self.assertRaises(IncompatibleDaemonError):
+                client.assistant_voice_model_install(group_id="g_1", model_id="sensevoice-small")
 
         self.assertEqual(
             [request["op"] for request in captured],
@@ -252,7 +253,6 @@ class TestClient0433Contract(unittest.TestCase):
                 "im_list_pending",
                 "im_reject_pending",
                 "im_revoke_chat",
-                "assistant_voice_model_install",
             ],
         )
         self.assertEqual(captured[0]["args"], {"group_id": "g_1", "key": "bind-key"})
@@ -263,10 +263,7 @@ class TestClient0433Contract(unittest.TestCase):
             captured[4]["args"],
             {"group_id": "g_1", "chat_id": "chat-1", "thread_id": "1710000000.100"},
         )
-        self.assertEqual(
-            captured[5]["args"],
-            {"group_id": "g_1", "model_id": "sensevoice-small", "by": "user"},
-        )
+
 
     def test_current_voice_secretary_ops(self) -> None:
         captured: list[dict] = []

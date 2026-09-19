@@ -141,15 +141,11 @@ describe('cccc 0.4.34 JSON op alignment', () => {
       }
       throw new Error(`unsafe compatibility probe: ${op}`);
     };
-    await client.assertCompatible({
-      requireOps: [
-        'group_create',
-        'registry_reconcile',
-        'capability_allowlist_reset',
-        'remote_access_start',
-        'group_space_provider_auth',
-      ],
-    });
-    assert.deepEqual(operations, ['ping']);
+    for (const op of ['group_create', 'registry_reconcile', 'capability_allowlist_reset',
+      'remote_access_start', 'group_space_provider_auth', 'connect_direct_configure',
+      'membership_logout', 'future_mutation']) {
+      await assert.rejects(client.assertCompatible({ requireOps: [op] }), /Cannot safely verify/);
+    }
+    assert.deepEqual(operations, Array(8).fill('ping'));
   });
 });

@@ -24,6 +24,7 @@ export interface CCCC0430AdminOps {
   groupPreambleReset(options: GroupPreambleResetOptions): Promise<Record<string, unknown>>;
   terminalHistory(options: BasicGroupActorOptions & {
     before?: number;
+    renderBefore?: number;
     limitBytes?: number;
     stripAnsi?: boolean;
     compact?: boolean;
@@ -103,6 +104,7 @@ const adminOps: CCCC0430AdminOps & ThisType<CCCC0430Client> = {
       group_id: options.groupId,
       actor_id: options.actorId,
       before: options.before ?? (Number.isSafeInteger(cursorBefore) ? cursorBefore : undefined),
+      render_before: options.renderBefore,
       limit_bytes: options.limitBytes ?? options.limit,
       strip_ansi: options.stripAnsi,
       compact: options.compact,

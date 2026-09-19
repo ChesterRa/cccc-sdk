@@ -120,6 +120,7 @@ impl MessageMode {
 /// Optional arguments for `terminal_history`.
 #[derive(Clone, Debug, Default)]
 pub struct TerminalHistoryOptions {
+    pub render_before: Option<u64>,
     pub before: Option<u64>,
     pub limit_bytes: Option<u64>,
     pub strip_ansi: Option<bool>,

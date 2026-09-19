@@ -3,18 +3,20 @@ name: python-integration
 on:
   push:
     paths:
+      - "spec/core.json"
       - "python/**"
       - ".github/workflows/python-integration.yml"
   pull_request:
     paths:
+      - "spec/core.json"
       - "python/**"
       - ".github/workflows/python-integration.yml"
   workflow_dispatch:
     inputs:
       cccc_ref:
         description: "CCCC repo ref (branch/tag/sha) to test against"
-        required: true
-        default: "main"
+        required: false
+        default: ""
 
 jobs:
   integration:
@@ -24,11 +26,15 @@ jobs:
       - name: Checkout cccc-sdk
         uses: actions/checkout@v4
 
+      - name: Read supported core revision
+        id: core
+        run: python3 -c 'import json, os; d=json.load(open("spec/core.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("revision="+d["revision"]+"\n")'
+
       - name: Checkout cccc (daemon)
         uses: actions/checkout@v4
         with:
           repository: ChesterRa/cccc
-          ref: ${{ inputs.cccc_ref || 'main' }}
+          ref: ${{ inputs.cccc_ref || steps.core.outputs.revision }}
           path: cccc
 
       - uses: actions/setup-python@v5
@@ -49,10 +55,11 @@ jobs:
         working-directory: cccc
         run: cargo build --locked -p cccc --bin cccc
 
-      - name: Install cccc-sdk (editable)
+      - name: Build and install candidate wheel
         run: |
-          python -m pip install -U pip
-          python -m pip install -e python
+          python -m pip install -U pip build
+          python -m build python
+          python -m pip install python/dist/*.whl
 
       - name: Smoke (daemon + sdk)
         run: |
@@ -65,3 +72,4 @@ jobs:
           trap cleanup EXIT
           cccc daemon start
           python python/examples/compat_check.py
+          python python/examples/release_smoke.py

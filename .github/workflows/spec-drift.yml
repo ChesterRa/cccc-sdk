@@ -3,11 +3,13 @@ name: spec-drift
 on:
   push:
     paths:
+      - "spec/core.json"
       - "spec/**"
       - "scripts/check_specs_against_cccc.sh"
       - ".github/workflows/spec-drift.yml"
   pull_request:
     paths:
+      - "spec/core.json"
       - "spec/**"
       - "scripts/check_specs_against_cccc.sh"
       - ".github/workflows/spec-drift.yml"
@@ -17,8 +19,8 @@ on:
     inputs:
       cccc_ref:
         description: "CCCC repo ref (branch/tag/sha) to compare"
-        required: true
-        default: "main"
+        required: false
+        default: ""
 
 jobs:
   compare:
@@ -27,12 +29,41 @@ jobs:
       - name: Checkout cccc-sdk
         uses: actions/checkout@v4
 
+      - name: Read supported core revision
+        id: core
+        run: python3 -c 'import json, os; d=json.load(open("spec/core.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("revision="+d["revision"]+"\n")'
+
       - name: Checkout cccc
         uses: actions/checkout@v4
         with:
           repository: ChesterRa/cccc
-          ref: ${{ inputs.cccc_ref || 'main' }}
+          ref: ${{ inputs.cccc_ref || steps.core.outputs.revision }}
           path: cccc-core
 
       - name: Compare mirrored standards
         run: bash scripts/check_specs_against_cccc.sh cccc-core
+
+  upstream:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ChesterRa/cccc
+          ref: main
+          path: cccc-upstream
+      - name: Report changes beyond the supported release
+        run: |
+          if bash scripts/check_specs_against_cccc.sh cccc-upstream > upstream-drift.txt 2>&1; then
+            echo "Upstream standards match the supported release." >> "$GITHUB_STEP_SUMMARY"
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then cat upstream-drift.txt; exit "$status"; fi
+            echo "::warning::Upstream standards changed; review the drift artifact before the next SDK release."
+            echo "Upstream main differs from the supported release in spec/core.json. This is a maintenance alert, not a supported-release failure. See the drift artifact." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-spec-drift
+          path: upstream-drift.txt

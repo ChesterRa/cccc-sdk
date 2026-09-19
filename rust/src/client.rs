@@ -390,14 +390,27 @@ impl CCCCClient {
         by: &str,
         operations: Vec<Value>,
     ) -> Result<Map<String, Value>> {
-        self.call(
-            "context_sync",
-            object([
-                ("group_id", json!(group_id)),
-                ("by", json!(by)),
-                ("ops", Value::Array(operations)),
-            ]),
-        )
+        self.context_sync_checked(group_id, by, operations, None, false)
+    }
+
+    pub fn context_sync_checked(
+        &self,
+        group_id: &str,
+        by: &str,
+        operations: Vec<Value>,
+        if_version: Option<&str>,
+        dry_run: bool,
+    ) -> Result<Map<String, Value>> {
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("by", json!(by)),
+            ("ops", Value::Array(operations)),
+            ("dry_run", json!(dry_run)),
+        ]);
+        if let Some(version) = if_version {
+            args.insert("if_version".into(), json!(version));
+        }
+        self.call("context_sync", args)
     }
 
     pub fn terminal_history(
@@ -407,6 +420,9 @@ impl CCCCClient {
         options: &TerminalHistoryOptions,
     ) -> Result<TerminalHistoryResult> {
         let mut args = object([("group_id", json!(group_id)), ("actor_id", json!(actor_id))]);
+        if let Some(render_before) = options.render_before {
+            args.insert("render_before".into(), json!(render_before));
+        }
         if let Some(before) = options.before {
             args.insert("before".into(), json!(before));
         }
@@ -572,8 +588,20 @@ impl CCCCClient {
             }
         }
         for operation in &requirements.operations {
-            if operation_probe_is_unsafe(operation) {
+            if *operation == "ping" {
                 continue;
+            }
+            let advertised = ping.capabilities.get(*operation).and_then(Value::as_bool);
+            if advertised == Some(false) {
+                return Err(Error::Incompatible(format!(
+                    "daemon does not support operation {operation}"
+                )));
+            }
+            if !operation_probe_is_safe(operation) {
+                if advertised == Some(true) {
+                    continue;
+                }
+                return Err(Error::Incompatible(format!("cannot safely verify operation {operation}; no advertised capability or safe probe")));
             }
             match self.call(operation, Map::new()) {
                 Err(Error::Daemon(error)) if error.code == "unknown_op" => {
@@ -602,29 +630,46 @@ impl CCCCClient {
     }
 }
 
-fn operation_probe_is_unsafe(operation: &str) -> bool {
+// Explicitly reviewed empty-argument probes; unknown operations must never run.
+fn operation_probe_is_safe(operation: &str) -> bool {
     matches!(
         operation,
-        "ping"
-            | "shutdown"
-            | "group_create"
-            | "registry_reconcile"
-            | "capability_allowlist_update"
-            | "capability_allowlist_reset"
-            | "remote_access_configure"
-            | "remote_access_start"
-            | "remote_access_stop"
-            | "group_space_provider_credential_update"
-            | "group_space_provider_auth"
-            | "term_attach"
-            | "presentation_browser_attach"
-            | "presentation_browser_vnc_attach"
-            | "web_model_browser_attach"
-            | "web_model_browser_vnc_attach"
-            | "space_provider_auth_browser_attach"
-            | "space_provider_auth_browser_vnc_attach"
-            | "runtime_hermes_prepare"
-            | "runtime_hermes_mcp_test"
+        "groups"
+            | "group_show"
+            | "group_preamble_get"
+            | "group_preamble_set"
+            | "group_preamble_reset"
+            | "send"
+            | "tracked_send"
+            | "send_files"
+            | "reply"
+            | "inbox_peek"
+            | "inbox_read"
+            | "context_get"
+            | "context_sync"
+            | "message_deliver"
+            | "message_history"
+            | "reply_request_cancel"
+            | "send_cross_group"
+            | "memory_search"
+            | "memory_get"
+            | "memory_write"
+            | "memory_profile_get"
+            | "memory_health"
+            | "actor_new_session"
+            | "group_reset"
+            | "group_copy_export_file"
+            | "terminal_history"
+            | "terminal_since"
+            | "terminal_snapshot"
+            | "term_resize"
+            | "web_model_delivery_preferences_get"
+            | "web_model_delivery_preferences_update"
+            | "web_model_runtime_recover_turn"
+            | "events_stream"
+            | "connect_catalog"
+            | "connect_send"
+            | "connect_send_files"
     )
 }
 
@@ -859,11 +904,11 @@ mod tests {
 
     #[test]
     fn never_probes_destructive_or_streaming_operations() {
-        assert!(operation_probe_is_unsafe("shutdown"));
-        assert!(operation_probe_is_unsafe("group_create"));
-        assert!(operation_probe_is_unsafe("remote_access_start"));
-        assert!(operation_probe_is_unsafe("term_attach"));
-        assert!(!operation_probe_is_unsafe("group_show"));
+        assert!(!operation_probe_is_safe("shutdown"));
+        assert!(!operation_probe_is_safe("group_create"));
+        assert!(!operation_probe_is_safe("remote_access_start"));
+        assert!(!operation_probe_is_safe("term_attach"));
+        assert!(operation_probe_is_safe("group_show"));
     }
 
     #[test]
@@ -993,6 +1038,74 @@ mod tests {
             })
             .collect();
         assert_eq!(operations, vec!["ping", "term_resize", "terminal_resize"]);
+    }
+
+    #[test]
+    fn unknown_or_side_effectful_probes_fail_without_dispatch() {
+        for op in [
+            "connect_direct_configure",
+            "membership_logout",
+            "future_mutation",
+        ] {
+            let (endpoint, server) = server_sequence(vec![
+                "{\"v\":1,\"ok\":true,\"result\":{\"implementation\":\"rust\",\"ipc_v\":1,\"capabilities\":{}}}\n",
+            ]);
+            let requirements = CompatibilityRequirements {
+                operations: vec![op],
+                ..Default::default()
+            };
+            let error = CCCCClient::new(endpoint)
+                .assert_compatible(&requirements)
+                .unwrap_err();
+            assert!(matches!(error, Error::Incompatible(_)));
+            assert!(error.to_string().contains("cannot safely verify"));
+            assert_eq!(server.join().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn connect_and_checked_context_keep_identity_and_conflict_tokens() {
+        let (endpoint, server) = server_sequence(vec![
+            "{\"v\":1,\"ok\":true,\"result\":{\"accepted\":true}}\n",
+            "{\"v\":1,\"ok\":false,\"error\":{\"code\":\"version_conflict\",\"message\":\"changed\",\"details\":{}}}\n",
+        ]);
+        let client = CCCCClient::new(endpoint);
+        let mut options = crate::ConnectSendOptions {
+            group_id: "local".into(),
+            instance_id: "peer".into(),
+            target_group_id: "remote".into(),
+            client_id: "key".into(),
+            text: "hello".into(),
+            message_mode: MessageMode::Mail,
+            by: None,
+            to: None,
+            format: None,
+            insight: None,
+            attachments: None,
+        };
+        client.connect_send(&options).unwrap();
+        let error = client
+            .context_sync_checked("local", "user", vec![], Some("version"), false)
+            .unwrap_err();
+        assert!(matches!(error, Error::Daemon(ref e) if e.code == "version_conflict"));
+        for key in ["".to_owned(), "界".repeat(43)] {
+            options.client_id = key;
+            assert!(matches!(
+                client.connect_send(&options),
+                Err(Error::InvalidArgument(_))
+            ));
+        }
+        let calls: Vec<Value> = server
+            .join()
+            .unwrap()
+            .iter()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(calls[0]["args"]["instance_id"], "peer");
+        assert_eq!(calls[0]["args"]["target_group_id"], "remote");
+        assert_eq!(calls[0]["args"]["client_id"], "key");
+        assert_eq!(calls[0]["args"]["message_mode"], "mail");
+        assert_eq!(calls[1]["args"]["if_version"], "version");
     }
 
     #[test]

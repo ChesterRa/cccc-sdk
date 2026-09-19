@@ -1,131 +1,81 @@
 # Releasing `cccc-sdk`
 
-This repo is a monorepo with three deliverables:
-- Python package: `python/` (PyPI name: `cccc-sdk`)
-- TypeScript package: `ts/` (npm name: `cccc-sdk`)
-- Rust crate: `rust/` (crates.io name: `cccc-sdk`)
+The coordinated stable release has three deliverables: Python (`python/`, PyPI),
+TypeScript (`ts/`, npm), and Rust (`rust/`, crates.io). All are named `cccc-sdk`.
 
-## Versioning policy
+## Version and contract policy
 
-- SDK version tracks the supported CCCC line, but contract synchronization does
-  not choose or modify the next package version.
-- RC sequence is SDK-owned (PEP 440 `X.Y.ZrcN` for Python and SemVer
-  `X.Y.Z-rc.N` for npm).
-- The Rust crate begins at `0.0.1` while its public API settles.
-- Compatibility is enforced by contracts/capabilities/op-probing, not by matching RC numbers.
+All three packages use the supported CCCC release number: **0.4.40** for this
+candidate, including Rust's move from 0.0.1. Equal versions do not imply equal
+helper coverage; runtime compatibility uses IPC version, capabilities and safe
+operation probes, not an exact daemon-version requirement.
 
-## 0) Sync specs (recommended)
+Update the three manifests, both lockfiles, and `spec/core.json` together. The
+latter records the reviewed core release and immutable revision used by CI.
+Review contract changes before copying the standards:
 
-```bash
+```sh
 ./scripts/sync_specs_from_cccc.sh ../cccc
 ./scripts/check_specs_against_cccc.sh ../cccc
+python3 scripts/check_release_versions.py
 ```
 
-## 1) Python release (PyPI/TestPyPI)
+The adjacent checkout must match the intended core revision. The version checker
+also compares a stable `vX.Y.Z` tag when `GITHUB_REF` is set. Supported-release CI
+fails on a mismatch with the pinned standards; nightly upstream-main drift is a
+separate maintenance warning and downloadable diff.
 
-### Prerequisites
+## Candidate checks
 
-- TestPyPI and PyPI accounts
-- Repository secrets in `ChesterRa/cccc-sdk`:
-  - `TEST_PYPI_API_TOKEN`
-  - `PYPI_API_TOKEN`
+From the repository root:
 
-### Bump version
-
-Edit `python/pyproject.toml` (`project.version`).
-
-### Local checks
-
-```bash
-./.venv/bin/python -m unittest discover -s python/tests -p "test_*.py" -v
+```sh
+./.venv/bin/python -m unittest discover -s python/tests -p 'test_*.py' -v
 ./.venv/bin/python -m build python
+npm --prefix ts ci
+npm --prefix ts test
+npm --prefix ts run typecheck
+npm --prefix ts run build
+(cd ts && npm pack)
+cargo fmt --manifest-path rust/Cargo.toml --check
+cargo clippy --manifest-path rust/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path rust/Cargo.toml --all-targets
+cargo package --manifest-path rust/Cargo.toml --locked
 ```
 
-### Publish RC to TestPyPI
+Inspect the wheel, npm tarball and crate file lists. In a disposable `CCCC_HOME`,
+install the candidate wheel and npm tarball into clean consumers, then run
+`python/examples/compat_check.py`, `python/examples/release_smoke.py` and
+`ts/release-smoke.mjs`. Run the Rust `compat_check` example from the extracted
+crate. The integration workflows perform these checks against the pinned core.
+They must not run against a user's working daemon.
 
-Create and push the Python RC tag only after the release version is approved.
+Before release, verify local Mail/read/reply and file delivery, Connect catalog
+and approved remote delivery, duplicate retry keys, context version conflicts,
+and compatibility probes that leave configuration unchanged. Linux fixtures do
+not establish Windows/macOS or hosted-service acceptance.
 
-This triggers `.github/workflows/python-publish-testpypi.yml`.
+## Publish after explicit approval
 
-Install check:
+A commit is not permission to push a tag or publish. Confirm the matching CCCC
+release exists, candidate checks pass, and publication is authorized.
 
-```bash
-python -m pip install --index-url https://pypi.org/simple \
-  --extra-index-url https://test.pypi.org/simple \
-  cccc-sdk==X.Y.ZrcN
-```
+- A stable `vX.Y.Z` tag triggers the Python and npm publishing workflows. They
+  check coordinated versions and run package tests before publishing. Required
+  repository secrets are `PYPI_API_TOKEN` and `NPM_TOKEN`.
+- Publish the same Rust version with `cargo publish --manifest-path rust/Cargo.toml
+  --locked --registry crates-io`, using the maintainer's crates.io credentials.
+- Do not also publish Python/npm manually while their workflows are running.
+  Registry versions are immutable; check individual workflow outcomes before
+  retrying a partially completed release.
 
-### Publish stable to PyPI
+This procedure covers coordinated stable releases. The existing TestPyPI
+workflow is separate prerelease tooling, not a required step for 0.4.40.
 
-Create and push the stable tag only after all three deliverables and the target
-CCCC release have passed their release gates.
+## Confirm completion
 
-This triggers `.github/workflows/python-publish.yml`.
-
-## 2) TypeScript release (npm)
-
-### Bump version
-
-Edit `ts/package.json` (`version`).
-
-Examples:
-- RC: `X.Y.Z-rc.N`
-- Stable: `X.Y.Z`
-
-### Local checks
-
-```bash
-cd ts
-npm ci
-npm test
-npm run typecheck
-npm run build
-```
-
-### Publish RC
-
-```bash
-cd ts
-npm publish --tag rc --access public
-```
-
-### Publish stable
-
-```bash
-cd ts
-npm publish --access public
-```
-
-## 3) Rust release (crates.io)
-
-### Local checks
-
-```bash
-cd rust
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo package --locked
-```
-
-### Publish
-
-```bash
-cd rust
-cargo publish --locked --registry crates-io
-```
-
-Published crate versions are immutable. Confirm the package file list and
-metadata before running `cargo publish`.
-
-## 4) Post-release sanity
-
-- Run Python compat check against a running daemon:
-
-```bash
-python python/examples/compat_check.py
-```
-
-- Verify npm package installs and can `import { CCCCClient } from 'cccc-sdk'`.
-- Verify `cargo info cccc-sdk --registry crates-io` reports the expected Rust
-  crate version and repository.
+Check all three registries report the approved version. Install that exact
+version into clean Python/npm/Rust consumers and repeat the isolated smoke
+checks. Update release notes with the publication date only after all three
+packages are available. Partial publication is not a completed coordinated
+release.

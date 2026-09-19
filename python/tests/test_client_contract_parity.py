@@ -656,7 +656,7 @@ class TestClientContractParity(unittest.TestCase):
 
         with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
             self._client().actor_profile_upsert(
-                profile={"name": "codex", "runtime": "codex", "runner": "pty"},
+                profile={"name": "codex", "runtime": "codex"},
                 expected_revision=3,
             )
 
@@ -1245,20 +1245,13 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["args"]["slot"], "slot-1")
 
         captured.clear()
-        client.presentation_browser_open(
-            group_id="g_1", slot="slot-1", url="https://example.com", width=1024, height=768
-        )
-        self.assertEqual(captured[0]["op"], "presentation_browser_open")
-        self.assertEqual(captured[0]["args"]["url"], "https://example.com")
-        self.assertEqual(captured[0]["args"]["width"], 1024)
-
-        captured.clear()
-        client.presentation_browser_info(group_id="g_1", slot="slot-1")
-        self.assertEqual(captured[0]["op"], "presentation_browser_info")
-
-        captured.clear()
-        client.presentation_browser_close(group_id="g_1", slot="slot-1")
-        self.assertEqual(captured[0]["op"], "presentation_browser_close")
+        with self.assertRaises(IncompatibleDaemonError):
+            client.presentation_browser_open(group_id="g_1", slot="slot-1", url="https://example.com")
+        with self.assertRaises(IncompatibleDaemonError):
+            client.presentation_browser_info(group_id="g_1", slot="slot-1")
+        with self.assertRaises(IncompatibleDaemonError):
+            client.presentation_browser_close(group_id="g_1", slot="slot-1")
+        self.assertEqual(captured, [])
 
     def test_assistant_ops(self) -> None:
         captured, client = self._capture({"assistant": {}})

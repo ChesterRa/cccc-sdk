@@ -1,5 +1,7 @@
 # CCCC SDK — CCCC 公式クライアント SDK
 
+0.4.40 対応：3言語の SDK と本体のバージョン番号を統一します。Connect はリモート識別子と再試行キーを明示し、互換性確認で任意の操作を実行しません。[対応範囲と移行](spec/ADAPTATION_PLAN.md) · [リリース手順](RELEASING.md)。
+
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
 > ステータス：**CCCC Daemon IPC v1 向けの contract-first SDK**。`main` のソース
@@ -90,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.4.40"
 ```
 
 Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
@@ -102,7 +104,7 @@ Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検�
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python と TypeScript は現在の SDK リリースラインに追従し、Rust crate は `0.0.1` から開始します。
+- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。今回は **0.4.40** で、契約の基準は `spec/core.json` に記録します。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：

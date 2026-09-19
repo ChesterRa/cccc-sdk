@@ -3,10 +3,14 @@ name: ts-ci
 on:
   push:
     paths:
+      - "scripts/check_release_versions.py"
+      - "spec/core.json"
       - "ts/**"
       - ".github/workflows/ts-ci.yml"
   pull_request:
     paths:
+      - "scripts/check_release_versions.py"
+      - "spec/core.json"
       - "ts/**"
       - ".github/workflows/ts-ci.yml"
 
@@ -16,6 +20,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check coordinated SDK versions
+        run: python3 scripts/check_release_versions.py
 
       - uses: actions/setup-node@v4
         with:
@@ -46,11 +53,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read supported core revision
+        id: core
+        run: python3 -c 'import json, os; d=json.load(open("spec/core.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("revision="+d["revision"]+"\n")'
+
       - name: Checkout cccc (daemon)
         uses: actions/checkout@v4
         with:
           repository: ChesterRa/cccc
-          ref: main
+          ref: ${{ steps.core.outputs.revision }}
           path: cccc
 
       - uses: actions/setup-node@v4
@@ -70,6 +81,9 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm pack --pack-destination /tmp
+          npm install --prefix /tmp/cccc-sdk-consumer /tmp/cccc-sdk-*.tgz
+          cp release-smoke.mjs /tmp/cccc-sdk-consumer/release-smoke.mjs
 
       - name: Build native CCCC
         working-directory: cccc
@@ -89,78 +103,5 @@ jobs:
           cccc daemon start
           test -f "$CCCC_HOME/daemon/ccccd.addr.json"
 
-          node --input-type=module <<'JS'
-          import os from 'node:os';
-          import path from 'node:path';
-          import fs from 'node:fs/promises';
-          import { CCCCClient, discoverEndpoint } from './ts/dist/index.js';
-
-          // Validate daemon TCP endpoint normalization for 0.0.0.0/localhost style descriptors.
-          const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cccc-sdk-ts-'));
-          const fakeDaemon = path.join(fakeHome, 'daemon');
-          await fs.mkdir(fakeDaemon, { recursive: true });
-          await fs.writeFile(
-            path.join(fakeDaemon, 'ccccd.addr.json'),
-            JSON.stringify({ v: 1, transport: 'tcp', host: '0.0.0.0', port: 12345 }),
-            'utf-8'
-          );
-          const fakeEndpoint = await discoverEndpoint(fakeHome);
-          if (fakeEndpoint.host !== '127.0.0.1') {
-            throw new Error(`expected normalized loopback host, got: ${fakeEndpoint.host}`);
-          }
-
-          const client = await CCCCClient.create({ ccccHome: process.env.CCCC_HOME });
-          await client.assertCompatible({
-            requireIpcV: 1,
-            requireCapabilities: { events_stream: true },
-            requireOps: [
-              'groups',
-              'group_create',
-              'group_preamble_get',
-              'group_preamble_set',
-              'group_preamble_reset',
-              'send',
-              'send_files',
-              'events_stream',
-              'memory_search',
-              'memory_get',
-              'memory_write',
-              'memory_profile_get',
-              'memory_health',
-              'actor_new_session',
-              'group_reset',
-              'group_copy_export_file',
-              'terminal_history',
-              'term_resize',
-              'web_model_delivery_preferences_get',
-              'web_model_delivery_preferences_update',
-              'web_model_runtime_recover_turn',
-            ],
-          });
-
-          const created = await client.groupCreate({ title: 'ts-integration' });
-          const groupId = String(created.group_id || '');
-          if (!groupId) {
-            throw new Error('groupCreate did not return group_id');
-          }
-
-          const eventPromise = (async () => {
-            for await (const item of client.eventsStream({ groupId, by: 'user' })) {
-              if (item.t === 'event') return item.event;
-            }
-            return null;
-          })();
-
-          await new Promise((r) => setTimeout(r, 200));
-          await client.send({ groupId, text: 'hello from ts-ci', mode: 'send', by: 'user', to: ['user'] });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timed out waiting for stream event')), 5000)
-          );
-          const event = await Promise.race([eventPromise, timeoutPromise]);
-
-          if (!event || typeof event.id !== 'string' || event.id.length === 0) {
-            throw new Error('stream event is missing canonical id field');
-          }
-          console.log('integration smoke passed', { groupId, eventId: event.id });
-          JS
+          node /tmp/cccc-sdk-consumer/release-smoke.mjs
+          (cd ts && node --import tsx examples/send.ts)

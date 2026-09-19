@@ -1,5 +1,7 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
+0.4.40 alignment: all three SDKs share the core release number. Connect helpers use qualified remote identities and explicit retry keys; compatibility checks cannot execute arbitrary operations. [Scope and migration](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
+
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
 > Status: **contract-first SDK for CCCC daemon IPC v1**. Source packages on
@@ -93,7 +95,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.0.1"
+cccc-sdk = "0.4.40"
 ```
 
 ```rust
@@ -116,8 +118,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Versioning and compatibility
 
 SDK releases follow daemon contracts, not strict daemon version strings:
-- Python and TypeScript package versions track the current SDK release line; the
-  Rust crate starts at `0.0.1` while its public API settles.
+- Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
+  release number; this batch is **0.4.40**. See `spec/core.json` for the reviewed core revision.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
 Compatibility is enforced by **contracts**, not by strict version string matching:

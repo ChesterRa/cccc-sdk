@@ -451,6 +451,46 @@ describe('CCCCClient newer CCCC operation wrappers', () => {
     assert.equal(sent, false);
   });
 
+  it('reports an early stream failure after a pending send without an unhandled rejection or resend', async () => {
+    const client = await CCCCClient.create({
+      endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
+    });
+    const failure = new Error('stream disconnected');
+    let sent = 0;
+    client.callRaw = async () => ({ ok: true, result: {} });
+    client.eventsStream = async function* () { throw failure; };
+    client.send = async () => {
+      sent++;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return { event: { id: 'sent-1' } };
+    };
+    await assert.rejects(
+      client.sendAndWaitForReply({ groupId: 'g1', listenAs: 'user', text: 'question' }),
+      error => error === failure,
+    );
+    assert.equal(sent, 1);
+  });
+
+  it('does not read past a matching reply', async () => {
+    const client = await CCCCClient.create({
+      endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },
+    });
+    let readPastReply = false;
+    client.callRaw = async () => ({ ok: true, result: {} });
+    client.send = async () => ({ event: { id: 'sent-1' } });
+    client.eventsStream = async function* () {
+      yield { t: 'event', event: {
+        id: 'reply-1', ts: '2026-09-19T00:00:00Z', kind: 'chat.message',
+        group_id: 'g1', data: { reply_to: 'sent-1', text: 'reply' },
+      } };
+      readPastReply = true;
+      throw new Error('stream ended after reply');
+    };
+    const reply = await client.sendAndWaitForReply({ groupId: 'g1', listenAs: 'user', text: 'question' });
+    assert.equal(reply.id, 'reply-1');
+    assert.equal(readPastReply, false);
+  });
+
   it('sendAndWaitForReply enforces its timeout while the stream is quiet', async () => {
     const client = await CCCCClient.create({
       endpoint: { transport: 'tcp', host: '127.0.0.1', port: 9, path: '' },

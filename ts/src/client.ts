@@ -1,6 +1,7 @@
 /**
  * CCCC SDK client
  */
+import { installConnectOps, type ConnectOps } from './client_connect_ops.js';
 
 import type {
   DaemonEndpoint,
@@ -255,31 +256,55 @@ export class CCCCClient {
       }
     }
 
-    // Check operation support by probing
-    const reservedOps = new Set([
-      'ping',
-      'shutdown',
-      'group_create',
-      'registry_reconcile',
-      'capability_allowlist_update',
-      'capability_allowlist_reset',
-      'remote_access_configure',
-      'remote_access_start',
-      'remote_access_stop',
-      'group_space_provider_credential_update',
-      'group_space_provider_auth',
-      'term_attach',
-      'presentation_browser_attach',
-      'presentation_browser_vnc_attach',
-      'web_model_browser_attach',
-      'web_model_browser_vnc_attach',
-      'space_provider_auth_browser_attach',
-      'space_provider_auth_browser_vnc_attach',
-      'runtime_hermes_prepare',
-      'runtime_hermes_mcp_test',
+    // Probe only audited operations with harmless empty arguments.
+    const safeEmptyProbes = new Set([
+      'groups',
+      'group_show',
+      'group_preamble_get',
+      'group_preamble_set',
+      'group_preamble_reset',
+      'send',
+      'tracked_send',
+      'send_files',
+      'reply',
+      'inbox_peek',
+      'inbox_read',
+      'context_get',
+      'context_sync',
+      'message_deliver',
+      'message_history',
+      'reply_request_cancel',
+      'send_cross_group',
+      'memory_search',
+      'memory_get',
+      'memory_write',
+      'memory_profile_get',
+      'memory_health',
+      'actor_new_session',
+      'group_reset',
+      'group_copy_export_file',
+      'terminal_history',
+      'terminal_since',
+      'terminal_snapshot',
+      'term_resize',
+      'web_model_delivery_preferences_get',
+      'web_model_delivery_preferences_update',
+      'web_model_runtime_recover_turn',
+      'events_stream',
+      'connect_catalog',
+      'connect_send',
+      'connect_send_files',
     ]);
-    for (const op of options.requireOps ?? []) {
-      if (reservedOps.has(op)) continue;
+    for (const requestedOp of options.requireOps ?? []) {
+      const op = requestedOp.trim();
+      if (op === 'ping') continue;
+      if (capabilities[op] === false) {
+        throw new IncompatibleDaemonError(`Operation not supported: ${op}`);
+      }
+      if (!safeEmptyProbes.has(op)) {
+        if (capabilities[op] === true) continue;
+        throw new IncompatibleDaemonError(`Cannot safely verify operation: ${op}; no advertised capability or safe probe`);
+      }
       try {
         await this.callRaw(op, {});
       } catch (e) {
@@ -300,7 +325,8 @@ export class CCCCClient {
           }
           throw new IncompatibleDaemonError(`Operation not supported: ${op}`);
         }
-        // Other errors (e.g. missing_group_id) imply the operation exists.
+        if (!(e instanceof DaemonAPIError)) throw e;
+        // A structured daemon rejection (e.g. missing_group_id) proves recognition.
       }
     }
 
@@ -497,7 +523,7 @@ export class CCCCClient {
 
   /**
    * Add an actor to a group.
-   * @param options - Actor configuration (id, runtime, runner, etc.).
+   * @param options - Actor configuration (id, runtime, command, etc.).
    * @returns The daemon result (includes assigned actor id).
    * @throws {DaemonAPIError} On invalid group or duplicate actor id.
    */
@@ -506,7 +532,6 @@ export class CCCCClient {
       actor_id: options.actorId,
       title: options.title,
       runtime: options.runtime,
-      runner: options.runner,
       command: options.command,
       env: options.env,
       env_private: options.envPrivate,
@@ -979,6 +1004,7 @@ export class CCCCClient {
       ops: options.ops,
       by: options.by ?? 'system',
       dry_run: options.dryRun ?? false,
+      ...(options.ifVersion !== undefined ? { if_version: options.ifVersion } : {}),
     });
   }
 
@@ -1318,36 +1344,28 @@ export class CCCCClient {
     return this.call('presentation_clear', args);
   }
 
+  /** @deprecated This browser surface is served by CCCC Web, not daemon IPC. */
   async presentationBrowserOpen(
     options: PresentationBrowserOpenOptions
   ): Promise<Record<string, unknown>> {
-    return this.call('presentation_browser_open', {
-      group_id: options.groupId,
-      slot: options.slot,
-      url: options.url,
-      width: options.width ?? 1280,
-      height: options.height ?? 800,
-      by: options.by ?? 'user',
-    });
+    void options;
+    throw new IncompatibleDaemonError("Presentation browsers are no longer served by daemon IPC; use the CCCC Web Presentation browser surface");
   }
 
+  /** @deprecated This browser surface is served by CCCC Web, not daemon IPC. */
   async presentationBrowserInfo(
     options: PresentationBrowserInfoOptions
   ): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = { group_id: options.groupId };
-    if (options.slot) args['slot'] = options.slot;
-    return this.call('presentation_browser_info', args);
+    void options;
+    throw new IncompatibleDaemonError("Presentation browsers are no longer served by daemon IPC; use the CCCC Web Presentation browser surface");
   }
 
+  /** @deprecated This browser surface is served by CCCC Web, not daemon IPC. */
   async presentationBrowserClose(
     options: PresentationBrowserCloseOptions
   ): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      by: options.by ?? 'user',
-    };
-    if (options.slot) args['slot'] = options.slot;
-    return this.call('presentation_browser_close', args);
+    void options;
+    throw new IncompatibleDaemonError("Presentation browsers are no longer served by daemon IPC; use the CCCC Web Presentation browser surface");
   }
 
   // ============================================================
@@ -1628,9 +1646,6 @@ export class CCCCClient {
       socket.destroy();
       return;
     }
-    const abortStream = () => socket.destroy();
-    options.signal?.addEventListener('abort', abortStream, { once: true });
-
     if (handshake.v !== undefined && handshake.v !== 1) {
       socket.destroy();
       throw new IncompatibleDaemonError(
@@ -1648,6 +1663,8 @@ export class CCCCClient {
       );
     }
 
+    const abortStream = () => socket.destroy();
+    options.signal?.addEventListener('abort', abortStream, { once: true });
     try {
       for await (const line of readLines(socket, initialBuffer)) {
         try {
@@ -1659,6 +1676,10 @@ export class CCCCClient {
           // Skip invalid JSON lines.
         }
       }
+    } catch (error) {
+      // Cancelling an established subscription is normal completion. Preserve
+      // unexpected transport/decoding errors when the caller did not cancel.
+      if (!options.signal?.aborted) throw error;
     } finally {
       options.signal?.removeEventListener('abort', abortStream);
       socket.destroy();
@@ -1666,9 +1687,11 @@ export class CCCCClient {
   }
 }
 
-export interface CCCCClient extends CCCC0430Ops, CCCC0434Ops, GroupSpaceOps, ChatOps {}
+export interface CCCCClient extends CCCC0430Ops, CCCC0434Ops, GroupSpaceOps, ChatOps, ConnectOps {}
 
 installCCCC0430Ops(CCCCClient.prototype);
 installCCCC0434Ops(CCCCClient.prototype);
 installGroupSpaceOps(CCCCClient.prototype);
 installChatOps(CCCCClient.prototype);
+
+installConnectOps(CCCCClient.prototype);

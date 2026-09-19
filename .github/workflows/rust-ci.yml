@@ -3,10 +3,14 @@ name: rust-ci
 on:
   push:
     paths:
+      - "scripts/check_release_versions.py"
+      - "spec/core.json"
       - "rust/**"
       - ".github/workflows/rust-ci.yml"
   pull_request:
     paths:
+      - "scripts/check_release_versions.py"
+      - "spec/core.json"
       - "rust/**"
       - ".github/workflows/rust-ci.yml"
 
@@ -15,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check coordinated SDK versions
+        run: python3 scripts/check_release_versions.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
@@ -37,11 +43,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read supported core revision
+        id: core
+        run: python3 -c 'import json, os; d=json.load(open("spec/core.json")); open(os.environ["GITHUB_OUTPUT"], "a").write("revision="+d["revision"]+"\n")'
+
       - name: Checkout cccc (daemon)
         uses: actions/checkout@v4
         with:
           repository: ChesterRa/cccc
-          ref: main
+          ref: ${{ steps.core.outputs.revision }}
           path: cccc
 
       - uses: actions/setup-node@v4
@@ -73,4 +83,6 @@ jobs:
           trap cleanup EXIT
           cccc daemon start
           test -f "$CCCC_HOME/daemon/ccccd.addr.json"
-          cargo run --manifest-path rust/Cargo.toml --example compat_check
+          cargo package --manifest-path rust/Cargo.toml --locked
+          sdk_version=$(python3 -c 'import json; print(json.load(open("spec/core.json"))["version"])')
+          cargo run --manifest-path "rust/target/package/cccc-sdk-$sdk_version/Cargo.toml" --example compat_check

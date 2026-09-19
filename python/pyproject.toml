@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cccc-sdk"
-version = "0.4.33"
+version = "0.4.40"
 description = "Client SDK for the CCCC daemon (IPC v1)"
 readme = "README.md"
 requires-python = ">=3.9"

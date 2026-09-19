@@ -5,11 +5,13 @@
 //! common workflows.
 
 mod client;
+mod connect;
 mod endpoint;
 mod error;
 mod protocol;
 
 pub use client::{CCCCClient, CompatibilityRequirements};
+pub use connect::{ConnectCatalogOptions, ConnectSendOptions};
 pub use endpoint::{discover_endpoint, DaemonEndpoint};
 pub use error::{DaemonError, Error, Result};
 pub use protocol::{

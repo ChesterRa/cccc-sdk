@@ -15,6 +15,7 @@ def main() -> int:
         "group_preamble_set",
         "group_preamble_reset",
         "send",
+        "tracked_send",
         "send_files",
         "reply",
         "inbox_peek",

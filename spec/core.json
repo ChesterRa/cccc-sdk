@@ -1,0 +1,10 @@
+{
+  "version": "0.4.40",
+  "revision": "c081e1f2276b5a4458e1169c0e311874b00d70b5",
+  "standards": [
+    "CCCS_V1.md",
+    "CCCC_DAEMON_IPC_V1.md",
+    "CCCC_CONTEXT_OPS_V1.md",
+    "CCCC_CONNECT_V1.md"
+  ]
+}

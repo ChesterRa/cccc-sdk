@@ -102,8 +102,7 @@ describe('client contract parity', () => {
       profile: {
         name: 'Codex',
         runtime: 'codex',
-        runner: 'pty',
-      },
+          },
       expectedRevision: 4,
     });
 
@@ -120,8 +119,7 @@ describe('client contract parity', () => {
       profile: {
         name: 'Codex',
         runtime: 'codex',
-        runner: 'pty',
-        capabilityDefaults: {
+            capabilityDefaults: {
           autoloadCapabilities: ['pack:space'],
           defaultScope: 'actor',
           sessionTtlSeconds: 600,
@@ -134,8 +132,7 @@ describe('client contract parity', () => {
     assert.deepEqual(calls[0]?.args?.['profile'], {
       name: 'Codex',
       runtime: 'codex',
-      runner: 'pty',
-      capability_defaults: {
+        capability_defaults: {
         autoload_capabilities: ['pack:space'],
         default_scope: 'actor',
         session_ttl_seconds: 600,
@@ -776,21 +773,11 @@ describe('presentation', () => {
     await client.presentationClear({ groupId: 'g_1', slot: 'slot-1' });
     assert.equal(calls[2]?.op, 'presentation_clear');
 
-    await client.presentationBrowserOpen({
-      groupId: 'g_1',
-      slot: 'slot-1',
-      url: 'https://example.com',
-      width: 1024,
-      height: 768,
-    });
-    assert.equal(calls[3]?.op, 'presentation_browser_open');
-    assert.equal(calls[3]?.args?.['width'], 1024);
+    await assert.rejects(client.presentationBrowserOpen({ groupId: 'g_1', slot: 'slot-1', url: 'https://example.com' }), /no longer served/);
+    await assert.rejects(client.presentationBrowserInfo({ groupId: 'g_1', slot: 'slot-1' }), /no longer served/);
+    await assert.rejects(client.presentationBrowserClose({ groupId: 'g_1', slot: 'slot-1' }), /no longer served/);
+    assert.equal(calls.length, 3);
 
-    await client.presentationBrowserInfo({ groupId: 'g_1', slot: 'slot-1' });
-    assert.equal(calls[4]?.op, 'presentation_browser_info');
-
-    await client.presentationBrowserClose({ groupId: 'g_1', slot: 'slot-1' });
-    assert.equal(calls[5]?.op, 'presentation_browser_close');
   });
 });
 

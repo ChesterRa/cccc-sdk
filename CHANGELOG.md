@@ -1,96 +1,71 @@
 # Changelog
 
-`cccc-sdk` tracks the `cccc` daemon version. Each release targets a specific
-CCCC line and exposes the IPC surface available on that line.
+The Python, npm and Rust packages share the supported CCCC release number.
+Equal versions do not imply identical helper coverage; all three use IPC v1.
 
-## [Unreleased] — targets CCCC 0.4.36
+## [0.4.40] — Unreleased
 
-### Changed
-
-- Aligned all mirrored standards and compatibility probes with the single
-  native CCCC daemon. Python, TypeScript, and Rust remain supported client SDK
-  languages; none of them embeds or selects a daemon implementation.
-- Completed the atomic Send / Send + Reply / Mail migration, including
-  agent-only Mail, Mail Inbox consumption, non-consuming message history,
-  manual delivery, reply-request cancellation, and Mail replies that fulfill an
-  existing reply request without prompting the recipient immediately.
-- Added the current Context projection selector and expanded task-list filters,
-  exact batches, atomic status pages, and pagination where first-class task
-  helpers already exist.
-- Reduced legacy Group Space synchronization to its contractually supported
-  read-only status operation. Explicit ingest and source operations remain the
-  mutation path.
-
-### Compatibility
-
-- The bundled daemon reports `implementation="rust"`; compatibility decisions
-  still use IPC version, capabilities, and operation probes rather than the
-  implementation label alone.
-- Internal Web upload preflight and relay-only operations remain available via
-  generic calls but intentionally have no first-class public wrapper.
-- Package versions are deliberately unchanged. Version selection and publishing
-  remain a separate release decision.
-
-## [0.4.34] — Unreleased
+This coordinated release includes the earlier unpublished 0.4.33–0.4.36 source
+work. It targets CCCC 0.4.40; the exact reviewed revision is in `spec/core.json`.
+Rust moves from 0.0.1 to 0.4.40 under the same versioning policy.
 
 ### Added
 
-- Python, TypeScript, and Rust helpers for `terminal_snapshot`, Web Model
-  delivery preferences, and non-mutating Web Model turn recovery.
-- Typed Rust terminal history/since/resize results and Web Model delivery
-  payloads; TypeScript now recognizes the first-class `cline` runtime.
-- Safe endpoint rediscovery after connection-establishment failures,
-  family-agnostic IPv4/IPv6 TCP descriptor handling, request size guards,
-  protocol-version validation, and explicit outcome-unknown transport errors
-  after an exchange has begun.
-- Scheduled CI drift detection for all three mirrored CCCC standards, automatic
-  Python integration coverage, and a live Rust-SDK/current-daemon smoke job.
+- Qualified Connect catalog, message and file helpers in all three languages,
+  with explicit destination identity and caller-owned retry keys. Acceptance
+  means durable local acceptance, not confirmed remote delivery.
+- Context version preconditions and terminal render cursors. Rust exposes
+  `context_sync_checked` while retaining the existing `context_sync` entry point.
+- Current terminal snapshots, Web Model delivery preferences and recovery,
+  group preamble, Voice Secretary documents/prompts, IM, Remote Access and
+  Notebook controls where supported by each language's helper surface.
+- Daemon-owned file delivery via `send_files` / `sendFiles`, without direct SDK
+  writes to the Group blob store.
 
 ### Changed
 
-- Terminal resize now uses the normative `term_resize` operation first and
-  falls back to the Rust daemon's temporary `terminal_resize` alias only after
-  a structured `unknown_op` response. The alias's non-standard success payload
-  is normalized back to the standard result shape in all three SDKs.
-- `actor_new_session` and `group_copy_export_file` no longer emit parameters
-  absent from the current contract. Removed the never-functional
-  `blueprint_generate` wrappers after the obsolete Panorama blueprint contract
-  was removed from CCCC core.
-- `capability_install_target` is now the sole daemon IPC operation for target
-  installation; the public SDK helpers already emitted the canonical name.
-- Mirrored standards now include current browser capability discovery,
-  daemon-owned actor notes, Context task deletion, and NotebookLM capability,
-  refresh, artifact, and error semantics.
-- Python and TypeScript now expose Context `task.delete`, current Voice
-  Secretary idempotency/general-instruction fields, explicit public IM
-  visibility for system notifications, opaque string IM thread IDs, and the
-  current projected/disconnect NotebookLM authentication controls. TypeScript
-  artifact formats now include `pdf`, `pptx`, and `csv`.
-- ReMe maintenance, Remote Access, IM authorization, Voice model installation,
-  group copy, and chat helpers now emit the argument names and scopes accepted
-  by current core handlers.
-- Cross-group send no longer emits unsupported attachment/reference fields, and
-  capability-source deletion no longer exposes an instance key that the daemon
-  ignores before performing a source-wide delete.
-- Compatibility probes skip mutating administrative operations. TypeScript
-  event streams now preserve split UTF-8 input, abort promptly, and enforce
-  reply deadlines without waiting forever on an idle stream. Python now
-  classifies malformed non-object replies received after a write as
-  outcome-unknown instead of a compatibility failure.
-- TypeScript's `INVALID_REQUEST` constant now matches the daemon's
-  `invalid_request` code and includes current request-size and Remote Access
-  administrator-token errors.
-- The daemon IPC mirror now matches current CCCC core, including Remote Access
-  administrator-token state and enforcement fields.
+- Python, npm and Rust versions now match CCCC 0.4.40. CI verifies manifests,
+  lockfiles and the stable release tag together.
+- Mirror all four public standards, including Connect. Supported-release CI
+  uses the reviewed core SHA; nightly upstream-main changes produce a separate
+  maintenance warning and diff artifact.
+- Messages use atomic Send / Send + Reply / Mail modes. Mail targets Agents;
+  consuming Inbox reads are distinct from non-consuming message history.
+  Legacy delivery fields emitted by older published clients are no longer sent.
+- Context helpers support the current projection, task deletion and expanded
+  task filters. Group Space synchronization is read-only; ingestion and source
+  operations remain explicit mutation paths.
+- Compatibility checks use audited harmless probes or explicit advertised
+  support. Unknown unsafe probes fail locally, advertised exclusions are
+  respected, and transport failures propagate instead of claiming support.
+- TypeScript requests and stream handshakes have absolute deadlines and strict
+  UTF-8/line-size handling. Failed exchanges report an unknown outcome without
+  automatically replaying a potentially accepted request. Endpoint rediscovery
+  remains limited to failures before an exchange begins. Cancelling an established
+  event subscription completes normally; unexpected stream errors still propagate.
+- Waiting for a reply observes stream failures while a send is pending and stops
+  reading after the matching reply; an early disconnect no longer causes an
+  unhandled rejection or a duplicate send.
+- Runnable TypeScript examples use current Runtime/Group contracts, clean up
+  their temporary resources and return nonzero on failure. Examples are included
+  in type checking, and the Mail/reply example runs in native integration CI.
+- The Python build backend minimum now supports the declared SPDX license
+  metadata; documented npm packaging runs in the package directory.
+- Terminal resize uses `term_resize`, falling back to the older alias only on
+  `unknown_op`. Current operation names, argument scopes and field types are
+  aligned for runtime, memory, IM and remote-access helpers.
 
-### Tests
+### Migration
 
-- Added cross-language contract tests for the 0.4.34 operations, legacy resize
-  fallback, endpoint rotation, protocol versions, request bounds, and the
-  no-replay-after-exchange guarantee, plus exact ReMe/Remote Access/IM argument
-  maps and side-effect-free compatibility probing. TypeScript also compiles
-  exported option fixtures so documented contract values cannot silently drift
-  out of the published declaration surface.
+- Actor creation no longer accepts a selectable `runner`; Runtime determines
+  it. Ordinary Python creation previously sent the rejected `runner=pty` field.
+- Retired Presentation browser, Voice model-install and transcription IPC
+  helpers fail locally with guidance to CCCC Web; they do not silently change
+  transport or acquire browser control.
+- Removed the never-functional `blueprint_generate` helpers. Generic calls
+  remain available for supported operations without a typed SDK helper.
+- CI now exercises installed wheel/npm/crate artifacts against an isolated
+  daemon as well as unit, type and transport regression tests.
 
 ## Rust crate [0.0.1] — 2026-08-03
 
@@ -102,37 +77,6 @@ CCCC line and exposes the IPC surface available on that line.
 - Generic non-streaming operation calls plus focused helpers for compatibility,
   groups, chat, inbox, and context workflows.
 - Unit tests, a live compatibility example, crate documentation, and Rust CI.
-
-## [0.4.33] — Unreleased
-
-### Added
-
-- Current Rust-daemon wrappers for group preamble, terminal cursor/resize,
-  Voice Secretary documents and prompts, low-level ReMe maintenance, Web Model
-  turns, IM bridge management, and Remote Access administration.
-- Daemon-owned active-scope file upload and chat delivery through `send_files`
-  / `sendFiles`, without direct writes to the group blob store.
-- `require_peer_insight` / `requirePeerInsight` support on chat workflows and
-  profile-marker support on actor profile operations.
-
-### Changed
-
-- `assert_compatible` / `assertCompatible` now probes `events_stream` as a real
-  operation instead of trusting the advertised capability flag. TypeScript
-  streaming also probes before opening the long-lived socket.
-- `term_resize` / `termResize` maps to the Rust daemon's current
-  `terminal_resize` operation; terminal history also exposes `terminal_since`.
-- The removed voice transcription IPC helper now fails locally with migration
-  guidance to the supported HTTP Voice Secretary endpoint.
-- Refactored large client implementations into focused operation-family
-  mixins without changing the public client entry points.
-- Group-preamble setters reject empty or oversized content, and reset helpers
-  require the caller's explicit `preamble` confirmation.
-
-### Tests
-
-- Added Python and TypeScript contract coverage for the 0.4.33 operation and
-  argument mappings, compatibility probing, and removed-operation behavior.
 
 ## [0.4.32] — 2026-07-19
 

@@ -12,7 +12,7 @@ if [[ ! -d "${SRC}" ]]; then
 fi
 
 status=0
-for name in CCCS_V1.md CCCC_DAEMON_IPC_V1.md CCCC_CONTEXT_OPS_V1.md; do
+for name in CCCS_V1.md CCCC_DAEMON_IPC_V1.md CCCC_CONTEXT_OPS_V1.md CCCC_CONNECT_V1.md; do
   if ! cmp -s "${SRC}/${name}" "${DST}/${name}"; then
     echo "error: spec/${name} has drifted from CCCC core" >&2
     diff -u "${DST}/${name}" "${SRC}/${name}" || true

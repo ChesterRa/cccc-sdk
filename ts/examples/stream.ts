@@ -41,6 +41,7 @@ async function main() {
     }
 
   } catch (error) {
+    process.exitCode = 1;
     if (error instanceof DaemonUnavailableError) {
       console.error('Daemon unavailable:', error.message);
       console.error('Please make sure the CCCC daemon is running.');
@@ -55,4 +56,7 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -171,16 +171,13 @@ class TestClient0434Contract(unittest.TestCase):
 
         client = self._client()
         with patch.object(client, "call_raw", side_effect=fake_call_raw):
-            client.assert_compatible(
-                require_ops=[
-                    "group_create",
-                    "registry_reconcile",
-                    "capability_allowlist_reset",
-                    "remote_access_start",
-                    "group_space_provider_auth",
-                ]
-            )
-        self.assertEqual(operations, ["ping"])
+            for operation in ["group_create", "registry_reconcile", "capability_allowlist_reset",
+                              "remote_access_start", "group_space_provider_auth", "connect_direct_configure",
+                              "membership_logout", "future_mutation"]:
+                with self.subTest(operation=operation):
+                    with self.assertRaisesRegex(IncompatibleDaemonError, "cannot safely verify"):
+                        client.assert_compatible(require_ops=[operation])
+        self.assertEqual(operations, ["ping"] * 8)
 
     def test_explicit_unsupported_response_version_is_rejected(self) -> None:
         with patch(

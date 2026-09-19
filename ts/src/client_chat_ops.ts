@@ -176,6 +176,9 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       signal: streamAbort.signal,
     });
     let nextItem = stream.next();
+    // The stream can reject while send is still pending. Observe it immediately;
+    // awaiting the original promise below still reports the stream failure.
+    void nextItem.catch(() => {});
 
     try {
       const sendResult = await this.send({ ...options, mode: 'request_reply' }) as unknown as SendResult;
@@ -189,13 +192,13 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
           throw new Error(`sendAndWaitForReply timed out after ${waitTimeout}ms`);
         }
         if (done) break;
-        nextItem = stream.next();
         if (isStreamEvent(item) && item.event.kind === 'chat.message') {
           const data = item.event.data as Record<string, unknown>;
           if (data['reply_to'] === sentEventId) {
             return item.event;
           }
         }
+        nextItem = stream.next();
       }
     } finally {
       clearTimeout(timeout);
