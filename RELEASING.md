@@ -61,8 +61,15 @@ A commit is not permission to push a tag or publish. Confirm the matching CCCC
 release exists, candidate checks pass, and publication is authorized.
 
 - A stable `vX.Y.Z` tag triggers the Python and npm publishing workflows. They
-  check coordinated versions and run package tests before publishing. Required
-  repository secrets are `PYPI_API_TOKEN` and `NPM_TOKEN`.
+  check coordinated versions and run package tests before publishing. The
+  Python workflow requires the `PYPI_API_TOKEN` repository secret.
+- npm publishes through npm Trusted Publishing (OIDC): on npmjs.com, package
+  `cccc-sdk` → Settings → Trusted Publisher → GitHub Actions with owner
+  `ChesterRa`, repository `cccc-sdk`, workflow `ts-publish-npm.yml`, no
+  environment. This needs no secret and never expires. The `NPM_TOKEN` secret
+  is only a fallback while that publisher is not configured; npm granular
+  tokens expire after at most 90 days, so remove the secret once Trusted
+  Publishing works rather than rotating it.
 - Publish the same Rust version with `cargo publish --manifest-path rust/Cargo.toml
   --locked --registry crates-io`, using the maintainer's crates.io credentials.
 - Do not also publish Python/npm manually while their workflows are running.
