@@ -428,9 +428,9 @@ npm run build
 
 Apache-2.0
 
-## CCCC 0.4.40 alignment
+## CCCC 0.4.41 alignment
 
-All three SDK package versions are 0.4.40; `spec/core.json` records the supported
+All three SDK package versions are 0.4.41; `spec/core.json` records the supported
 core revision. The matching release number is not a replacement for IPC and
 capability checks.
 
@@ -455,3 +455,17 @@ Compatibility requirements that lack an advertised capability and an audited
 safe probe now fail instead of being executed or silently skipped. Retired
 Presentation browser and Voice model-install helpers fail locally with migration
 guidance; their interactive replacement belongs to CCCC Web, not daemon IPC.
+
+## 0.4.41 Voice library and Web Models
+
+Use `assistantVoiceDocumentLibrary`, `assistantVoiceDocumentLibraryUpdate` and
+`assistantVoiceDocumentDelete` for the stored Voice document library.
+`VoiceDocumentLibraryUpdateOptions` and `VoiceDocumentLibraryResult` are exported.
+Updates organize folders/documents and restore archives; delete permanently
+removes the Markdown file. Empty `rootOrder: []` clears ordering and
+`folderId: ''` moves a document to root. The daemon enforces all permissions.
+
+`actorAdd({ runtime: 'grok_web_model', ... })` configures a Grok Bot Actor; `grok`
+is the separate CLI runtime. Use CCCC Web to save its existing Bot URL and set up
+shared login/connector access before starting it. Multiple ChatGPT Actors using
+`web_model` are supported. See the [migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0441_MIGRATION.md).

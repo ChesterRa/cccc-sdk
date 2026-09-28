@@ -1,5 +1,6 @@
 import { compactRecord, type CCCC0430Client } from './client_0430_shared.js';
 import { IncompatibleDaemonError } from './errors.js';
+import type { VoiceDocumentLibraryResult, VoiceDocumentLibraryUpdateOptions } from './types.js';
 
 type VoiceSecretaryDocumentSaveOptions = {
   groupId: string;
@@ -29,6 +30,10 @@ export interface CCCC0430AssistantOps {
     by?: string;
   }): Promise<Record<string, unknown>>;
   assistantVoiceDocumentList(options: { groupId: string; includeArchived?: boolean }): Promise<Record<string, unknown>>;
+  assistantVoiceDocumentLibrary(options: { groupId: string }): Promise<VoiceDocumentLibraryResult>;
+  assistantVoiceDocumentLibraryUpdate(options: VoiceDocumentLibraryUpdateOptions): Promise<VoiceDocumentLibraryResult>;
+  /** Permanently deletes the Markdown file; archive retains it. */
+  assistantVoiceDocumentDelete(options: { groupId: string; documentPath: string; by?: string }): Promise<Record<string, unknown>>;
   assistantVoiceDocumentInputRead(options: { groupId: string; by?: string }): Promise<Record<string, unknown>>;
   assistantVoiceDocumentSave(options: VoiceSecretaryDocumentSaveOptions): Promise<Record<string, unknown>>;
   assistantVoiceDocumentInstruction(options: {
@@ -125,6 +130,32 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
       group_id: options.groupId,
       by: options.by,
     }));
+  },
+
+  async assistantVoiceDocumentLibrary(options) {
+    return await this.call('assistant_voice_document_library', {
+      group_id: options.groupId,
+    }) as unknown as VoiceDocumentLibraryResult;
+  },
+
+  async assistantVoiceDocumentLibraryUpdate(options) {
+    return await this.call('assistant_voice_document_library_update', compactRecord({
+      group_id: options.groupId,
+      action: options.action,
+      name: options.name,
+      folder_id: options.folderId,
+      document_path: options.documentPath,
+      root_order: options.rootOrder,
+      by: options.by ?? 'user',
+    })) as unknown as VoiceDocumentLibraryResult;
+  },
+
+  async assistantVoiceDocumentDelete(options) {
+    return this.call('assistant_voice_document_delete', {
+      group_id: options.groupId,
+      document_path: options.documentPath,
+      by: options.by ?? 'user',
+    });
   },
 
   async assistantVoiceDocumentSave(options) {

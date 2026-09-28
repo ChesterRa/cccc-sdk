@@ -5,9 +5,9 @@ TypeScript (`ts/`, npm), and Rust (`rust/`, crates.io). All are named `cccc-sdk`
 
 ## Version and contract policy
 
-All three packages use the supported CCCC release number: **0.4.40** for this
-candidate, including Rust's move from 0.0.1. Equal versions do not imply equal
-helper coverage; runtime compatibility uses IPC version, capabilities and safe
+All three packages use the supported CCCC release number: **0.4.41** for this
+candidate. Equal versions do not imply equal helper coverage; runtime
+compatibility uses IPC version, capabilities and safe
 operation probes, not an exact daemon-version requirement.
 
 Update the three manifests, both lockfiles, and `spec/core.json` together. The
@@ -46,8 +46,9 @@ cargo package --manifest-path rust/Cargo.toml --locked
 Inspect the wheel, npm tarball and crate file lists. In a disposable `CCCC_HOME`,
 install the candidate wheel and npm tarball into clean consumers, then run
 `python/examples/compat_check.py`, `python/examples/release_smoke.py` and
-`ts/release-smoke.mjs`. Run the Rust `compat_check` example from the extracted
-crate. The integration workflows perform these checks against the pinned core.
+`ts/release-smoke.mjs`. Run the Rust `compat_check` and `release_smoke` examples
+from the extracted crate. The integration workflows perform these checks against
+the pinned core.
 They must not run against a user's working daemon.
 
 Before release, verify local Mail/read/reply and file delivery, Connect catalog
@@ -74,7 +75,7 @@ release exists, candidate checks pass, and publication is authorized.
   retrying a partially completed release.
 
 This procedure covers coordinated stable releases. The existing TestPyPI
-workflow is separate prerelease tooling, not a required step for 0.4.40.
+workflow is separate prerelease tooling, not a required step for 0.4.41.
 
 ## Confirm completion
 

@@ -85,6 +85,8 @@ export type {
   ActorInternalKind,
   ActorRuntimeStateSource,
   AgentRuntime,
+  VoiceDocumentLibraryResult,
+  VoiceDocumentLibraryUpdateOptions,
   ActorProfile,
   ActorProfileCapabilityDefaults,
   ActorProfileUsage,

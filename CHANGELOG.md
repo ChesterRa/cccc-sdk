@@ -3,6 +3,35 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
+## [0.4.41] — Unreleased
+
+Targets the maintained CCCC 0.4.41 contract at the immutable revision in
+`spec/core.json`. Python, npm and Rust packages all use 0.4.41.
+
+### Added
+
+- Voice document library read, metadata update and permanent deletion helpers
+  across all three SDKs, with exported TypeScript/Rust library types.
+- Folder creation, renaming, removal, mixed root ordering, document display-name
+  changes, moves and archive restoration. Empty ordering and root destinations
+  retain their meaning on the wire.
+- Safe compatibility probes for the new operations and installed-artifact
+  lifecycle checks in Python, npm and Rust integration workflows.
+- Explicit TypeScript `grok_web_model` and `deepseek` runtime literals.
+
+### Updated
+
+- Four mirrored public standards, including shared ChatGPT connectors, multiple
+  Web Model Actors, Grok Bot routing, generation isolation and Voice deletion.
+- Migration guidance distinguishes recoverable archive from permanent deletion,
+  Web-owned browser setup from daemon IPC, and MCP file tools from SDK file sends.
+- Incorporates the upstream npm/crates.io Trusted Publishing workflows; publishing
+  remains a separate authorized release step.
+
+### Fixed
+
+- Include the repository's Apache-2.0 license text in npm and Rust packages.
+
 ## [0.4.40] — Unreleased
 
 This coordinated release includes the earlier unpublished 0.4.33–0.4.36 source

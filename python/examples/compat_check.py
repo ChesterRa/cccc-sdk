@@ -40,6 +40,9 @@ def main() -> int:
         "web_model_delivery_preferences_get",
         "web_model_delivery_preferences_update",
         "web_model_runtime_recover_turn",
+        "assistant_voice_document_library",
+        "assistant_voice_document_library_update",
+        "assistant_voice_document_delete",
     ]
     info = c.assert_compatible(
         require_ipc_v=1,

@@ -34,4 +34,43 @@ with tempfile.TemporaryDirectory(prefix='cccc-sdk-project-') as folder:
         pass
     else:
         raise AssertionError('unsafe operation falsely verified')
-print('Installed Python artifact: Actor, Mail, reply, files, catalog, conflict and safe probes passed')
+
+    # Metadata changes retain Markdown paths; archive/restore differs from delete.
+    document = 'notes/sdk.md'
+    c.assistant_voice_document_save(group_id=g, document_path=document, content='# SDK fixture')
+    library = c.assistant_voice_document_library_update(group_id=g, action='create_folder', name='Meetings')
+    folder_id = library['folders'][0]['folder_id']
+    c.assistant_voice_document_library_update(group_id=g, action='rename_folder', folder_id=folder_id, name='Notes')
+    c.assistant_voice_document_library_update(group_id=g, action='rename', document_path=document, name='Summary')
+    c.assistant_voice_document_library_update(group_id=g, action='move', document_path=document, folder_id=folder_id)
+    c.assistant_voice_document_archive(group_id=g, document_path=document)
+    library = c.assistant_voice_document_library(group_id=g)
+    assert library['documents'][0]['status'] == 'archived'
+    assert (Path(folder) / document).read_text() == '# SDK fixture'
+    library = c.assistant_voice_document_library_update(group_id=g, action='restore', document_path=document)
+    assert library['documents'][0]['folder_id'] == folder_id
+    assert library['documents'][0]['status'] == 'active'
+    c.assistant_voice_document_library_update(group_id=g, action='move', document_path=document, folder_id='')
+    order = [f'folder:{folder_id}', f'document:{document}']
+    library = c.assistant_voice_document_library_update(group_id=g, action='reorder_root', root_order=order)
+    assert library['root_order'] == order
+    library = c.assistant_voice_document_library_update(group_id=g, action='reorder_root', root_order=[])
+    assert library['root_order'] == []
+    c.assistant_voice_document_library_update(group_id=g, action='remove_folder', folder_id=folder_id)
+    deleted = c.assistant_voice_document_delete(group_id=g, document_path=document)
+    assert deleted['event']['data']['action'] == 'deleted'
+    assert not (Path(folder) / document).exists()
+    assert c.assistant_voice_document_library(group_id=g)['documents'] == []
+    try:
+        c.assistant_voice_document_library_update(group_id=g, action='restore', document_path=document)
+    except DaemonAPIError:
+        pass
+    else:
+        raise AssertionError('permanently deleted document restored')
+
+    # Persist runtime configuration only; the paused Group starts no provider/browser.
+    for actor_id, runtime in [('chat1', 'web_model'), ('chat2', 'web_model'), ('bot', 'grok_web_model')]:
+        actor = c.actor_add(group_id=g, actor_id=actor_id, runtime=runtime)['actor']
+        assert actor['runtime'] == runtime and actor['runner'] == 'headless'
+    assert c.group_show(group_id=g)['group']['state'] == 'paused'
+print('Installed Python artifact: messaging, files, conflicts, safe probes, Voice library lifecycle and Web Model configuration passed')

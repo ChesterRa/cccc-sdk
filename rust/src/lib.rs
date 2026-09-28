@@ -9,6 +9,7 @@ mod connect;
 mod endpoint;
 mod error;
 mod protocol;
+mod voice;
 
 pub use client::{CCCCClient, CompatibilityRequirements};
 pub use connect::{ConnectCatalogOptions, ConnectSendOptions};
@@ -22,3 +23,4 @@ pub use protocol::{
     WebModelDeliveryPreferencesResult, WebModelRecoveredTurn, WebModelRecoveredTurnDelivery,
     WebModelRuntimeRecoverTurnResult,
 };
+pub use voice::{VoiceDocumentFolder, VoiceDocumentLibrary, VoiceDocumentLibraryAction};

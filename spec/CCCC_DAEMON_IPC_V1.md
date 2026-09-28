@@ -1643,7 +1643,7 @@ Result:
 
 Notes:
 - Successful deletion MUST retire all Direct records and disposable catalogs owned by the deleted Group, preserve retired IDs, and release their relation quota. Reset uses the same deletion cleanup; it MUST NOT transfer those grants to the replacement Group.
-- Successful deletion MUST revoke every remote connector credential bound to the deleted group. A failure that leaves the group registered and available MUST preserve its pre-delete connector authority.
+- Successful deletion MUST retire every Web Model conversation binding and pending pairing belonging to the deleted Group, without revoking the shared connector or other Groups’ authority. A failure that leaves the group registered and available MUST preserve its pre-delete connector authority.
 - Successful deletion MUST retire every local external-space binding, queued job, and referenced job payload owned by the deleted group. It MUST NOT delete the user's remote notebook or other provider space. A failure that leaves the group registered and available MUST restore the pre-delete local binding and queue state.
 
 #### `group_use`
@@ -2781,6 +2781,86 @@ Result:
 { group_id: string; document: Record<string, unknown>; event: CCCSEventV1 }
 ```
 
+#### `assistant_voice_document_library`
+
+Read the group's stored Voice Secretary library, including archived documents.
+Deleted entries are excluded. Folders organize documents without changing their
+Markdown paths. This reads the index; workspace discovery and external-content
+reconciliation remain the responsibility of `assistant_voice_document_list`.
+
+Args:
+```ts
+{ group_id: string }
+```
+
+Result:
+```ts
+{
+  folders: Array<{ folder_id: string; name: string }>
+  root_order: string[] // mixed folder:<folder_id> / document:<document_path> keys; initially []
+  documents: Array<Record<string, unknown>> // includes content and optional folder_id
+}
+```
+
+#### `assistant_voice_document_library_update`
+
+Update library metadata or restore an archived document. Writers must be the
+user, a Foreman, or `assistant:voice_secretary`; omitted `by` means `user`.
+Operations serialize with other writes in the same Group and persist in the
+existing document index. These metadata updates do not append ledger events.
+
+Args:
+```ts
+{
+  group_id: string
+  by?: string
+  action: "create_folder" | "rename_folder" | "remove_folder" | "reorder_root" | "rename" | "move" | "restore"
+  name?: string          // create/rename: trimmed, 1–80 characters
+  folder_id?: string     // folder rename/removal or move destination; empty move means root
+  document_path?: string // rename/move/restore: registered, non-deleted document
+  root_order?: string[]  // reorder_root: required array of mixed root item keys
+}
+```
+
+Folder names must be unique within the Group. Removing a folder returns its
+documents to the root without deleting files. Renaming a document changes its
+display title only. Restore accepts archived documents and preserves their folder
+assignment; deleted documents cannot be restored. Result has the same shape as
+`assistant_voice_document_library`.
+
+`reorder_root` replaces the saved display order. It requires an array of strings,
+removes duplicate keys (keeping the first), and drops keys for unknown
+folders or unregistered/deleted documents. An empty array clears the order.
+Ordering does not move documents or change their paths or archive status; clients
+apply it to visible root items. The Web tree places items absent from the saved
+order before ordered items, using its default order within that group.
+
+#### `assistant_voice_document_delete`
+
+Permanently remove a registered Voice Secretary Markdown file and mark its index
+entry `deleted`. Uses the same writer permission as library updates. Rejects
+traversal and symlink paths, and returns `voice_recording_active` while the Group
+holds a recording lease. Historical ledger events and transcript logs remain.
+
+Args:
+```ts
+{ group_id: string; by?: string; document_path: string }
+```
+
+Result:
+```ts
+{ group_id: string; document: Record<string, unknown>; event: CCCSEventV1 }
+```
+
+The event is `assistant.voice.document` with action `deleted`. The file is moved
+to a temporary transaction location before the index and event are saved; either
+write failure attempts to restore the file and previous index. Failed rollback
+reports the retained recovery path. Successful writes remove that temporary copy;
+cleanup failures log a warning and retain it. Deleted paths reject subsequent
+saves, transcript appends and archive requests and are not rediscovered as active
+documents. The Web consumer clears quoted references and capture targets only
+after a successful response.
+
 #### `assistant_status_update`
 
 Update lifecycle/health for a built-in assistant service. The assistant principal
@@ -3023,8 +3103,8 @@ Notes:
 - `profile_id` links the actor to a global Actor Profile and applies profile-controlled runtime fields + profile secrets.
 - When `profile_id` is used, `env_private` is rejected (linked actor private env is profile-controlled).
 - The appended `actor.add` event starts that actor id's current generation. The daemon MUST initialize the new generation's read boundary at that append position, so events from before the add are not delivered as unread. Removing and later re-adding the same actor id starts a new generation at the later `actor.add` position.
-- Actor records also expose an opaque `generation` UUID for delayed remote recipient binding. Add assigns a fresh value, including when a supplied record came from an earlier Actor; update cannot overwrite it. Restart and ordinary edits preserve it. Existing records without this field use their original creation identity until they are recreated. This does not replace the ledger-based inbox boundary above.
-- ChatGPT Web Model singleton checks MUST include both applied Actor runtimes and linked Profile runtimes awaiting the next start. Creating an Actor, importing a Group, updating a linked Profile, and handing off a reset Group MUST use the same ownership rule; an unlinked Profile reserves no slot. These checks MUST share Profile resolution's runtime interpretation: an omitted legacy runtime defaults to Codex, while an explicitly invalid runtime remains an error.
+- Actor records also expose an opaque `generation` UUID for delayed remote recipient binding. Add assigns a fresh value, including when a supplied record came from an earlier Actor; update cannot overwrite it. Restart and ordinary edits preserve it. Existing records without this field use their original `created_at` identity (`legacy:<created_at>`) until they are recreated; browser ownership, pairing and tool routing MUST use that same identity and pairing MUST NOT assign a new generation after the browser opens. This does not replace the ledger-based inbox boundary above.
+- Multiple ChatGPT (`web_model`) and Grok Bot (`grok_web_model`) Actors MAY coexist, including linked Profiles and Group imports/resets. Runtime configuration does not grant connector authority. Conversation bindings MUST identify the exact Group, Actor and generation; copied/imported Actors MUST be unpaired.
 - A new actor generation MUST NOT inherit Web Model delivery preferences or persisted runner/turn status left by an earlier generation with the same actor id.
 - For a Web Model actor, successful add MUST establish the current generation's missing browser target as canonical empty state. A legacy actor-scoped browser shadow MUST NOT populate the new generation merely because it uses the same actor id.
 - Adding an enabled actor to an `active` or `idle` group MAY start it immediately and transition the group's runtime to running. Adding one to a `paused` or `stopped` group MUST only persist the actor and MUST NOT change the group lifecycle state.
@@ -3064,11 +3144,15 @@ Patch keys used by CCCC v0.4.x include:
 - Capability startup baseline: `capability_autoload`
 
 A linked Profile owns `runtime`, `command`, `submit` and its explicit environment.
-Actor-local `title`, notes and `capability_autoload` remain editable; the Actor's
+Actor-local `title`, notes, Web Model conversation bindings and `capability_autoload` remain editable; the Actor's
 capability baseline is additive to Profile defaults. A linked Actor MUST NOT
 merge dormant custom environment values over the Profile. Converting to custom
 snapshots the effective Profile configuration and secrets, replacing dormant
 custom secrets rather than reviving them. Private values remain outside events.
+Web editors MUST distinguish persisted Actor/Profile snapshots from unsaved
+private-env drafts. A successful Profile conversion MUST NOT discard pending
+secret edits; those edits are cleared only after their private-env write succeeds
+or the user leaves the editing session.
 Clients editing a command MUST preserve argument boundaries (including quotes,
 spaces and empty arguments) and SHOULD omit unchanged runtime fields.
 
@@ -3086,7 +3170,7 @@ Args:
 
 Notes:
 - Removing an actor ends that actor id's current generation. Actor-generation-scoped browser target, bootstrap, delivery receipt, delivery preference, and persisted runner/turn state MUST be retired before the operation reports success. A shared provider login profile MAY remain.
-- Every remote connector credential bound to the removed actor generation MUST be revoked before the operation reports success. Re-adding the same actor id MUST NOT restore authority to a connector from an earlier generation.
+- Every Web Model binding and pending pairing belonging to the removed Actor generation MUST be retired before success. Shared connector credentials and other Actors remain intact. Re-adding the same Actor ID MUST NOT restore an earlier generation’s authority.
 
 Result:
 ```ts
@@ -3127,12 +3211,16 @@ Notes:
 - A daemon-launched actor whose executable is directly identified as `codex` MUST use one daemon-owned Codex app-server thread and MUST attach Codex's writable native TUI to that exact thread. Unsupported subcommands, wrappers, or prompt tails fail explicitly instead of silently selecting another transport. The app-server and TUI MUST receive the same executable, supported Codex global arguments, profile/model/provider configuration, and private environment. CCCC-owned listener, MCP identity, approval, and sandbox settings remain host-controlled. For both Actors and Voice Analyst, execution-policy overrides MUST be applied to the app-server; the remote TUI MUST attach without approval, sandbox, or shell-environment policy overrides. Stop/start MUST validate and resume the same version-2 managed receipt only when Runtime, workspace, command, model, and effective Codex storage identity still match. Legacy Codex receipts MUST NOT be resumed.
 - A daemon-launched `claude` actor MUST use one CCCC-owned Claude Agent View background session and MUST start `claude attach` against that exact session. The resolved executable and each observed live worker MUST independently report Claude Code 2.1.259 or newer; their versions need not match. Agent View can retain older workers after upgrading the supervisor and migrate an idle session to a newer worker, so a supported version change alone MUST NOT invalidate the same managed session. CCCC MUST continue validating exact session identity, the protocol-v1 control response shape, and the credential-file boundary; unsupported or unverifiable versions, invalid protocol responses, and credential-boundary violations MUST fail closed. CCCC observes turn ownership and terminal settlement from the append-only provider transcript. A single retryable control-query failure MUST NOT invalidate a still-live session; sustained inability to verify liveness or confirmed job absence MUST disconnect it. CCCC owns background/session/attach, name, MCP identity, autonomy, and resume arguments. Runtime Profile environment values MUST be merged into one stable, owner-scoped, CCCC-protected settings file because Agent View deliberately strips arbitrary process environment from persisted jobs and stores that file path in its durable respawn metadata; raw values MUST NOT appear in the job record, terminal command, receipt, or logs. An ordinary process stop MUST retain this file while the durable session receipt remains resumable. The copy MUST be atomically replaced when that owner's effective settings change and removed when the managed session identity, Actor, or Group is retired. Stop MUST report success only after the Agent View job is confirmed absent. Start MUST validate and resume the same version-2 managed receipt only when Runtime, workspace, command, and the complete effective Claude launch identity, including content of file-backed settings and prompt inputs, still match. A live idle matching session MAY be re-adopted; an active, ambiguous, copied, or identity-mismatched session MUST fail or start fresh according to the existing receipt boundary and MUST NOT be guessed. Legacy Claude Hook and print-mode receipts MUST NOT be resumed.
 - A daemon-launched `grok` actor MUST use one CCCC-owned managed session. CCCC starts a dedicated private Grok leader, connects its ACP observer, and attaches the native writable Grok TUI to the same provider session. Actor startup, Voice Analyst startup, and CLI setup MUST share a verified native `cccc` MCP registration so ACP session creation, resume, and native TUI reload use the same configuration. The shared command MUST resolve the launching CCCC executable dynamically and inherit Actor/instance/profile/origin identity from its process, not persist that identity in global settings. CCCC MUST preserve unrelated MCP entries and native Claude/Cursor imports, reject malformed configuration and conflicting project overrides without replacing them, and serialize its user-level updates across instances. Readiness MUST check the effective executable, arguments, enabled state, and inherited CCCC identity after native configuration overrides, and MUST reject a native policy denial. A valid base table or discovery entry alone is insufficient. Conflicting version/project overrides and policy documents MUST NOT be rewritten to force readiness. This native registration also takes precedence for standalone Grok sessions. Structured lifecycle events remain the working/completion authority. Stop/start MUST validate and load the same version-2 managed receipt when its Runtime, workspace, command, model, and effective provider-home identity still match. Legacy raw-terminal Grok receipts MUST NOT be resumed.
+- An explicit Grok `--trust` runtime argument grants folder trust to the native TUI for the selected workspace. CCCC MUST forward it only to the TUI, not the `agent` subcommand, and MUST NOT add it by default. Without an explicit or previously saved trust decision, native folder confirmation can block business input; PTY delivery acceptance is not provider admission.
 - The Grok ACP observer MUST associate live `_meta.promptId` activity with its local turn and consume matching durable `turn_completed` updates, including `_x.ai/session/update`, for both controlled and native turns. A `send_now` cancellation MUST settle the old turn before the next native input is associated; a delayed prompt RPC response or duplicate terminal MUST NOT settle the new turn or consume its sources. A turn ending before prompt-bearing activity MAY use the persisted session-scoped event sequence following its user record as its completion boundary, never wall-clock timing. Replay records MUST NOT admit controlled or native input. Uncorrelated `prompt_complete` notifications remain non-authoritative. OpenCode and Kilo use their ordered backend event stream as described below.
+- Grok ACP initialization MUST advertise `clientCapabilities._meta["x.ai/userMessageEcho"]=true`, and new/load session requests MUST bind `_meta.clientUserMessageEcho=true` because the leader shares initialization across clients. Current Grok persists user input even when its live echo is disabled; persistence alone does not admit the controlled prompt. Both new and resumed managed sessions need this opt-in so correlated progress can flow before the prompt completion RPC, without increasing or bypassing the bounded admission buffer.
 - A daemon-launched `opencode` actor MUST use one CCCC-owned managed session. CCCC starts `opencode acp` with a generation-scoped authenticated loopback backend, observes the ACP session over stdio, attaches `opencode attach` to that exact session, and injects the actor-scoped CCCC MCP server at session creation. The resolved executable MUST report OpenCode 1.18.14 or newer. ACP remains the control and permission port. The observer MUST use the authenticated workdir-scoped `/event` endpoint, whose listener is registered before the HTTP response; the lazily subscribed `/global/event` endpoint cannot guarantee delivery of the first input. Text parts marked `metadata["kilocode.lifecycle"]="transient"` are temporary Kilo UI progress and MUST NOT contribute to streamed or completed Actor/Analyst answer text; later deltas for these parts MUST also be excluded. The `synthetic` flag alone MUST NOT exclude ordinary answer text. This backend event stream MUST order user admission, assistant output, and terminal session status for both controlled and native turns; a prompt RPC response or a duplicate ACP output update MUST NOT finish or contribute text to another turn. Persisted native input is not evidence that the current turn consumed it: correlation MUST follow the assistant message's parent user identity, retaining queued inputs across the preceding turn's idle status. A lost or malformed non-replayable stream invalidates the session. A model selection made in the native TUI becomes authoritative for later CCCC-managed prompts when the user submits the next TUI message; CCCC MUST mirror that message's exact provider/model and variant into the same ACP session. An explicit runtime-command `--model` remains the launch-time override. Stop/start MUST validate and load the same version-2 managed receipt when its Runtime, workspace, command, model, and effective OpenCode storage identity still match. Legacy raw-terminal OpenCode state MUST NOT be resumed.
 - Completion of a temporary Actor restore worker or retirement of an IPC request worker MUST NOT terminate an otherwise healthy managed provider session. Providers that bind their lifetime to the spawning OS thread MUST be launched by daemon-lifetime workers. Explicit stop, failed-start rollback, and daemon shutdown retain ownership of process cleanup.
+- If managed Claude startup reports an untrusted workspace, the Actor terminal MAY present the configured Claude command for the operator to approve trust. CCCC MUST NOT write the trust decision. Configuration observation MUST begin before opening that prompt; approval recorded before the watcher starts MUST remain observable. Task delivery stays pending until the managed session is attached. Recovery MUST acquire the runtime-start permit before the Actor start guard and revalidate cancellation and the same live terminal before attachment. Actor and Group stop MUST cancel pending recovery, including prompts without a managed session, and clean up a cancelled launch instead of attaching it.
 - Managed runtime startup MAY synchronously enumerate the injected actor-scoped CCCC MCP tools before its provider session becomes ready. That catalog discovery MUST use `capability_state` with `view="mcp_catalog"` so it cannot wait on the same Group lifecycle lock held by `actor_start`; ordinary capability reads remain serialized normally.
 - For Codex, Claude, Grok, OpenCode, and Kilo Actors, CCCC MUST hand an incoming Actor delivery to the writable native TUI as soon as that terminal is ready. CCCC MUST NOT inspect provider busy state to choose `steer` versus `queue`, and MUST NOT hold the delivery until the current turn settles. The receiving Runtime owns that policy according to its own configuration. `runtime.delivery=accepted` means the canonical input and submit sequence were written successfully to the Runtime terminal; it does not claim that the provider completed or semantically accepted the work. Structured protocols remain authoritative for session identity, lifecycle, progress, completion, cancellation, and Voice Analyst delegation.
 - Realtime Voice owns the intent decision to create a Voice Analyst delegation; it does not own provider scheduling. Once `delegation.created` exists, CCCC MUST immediately hand the exact correlated input to the managed Runtime and MUST NOT hide it in a server-side wait-for-idle queue. An active Runtime with a verified exact-turn steer operation MAY receive the input through that operation; otherwise CCCC MUST write the exact payload and submit sequence to the same verified native terminal session, after which the Runtime owns the steer-versus-queue decision. CCCC MUST register correlation before the write, project whichever authoritative turn consumes it, and report success only after the Runtime control operation or complete terminal submit sequence was accepted. A missing, closed, or rejecting Runtime input path MUST return an explicit delivery error; busy state alone MUST NOT drop, delay, merge, or reject the delegation.
+- The Web Voice start contract MAY carry optional immutable `application_context` with a validated 1–128-byte ASCII identifier and nonempty UTF-8 instructions up to 8192 bytes. CCCC MUST include it in Realtime startup instructions and each Voice delegation delivered to the Analyst, without changing the provider delegation ID or at-most-once admission. Start idempotence MUST include both context fields; changed context MUST NOT reuse an active call. Context MUST NOT be interpreted as authentication, a selected Group, or a tool grant, and MUST NOT implicitly reset the persistent Analyst. Omission preserves global Voice behavior. Arbitrary context text MUST NOT appear in startup diagnostics.
 - Codex Voice startup failures MUST distinguish configuration, Analyst startup, recording ownership and Realtime connection failures. The Web start response MUST retain a safe error category and diagnostic details (`stage`, total attempt `elapsed_ms`, and `http_status`/`os_error` when available). Packaged startup MUST emit these safe fields to stderr even without a tracing subscriber. Credentials, private paths, SDP, provider response bodies and arbitrary error chains MUST NOT appear in these diagnostics. Diagnostic classification MUST NOT add automatic provider retries, extend timeouts or discard a successfully started Analyst after Realtime failure.
 - Voice Analyst Runtime settings MUST NOT change while a Realtime Voice call is active. After the call stops, active or queued Analyst work MUST block an ordinary settings update rather than being discarded implicitly. An interactive administrator MAY explicitly confirm discarding that work as part of the same settings transaction; CCCC MUST then stop the old managed session before applying the replacement and MUST report whether unfinished work was discarded. Candidate-launch failure MUST restore the prior settings and Runtime, but MUST NOT claim that explicitly discarded work was recovered.
 - Claude transcript entries MUST use the provider `promptId` as the durable provider-turn identity and MUST NOT infer identity from the Agent View summary headline. A human prompt observed before control acceptance is an external turn. Because the authenticated `reply` response does not expose that `promptId`, CCCC MAY return a stable local turn receipt as soon as the control request is accepted, but Voice ownership, progress, and results become authoritative only when the next transcript user record exactly matches the one pending controlled prompt and supplies its provider identifier. A competing prompt plus successful control acceptance is ambiguous and MUST invalidate the managed session rather than replaying the delivery. A controlled request that never starts, or settles without exposing the matching transcript, MUST fail within bounded post-acceptance or post-settlement intervals; active provider work MUST NOT expire solely because its turn is long. `turn_duration`, the provider interruption marker, and an explicit failure record are terminal authority. The state file and selected transcript file identity MUST be revalidated while following the session. An active transcript MAY relocate inside the configured Claude project store only after the old path disappears, a unique same-session file is found, and its entire consumed byte prefix matches the observer’s retained SHA-256 digest. The reader MUST preserve its byte offset and partial record without replaying history. A missing or incomplete relocation destination MUST settle within a bounded 10-second grace period; sustained loss, consumed-history mismatch, ambiguous candidates, same-path replacement, truncation of the active file, or malformed tail records MUST invalidate the session. Relocation alone MUST NOT stop or recreate the provider session.
@@ -3712,13 +3800,21 @@ instruction MUST reserve
 Native MCP adapters MUST preserve a failed daemon operation's `error.code`,
 `error.message`, and non-empty `error.details` in the tool result's
 `structuredContent.error`; flattening the daemon error into text is not
-conforming. After a message operation has durable success evidence (an accepted
-event, successful queued/retrying/sent receipt, or equivalent file-send
-wrapper), its MCP result MUST add `post_message_nudge` with
-`kind="whole_situation_reconstruction"`. Partial failures, failed receipts, and
-embedded delivery errors MUST NOT claim completion or add that field.
-This private result context is independent of the passive `mail_pending`
-summary, so a successful operation MAY carry both.
+conforming. MCP results MUST preserve the operation's factual receipt and error
+fields. They MAY add the passive `mail_pending` summary, but MUST NOT append
+instructions to take over, reframe, or review unrelated work. Actor collaboration
+guidance belongs in the configured runtime instructions, not operation receipts.
+A peer-insight validation error MUST retain `delivery_state="not_sent"` and
+`new_side_effects=false`, with a concise explanation of the missing field.
+
+The MCP file surface separates read permission from message delivery:
+`cccc_file(action="read"|"info"|"blob_path", rel_path=...)` is read-only and
+MUST reject `action="send"` without writing blobs, messages or delivery work.
+`cccc_file_send(path=..., ...)` sends through the existing `send_files` or
+`connect_send_files` operation and retains its audience, sender, peer-insight,
+path-scope and idempotency rules. Tool annotations describe the complete exposed
+action set; a mixed read/write tool MUST NOT be labelled read-only.
+
 
 #### `message_upload_preflight`
 
@@ -5530,7 +5626,7 @@ Stable error classes:
 }
 ```
 
-`membership_status` is user-only. Implementations MUST reject non-user callers before assembling it. `hostname` is the reserved, tokenless device origin; its presence does not prove that DNS or a tunnel has been provisioned. `web_url` is the tokenless Web sign-in address, assembled locally and null while logged out. It MUST NOT contain a bearer credential. The Web port can separately issue a short-lived, one-time Web login grant for the current authorized administrator. Website account sign-in does not authenticate a browser to the local CCCC Web. Actor-bound Web Model connector URLs remain part of the actor connector API and MUST NOT be selected or exposed through global membership status.
+`membership_status` is user-only. Implementations MUST reject non-user callers before assembling it. `hostname` is the reserved, tokenless device origin; its presence does not prove that DNS or a tunnel has been provisioned. `web_url` is the tokenless Web sign-in address, assembled locally and null while logged out. It MUST NOT contain a bearer credential. The Web port can separately issue a short-lived, one-time Web login grant for the current authorized administrator. Website account sign-in does not authenticate a browser to the local CCCC Web. Private Web Model connector URLs remain part of the administrator-only instance connector API and MUST NOT be selected or exposed through global membership status.
 
 `account_label` is optional display-only identity (currently the verified account
 email). The authenticated device status and Connect directory refresh synchronize
@@ -6401,7 +6497,7 @@ Streaming mode:
 - After a successful handshake, the connection upgrades into a raw VNC/RFB byte stream.
 - The operation SHOULD fail with `browser_vnc_unavailable` when the browser surface is not backed by a local VNC projection.
 
-### 8.19 ChatGPT Web Model Browser Surface (Optional)
+### 8.19 Web Model Browser Surface (Optional)
 
 #### `web_model_delivery_preferences_get`
 
@@ -6509,6 +6605,36 @@ The browser adapter MUST wait for a signed-in conversation composer before claim
 A guest composer or provider security-verification page MUST NOT count as ready. While waiting
 for sign-in or verification, background delivery MUST NOT navigate to the saved conversation;
 existing ambiguous submissions still follow their normal reconciliation contract.
+A browser adapter MUST NOT overwrite an unrelated non-empty composer draft.
+Legacy draft recovery MAY replace only the exact expected old draft, revalidated
+on the same target page immediately before replacement, with no user messages,
+submission echo, or response generation. This MUST NOT grant general overwrite
+permission or replay an already-submitted message. After
+an unverified submission, it MUST fence later deliveries even for an existing
+conversation, until direct evidence verifies that submission or the user
+explicitly resolves it. User acknowledgement MUST NOT replay the unverified turn
+or fabricate an accepted runtime handoff. Ordinary occupied composers detected
+before claiming work MUST leave pending daemon work unclaimed. The adapter also
+MUST wait while the provider is visibly generating a response.
+
+Immediate submission checks and later recovery MUST use the same receipt:
+the current batch, source-event and Actor marker in a user message. Message-node
+counts can change when history is loaded or virtualized and MUST NOT acknowledge
+a send. Assistant quotes, an emptied composer, generation indicators and a
+successful click dispatch are not sufficient receipts. Recovery MUST inspect
+the currently owned bound page rather than promote stored weak observations.
+Before clicking Send, the adapter MUST recheck the staged draft and the button's
+stable, unobstructed viewport position. Background-window dispatch MUST NOT rely
+on a rendering callback or activate another Actor's window.
+
+Only one worker and one submission may own an Actor's delivery at a time;
+rejected acquisition MUST NOT release the current owner's registration. While a
+submission remains unverified, the adapter MAY observe the same owned, bound
+conversation for the exact batch, source-event and Actor marker in a user message.
+That later receipt (including a manual send) MUST append the accepted handoff
+before releasing subsequent work. An empty composer, an unrelated message, an
+assistant echo or a different conversation MUST NOT resolve the uncertainty.
+Reconciliation MUST NOT click Send, navigate, or modify a draft.
 
 #### `runtime_complete_turn`
 
@@ -6635,7 +6761,7 @@ operation; it MUST NOT resubmit the browser prompt.
 
 #### `web_model_browser_attach`
 
-Attach to the currently active daemon-owned ChatGPT Web Model browser surface over a dedicated bidirectional NDJSON stream.
+Attach to the currently active managed Web Model browser surface over a dedicated bidirectional NDJSON stream.
 
 Args:
 ```ts
@@ -6656,14 +6782,14 @@ Streaming mode:
 - After a successful handshake, the connection upgrades into the browser-surface stream described in §4.6.
 - The daemon emits `state` items when runtime/session status changes and `frame` items for captured browser frames.
 - The client MAY send browser-control commands (`navigate`, `back`, `refresh`, `click`, `scroll`, `key`, `text`, `resize`, `close`, `disconnect`).
-- The daemon owns the browser runtime; Web clients are surface proxies and MUST NOT create a separate ChatGPT browser runtime for the same actor.
-- When `group_id` or `actor_id` is supplied, the actor MUST exist and use `runtime=web_model`.
+- The daemon owns the browser runtime; Web clients are surface proxies and MUST NOT create a separate browser runtime for the same Actor.
+- When `group_id` or `actor_id` is supplied, the Actor MUST exist and use `runtime=web_model|grok_web_model`.
 - If no active Web Model browser surface exists, attach SHOULD fail with `browser_surface_not_found`.
 - If the underlying browser runtime is no longer active, attach SHOULD fail with `browser_surface_not_active`.
 
 #### `web_model_browser_vnc_attach`
 
-Attach to the currently active daemon-owned ChatGPT Web Model browser surface over a raw RFB/VNC stream.
+Attach to the currently active managed Web Model browser surface over a raw RFB/VNC stream.
 
 Args:
 ```ts
@@ -6723,6 +6849,7 @@ Result:
 
 Notes:
 - Export MUST exclude live runtime state, browser profiles, credentials, connector secrets, lock files, and rebuildable caches.
+- Export and import MUST exclude persisted IM reply credentials, including `state/im_weixin_context_tokens.json`; import MUST apply exclusions even when an older package declares `contains_secrets: false`.
 - Export MUST scrub actor environment secrets from packaged `group.yaml`.
 - `contains_secrets: false` means CCCC-managed live credentials and auth sessions are excluded. The package can still contain user-provided sensitive content such as ledger history, memory, blobs, and attachments.
 - This compatibility operation is intended for small packages. Large packages SHOULD use `group_copy_export_file` and pass the returned `package_path` to preview/import.
@@ -6982,3 +7109,54 @@ Subscription IDs must identify the logical subscription, change when a Group is
 replaced, and be echoed on all its packets. Subscribing again replaces that channel's
 producer; unsubscribe only affects the matching ID. Scope and live authority checks
 apply to subscription messages because the socket URL itself contains no Group ID.
+
+## Web Model instance connector and conversation binding
+
+The private Web port owns one shared ChatGPT browser/profile with a persistent independent window/Page target per Actor. Shared login affects every Actor; global settings own login and connector credentials, Actor settings own conversation pairing. No active-tab switching or model-declared Actor identity is allowed. A manually closed Actor window stays paused for that Actor generation only; Actor/Group removal and generation replacement MUST retire its closed-window marker even after its browser session is gone. Old Actor-specific connector stores require explicit reconfiguration, preserve user history and unresolved delivery evidence, and MUST NOT authorize tools or automatic redelivery.
+
+Shared login and Actor windows MUST become viewable and closable after navigation starts, without waiting for the provider's DOMContentLoaded or load event. Window availability is distinct from delivery readiness: the existing target, composer, draft and running-state checks still apply before claiming or submitting work. The global shared-browser close endpoint MUST close only its provider's owned login Page; it MUST preserve Actor windows, bindings and authenticated profile, without requiring Actors to stop. Web shutdown remains responsible for closing the shared process and display resources.
+
+These IPC operations use the daemon global write permit and require `by=user`; none is an Actor MCP catalog operation:
+
+| Operation | Required input / effect |
+|---|---|
+| `web_model_connector_configure` | Optional `provider` (`chatgpt_web`, default, or `grok_web`); create or rotate only that provider’s instance credential and return its secret once. Rotation retains bindings and routing keys. |
+| `web_model_connector_revoke` | `connector_id`; disable all tool routes and pending pairings. |
+| `web_model_pairing_begin` | `connector_id`, `group_id`, `actor_id`; optional `automatic=true` requires an enabled, unbound Web Model Actor in a running, non-paused Group; otherwise requires a stopped Actor. Issue one 10-minute code, persisting only its hash and automatic intent. |
+| `web_model_pairing_accept` | `connector_id`, `code`, `session_key`; private Web port forwards the authenticated host session hash. Return a unique, idempotent receipt for this candidate/session; receipt alone grants no business authority. |
+| `web_model_pairing_confirm` | `connector_id`, `group_id`, `actor_id`, `pairing_id`, `url`; current generation, accepted unexpired pairing and verified stable ChatGPT URL. Recheck the persisted automatic lifecycle condition (or stopped Actor for manual replacement). Bind atomically; reject session/URL collisions. |
+| `web_model_pairing_cancel` | `connector_id`, `group_id`, `actor_id`, `pairing_id`; cancel only the named incomplete candidate without changing an existing binding; retain the cancellation to prevent automatic retries. |
+| `web_model_pairing_fail` | `connector_id`, `group_id`, `actor_id`, `pairing_id`, `error_code`; retire the named incomplete attempt, reject later acceptance/confirmation, preserve existing bindings and display the failure. A late failure MUST NOT alter a replacement or committed attempt. |
+| `web_model_grok_bind` | `connector_id`, `group_id`, `actor_id`, `url`; user-only, stopped Grok Actor and matching Grok connector. Canonical HTTPS `grok.com/bot/<UUID>` URL, unique within the connector. Saving the same current-generation URL is idempotent. A changed URL requires no unresolved delivery. |
+| `web_model_binding_remove` | `connector_id`, `group_id`, `actor_id`; stopped Actor with no unresolved delivery; remove only its binding/pairing. |
+
+Normal Actor startup authorizes one initial automatic setup exchange for an enabled, unbound Actor in a running Group. The Web supervisor prepares its owned window; no business delivery is claimed until a binding is verified. An existing current-generation attempt, including expired, failed, cancelled or orphaned attempts, MUST prevent another automatic send. Unrelated Actor setup MUST NOT prune these attempt fences.
+
+The private Web `POST /api/v1/web-model/pairing` exposes `connect` (explicit retry or stopped-Actor replacement), `cancel`, and `remove`. It does not activate the Actor. A bounded Web-owned task sends a one-time code to the captured Page without navigation or overwriting text/attachments. Before `web_model_pairing_confirm`, it MUST verify the returned receipt in an assistant reply after the exact setup message on that same Page, and a stable conversation URL (unchanged for an existing conversation). MCP receipt alone MUST NOT trigger confirmation. The receipt is generated after acceptance and is absent from the setup prompt and status API. On automatic success, release the pairing control permit and resume the existing business delivery worker.
+
+Pairing submission deduplication MUST compare the complete setup message, including its unique code. A shared explanatory prefix from an earlier attempt is not evidence that the current setup message has been sent.
+
+An initial handshake started on the new-chat page MUST wait through ChatGPT's provisional `/c/WEB:<client-id>` URL (including its encoded-colon form) on that same Page. A provisional URL MUST NOT be bound, even with a visible receipt; confirmation still requires the stable conversation URL and receipt proof. This transition allowance MUST NOT apply to a handshake started in an existing conversation. Browser inspection failure is an interruption, not evidence that the user changed conversations.
+
+Pairing/navigation/delivery share the Actor control permit. Cancellation invalidates the exact candidate even while sending. Actor stop/restart/new-session and Group pause/stop invalidate incomplete automatic pairings before the lifecycle transition, so a rapid restart cannot accept a late receipt. Failure, cancellation, expiry and Web shutdown MUST NOT automatically resend a prompt or resume a handshake. Status GETs are observational; an unfinished attempt without its owning Web task is reported as interrupted. Earlier bindings and uncertain delivery evidence remain until an explicitly authorized replacement is verified or removed. An unpaired Actor's `setup_url` is only a persisted browser startup destination; it grants no tool or delivery authority.
+
+Unresolved delivery forbids changing conversations or removing the binding, including persisted completion `ambiguous` and `completion_conflict` states after the daemon has stopped working. Re-pairing the same saved stable URL MAY restore access while retaining all pending evidence. The Web UI MUST keep this manual recovery reachable for a stopped unpaired Actor with a saved conversation, even without an earlier pairing attempt. The browser port observes the owned Page URL and serializes pairing/navigation against delivery; URL opening alone never changes authority. Both preview navigation and saved-conversation alignment MUST preserve unsent text and attachment-only drafts.
+
+The ChatGPT remote MCP entrance advertises one fixed tool schema. Connector-level `cccc_pair` and read-only `cccc_connector_status` work before Actor activation; they are not nested tools in CCCC's `cccc_code_exec`, and do not constrain the host's own connector dispatch mechanism. Pairing MUST be declared state-changing: it records a pending link but does not itself read workspace files, execute tasks or grant business-tool access. Setup instructions MUST respect host approval requirements and report rejected calls; browser receipt verification activates the Actor route before subsequent calls can use its configured permissions. All business calls require a current enabled Web Model Actor binding. Each call uses host `params._meta["openai/session"]`, scoped by optional `openai/subject` and `openai/organization`; values must be nonempty strings, at most 1,024 bytes, without control characters. Persist only salted hashes, never raw host identifiers. Missing metadata or invalid/stale bindings MUST fail closed; tool arguments, HTTP session IDs, titles and default Actor selection MUST NOT substitute for host metadata.
+
+Code-mode nested calls MUST recheck captured Actor generation and binding revision before executing. Request context fixes the caller (`by`) and Group; `cccc_actor.actor_id` remains the explicit management target and MUST NOT be replaced with the caller. Other identity-bearing tools continue to use the bound Actor. Command stdin/output and code cells MUST remain scoped to their original Actor/binding; re-pairing MUST NOT transfer access to retained work. Credential rotation invalidates the old credential without reassigning conversations; revocation and Actor/Group removal invalidate affected routes. These checks cannot undo an already executed command.
+
+
+### Grok Bot routing and provider isolation
+
+`grok_web_model` uses a headless Actor and the same browser queue, exact user-message receipts, review/recovery controls and draft/attachment protection as `web_model`. It has no CLI command and no ChatGPT pairing exchange. The private Web port owns a separate shared Grok profile, with one persistent Page/window per Actor. Provider settings MUST NOT rotate another provider's connector or close another provider's browser. The version-3 connector store preserves existing version-2 ChatGPT credentials, bindings and correlation salt.
+
+Opening a Grok Actor window requires its current binding's canonical Bot URL. The Web port MUST reject an unconfigured Actor with `grok_bot_url_required` before creating a browser surface; it MUST NOT fall back to the Grok homepage or a new conversation. The shared login window is separate and MAY open the provider homepage. An Actor viewer MUST complete the owned-window open operation before attaching, rather than treating a registered surface during initialization as a completed open.
+
+The Bot URL belongs to the Actor, including when its runtime comes from a linked Profile. A private Web binding save MUST align an already-open, idle Actor page with the saved Bot URL before reporting success. It MUST verify the page's provider and Actor generation before reuse. A stale page is retired only after checking for drafts and in-progress responses, then replaced through the current provider's shared profile; the new window follows the navigation-start availability rule above. Navigation failure leaves the Actor stopped and the same URL can be retried. This alignment belongs to the save operation, not status GETs or viewer opening.
+
+Grok Bot URL saving is routing configuration authorized in the private CCCC UI. It proves no host-provided Bot identity. Grok business-tool requests MUST include `actor_token`, an opaque credential selecting an existing Group/Actor/generation/binding revision within the authenticated Grok connector. Possession grants that Actor's configured authority; intentional sharing lends that same authority. Missing, invalid, revoked, stopped or stale routes MUST be rejected. Model-supplied Group/Actor names, progress tokens, transport sessions and connector names MUST NOT substitute for this credential. `cccc_connector_status` MAY report connector connectivity without a token but MUST NOT select a default Actor. Grok MUST NOT advertise `cccc_pair`.
+
+The Web MCP boundary removes `actor_token` before dispatch. Nested code-mode calls inherit and revalidate the captured binding, preserving explicit management targets. Browser delivery reconstructs a stable credential using the private provider signing key and binding identity; it adds the credential only to the rendered task prompt. Canonical ledger events, runtime turns, public settings, binding snapshots, tool output and activity diagnostics MUST NOT expose it. Stop/start and unchanged URL saves retain the binding; unbind, URL replacement, provider/runtime changes and Actor/Group removal retire affected authority. Copy/import/reset MUST NOT copy it.
+
+Grok delivery uses `standard` mode only. `image_compat` is ChatGPT-specific and MUST be rejected for Grok. An enabled Submit control alone is not evidence that Grok is idle: Bot working indicators fence later delivery. Only a batch marker inside a Grok user-message element can settle an uncertain handoff; assistant echoes do not count. Host tool approval or safety rejection is reported rather than bypassed or retried blindly.

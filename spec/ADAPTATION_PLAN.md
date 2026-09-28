@@ -1,7 +1,7 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.40**, revision recorded in [core.json](core.json). Python,
-TypeScript/npm and Rust packages all use **0.4.40**. Publication is a separate
+Target: CCCC **0.4.41**, revision recorded in [core.json](core.json). Python,
+TypeScript/npm and Rust packages all use **0.4.41**. Publication is a separate
 explicit action; a source checkout or candidate artifact is not a registry release.
 
 ## Product boundary
@@ -12,6 +12,15 @@ standards (CCCS, daemon IPC, context operations and Connect) are authoritative.
 SDK-owned notes are not copied over by spec synchronization.
 
 ## Included alignment
+
+- 0.4.41 adds Voice document library read/update/delete helpers in all three
+  languages. Empty root ordering and move destinations are preserved; the daemon
+  owns validation, permissions, files, archive/restore and deletion tombstones.
+- TypeScript explicitly lists `grok_web_model` and `deepseek` runtimes. Actor
+  create/update remains a daemon operation; browser login, shared connectors,
+  ChatGPT receipt verification and Grok Bot URL setup remain Web-owned workflows.
+  See [0.4.41 migration](SDK_0441_MIGRATION.md). No HTTP client, browser controller,
+  Actor credential store or automatic retry was added.
 
 - Actor creation omits the retired selectable `runner` field; Runtime determines
   its runner. Python previously sent `runner=pty` even for an ordinary create.
@@ -63,6 +72,29 @@ SDK-owned notes are not copied over by spec synchronization.
    registry publication or production service acceptance is implied by Linux tests.
 
 Rollback is repository-local; SDK maintenance never rewrites the user's CCCC_HOME.
+
+## Local 0.4.41 acceptance — 2026-09-28
+
+- Core contract pin: `0d73fceddef5928bd1d2b8faf8d879d9b056c99a`, the maintained
+  0.4.41 revision, including fixes after the original release tag. All four
+  standards match byte for byte; three manifests and both lockfiles agree.
+- Python: 88 tests and compile check. TypeScript: 130 tests, exported API type
+  fixtures and build. Rust: 18 tests, all-target formatting/Clippy and Rust
+  1.74.0 minimum-version tests. Wheel/sdist, npm tarball and crate build.
+- Installed wheel (Python 3.9), npm tarball (Node 24.19.0) and packaged Rust crate
+  passed against an isolated native CCCC 0.4.41 daemon. New coverage exercises
+  folder creation/renaming/removal, document renaming/moves, mixed root ordering
+  and clearing, archive/restore, permanent deletion and rejected restoration.
+  Archive retains the actual file; delete removes it. Wire tests preserve empty
+  values and daemon errors without replay.
+- Safe compatibility probes pass for the three new operations. Existing Python
+  and TypeScript Mail/reply, conflict and compatibility checks pass; TypeScript
+  also consumes the real event stream. Each language configures two ChatGPT
+  Actors and one Grok Bot Actor in a paused Group without starting providers.
+- Evidence: `/tmp/cccc-sdk-0441-1ory14nl/` on the validation host. The isolated
+  daemon was stopped and its runtime directory removed. No user services or
+  provider accounts were used. Hosted CI, native Windows/macOS, real ChatGPT/Grok
+  operation and registry publication are not covered by this local acceptance.
 
 ## Local acceptance — 2026-09-19
 

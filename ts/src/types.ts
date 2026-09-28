@@ -375,6 +375,7 @@ export type AgentRuntime =
   | 'claude'
   | 'cline'
   | 'codex'
+  | 'deepseek'
   | 'copilot'
   | 'cursor'
   | 'devin'
@@ -386,8 +387,30 @@ export type AgentRuntime =
   | 'kimi'
   | 'opencode'
   | 'web_model'
+  | 'grok_web_model'
   | 'custom'
   | (string & {});
+
+/** Stored Voice library; reading does not discover files or reconcile content. */
+export interface VoiceDocumentLibraryResult {
+  folders: Array<{ folder_id: string; name: string }>;
+  root_order: string[];
+  documents: Array<Record<string, unknown>>;
+}
+
+export interface VoiceDocumentLibraryUpdateOptions {
+  groupId: string;
+  by?: string;
+  action: 'create_folder' | 'rename_folder' | 'remove_folder' | 'reorder_root' | 'rename' | 'move' | 'restore';
+  /** Required for create_folder, rename_folder and rename. */
+  name?: string;
+  /** Folder target; an empty string moves a document to root. */
+  folderId?: string;
+  /** Registered document path for rename, move and restore. */
+  documentPath?: string;
+  /** Mixed folder:<id> / document:<path> keys. [] clears ordering. */
+  rootOrder?: string[];
+}
 
 /** Add actor options */
 export interface ActorAddOptions {

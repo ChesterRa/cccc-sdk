@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from .client_0430_shared import _compact
 from .errors import IncompatibleDaemonError
@@ -76,6 +76,50 @@ class CCCC0430AssistantOpsMixin:
             "assistant_voice_document_input_read",
             _compact({"group_id": str(group_id), "by": by or None}),
         )
+
+    def assistant_voice_document_library(self, *, group_id: str) -> Dict[str, Any]:
+        """Read the stored library, including archived but not deleted documents."""
+        return self.call("assistant_voice_document_library", {"group_id": str(group_id)})
+
+    def assistant_voice_document_library_update(
+        self,
+        *,
+        group_id: str,
+        action: str,
+        name: Optional[str] = None,
+        folder_id: Optional[str] = None,
+        document_path: Optional[str] = None,
+        root_order: Optional[Iterable[str]] = None,
+        by: str = "user",
+    ) -> Dict[str, Any]:
+        """Organize or restore documents. Empty folder_id moves to root;
+        an empty root_order clears ordering. The daemon validates permissions
+        and action-specific fields; this does not move Markdown files.
+        """
+        if isinstance(root_order, (str, bytes)):
+            raise ValueError("root_order must be an iterable of item key strings")
+        return self.call(
+            "assistant_voice_document_library_update",
+            _compact({
+                "group_id": str(group_id),
+                "action": action,
+                "name": name,
+                "folder_id": folder_id,
+                "document_path": document_path,
+                "root_order": list(root_order) if root_order is not None else None,
+                "by": str(by),
+            }),
+        )
+
+    def assistant_voice_document_delete(
+        self, *, group_id: str, document_path: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        """Permanently delete the Markdown file. Use archive for recoverable storage."""
+        return self.call("assistant_voice_document_delete", {
+            "group_id": str(group_id),
+            "document_path": str(document_path),
+            "by": str(by),
+        })
 
     def assistant_voice_document_save(
         self,

@@ -20,7 +20,8 @@ try {
     requireIpcV: 1,
     requireCapabilities: { events_stream: true },
     requireOps: ['groups', 'send', 'tracked_send', 'send_files', 'events_stream', 'connect_catalog',
-      'connect_send', 'connect_send_files', 'context_sync', 'term_resize'],
+      'connect_send', 'connect_send_files', 'context_sync', 'term_resize',
+      'assistant_voice_document_library', 'assistant_voice_document_library_update', 'assistant_voice_document_delete'],
   });
   const groupId = (await client.groupCreate({ title: 'SDK release fixture' })).group.group_id;
   await client.groupSetState(groupId, 'paused');
@@ -58,7 +59,39 @@ try {
     clearTimeout(timer);
     controller.abort();
   }
-  console.log('Installed npm artifact: Actor, Mail, reply, catalog, conflict, safe probes and stream passed');
+  const documentPath = 'notes/sdk.md';
+  await client.assistantVoiceDocumentSave({ groupId, documentPath, content: '# SDK fixture' });
+  let library = await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'create_folder', name: 'Meetings' });
+  const folderId = library.folders[0].folder_id;
+  await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'rename_folder', folderId, name: 'Notes' });
+  await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'rename', documentPath, name: 'Summary' });
+  await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'move', documentPath, folderId });
+  await client.assistantVoiceDocumentArchive({ groupId, documentPath });
+  library = await client.assistantVoiceDocumentLibrary({ groupId });
+  assert.equal(library.documents[0].status, 'archived');
+  assert.equal(await fs.readFile(path.join(project, documentPath), 'utf8'), '# SDK fixture');
+  library = await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'restore', documentPath });
+  assert.equal(library.documents[0].status, 'active');
+  assert.equal(library.documents[0].folder_id, folderId);
+  await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'move', documentPath, folderId: '' });
+  const rootOrder = [`folder:${folderId}`, `document:${documentPath}`];
+  library = await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'reorder_root', rootOrder });
+  assert.deepEqual(library.root_order, rootOrder);
+  library = await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'reorder_root', rootOrder: [] });
+  assert.deepEqual(library.root_order, []);
+  await client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'remove_folder', folderId });
+  const deleted = await client.assistantVoiceDocumentDelete({ groupId, documentPath });
+  assert.equal(deleted.event.data.action, 'deleted');
+  await assert.rejects(fs.access(path.join(project, documentPath)), { code: 'ENOENT' });
+  assert.deepEqual((await client.assistantVoiceDocumentLibrary({ groupId })).documents, []);
+  await assert.rejects(client.assistantVoiceDocumentLibraryUpdate({ groupId, action: 'restore', documentPath }));
+  for (const [actorId, runtime] of [['chat1', 'web_model'], ['chat2', 'web_model'], ['bot', 'grok_web_model']]) {
+    const { actor } = await client.actorAdd({ groupId, actorId, runtime });
+    assert.equal(actor.runtime, runtime);
+    assert.equal(actor.runner, 'headless');
+  }
+  assert.equal((await client.groupShow(groupId)).group.state, 'paused');
+  console.log('Installed npm artifact: messaging, conflicts, safe probes, stream, Voice library lifecycle and Web Model configuration passed');
 } finally {
   await fs.rm(project, { recursive: true, force: true });
 }

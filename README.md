@@ -1,6 +1,6 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.40 alignment: all three SDKs share the core release number. Connect helpers use qualified remote identities and explicit retry keys; compatibility checks cannot execute arbitrary operations. [Scope and migration](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
+0.4.41 alignment: Voice document library helpers, Grok Bot runtime configuration, and updated public contracts across Python, TypeScript and Rust. [0.4.41 migration](spec/SDK_0441_MIGRATION.md) · [Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -95,7 +95,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.40"
+cccc-sdk = "0.4.41"
 ```
 
 ```rust
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this batch is **0.4.40**. See `spec/core.json` for the reviewed core revision.
+  release number; this batch is **0.4.41**. See `spec/core.json` for the reviewed core revision.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
 Compatibility is enforced by **contracts**, not by strict version string matching:
@@ -142,7 +142,7 @@ This repo keeps a mirror under `spec/`:
 ./scripts/sync_specs_from_cccc.sh ../cccc
 ```
 
-The sync command intentionally replaces only the three mirrored standards.
+The sync command intentionally replaces only the four mirrored standards.
 SDK-specific surfaces are documented separately, for example in
 `spec/SDK_LOCAL_MEMORY_API.md`.
 

@@ -666,6 +666,9 @@ fn operation_probe_is_safe(operation: &str) -> bool {
             | "web_model_delivery_preferences_get"
             | "web_model_delivery_preferences_update"
             | "web_model_runtime_recover_turn"
+            | "assistant_voice_document_library"
+            | "assistant_voice_document_library_update"
+            | "assistant_voice_document_delete"
             | "events_stream"
             | "connect_catalog"
             | "connect_send"
@@ -804,6 +807,108 @@ mod tests {
         let request: Value =
             serde_json::from_str(&server.join().expect("server thread")).expect("request JSON");
         assert_eq!(request, json!({"v": 1, "op": "ping", "args": {}}));
+    }
+
+    #[test]
+    fn voice_library_preserves_actions_and_empty_values_on_the_wire() {
+        use crate::VoiceDocumentLibraryAction as Action;
+        let cases = [
+            (
+                Action::CreateFolder {
+                    name: "Meetings".into(),
+                },
+                json!({"action":"create_folder","name":"Meetings"}),
+            ),
+            (
+                Action::RenameFolder {
+                    folder_id: "f_1".into(),
+                    name: "Archive".into(),
+                },
+                json!({"action":"rename_folder","folder_id":"f_1","name":"Archive"}),
+            ),
+            (
+                Action::RemoveFolder {
+                    folder_id: "f_1".into(),
+                },
+                json!({"action":"remove_folder","folder_id":"f_1"}),
+            ),
+            (
+                Action::ReorderRoot {
+                    root_order: vec!["folder:f_1".into(), "document:notes.md".into()],
+                },
+                json!({"action":"reorder_root","root_order":["folder:f_1","document:notes.md"]}),
+            ),
+            (
+                Action::ReorderRoot { root_order: vec![] },
+                json!({"action":"reorder_root","root_order":[]}),
+            ),
+            (
+                Action::Rename {
+                    document_path: "notes.md".into(),
+                    name: "Summary".into(),
+                },
+                json!({"action":"rename","document_path":"notes.md","name":"Summary"}),
+            ),
+            (
+                Action::Move {
+                    document_path: "notes.md".into(),
+                    folder_id: "".into(),
+                },
+                json!({"action":"move","document_path":"notes.md","folder_id":""}),
+            ),
+            (
+                Action::Restore {
+                    document_path: "notes.md".into(),
+                },
+                json!({"action":"restore","document_path":"notes.md"}),
+            ),
+        ];
+        let response = "{\"v\":1,\"ok\":true,\"result\":{\"folders\":[],\"root_order\":[],\"documents\":[{\"status\":\"archived\"}]}}\n";
+        let (endpoint, server) = server_sequence(vec![response; cases.len() + 1]);
+        let client = CCCCClient::new(endpoint);
+        let library = client
+            .assistant_voice_document_library("g_1")
+            .expect("library");
+        assert_eq!(library.documents[0]["status"], "archived");
+        for (action, _) in &cases {
+            client
+                .assistant_voice_document_library_update("g_1", action, Some("foreman"))
+                .expect("update");
+        }
+        let requests: Vec<Value> = server
+            .join()
+            .expect("server")
+            .iter()
+            .map(|line| serde_json::from_str(line).expect("JSON"))
+            .collect();
+        assert_eq!(
+            requests[0],
+            json!({"v":1,"op":"assistant_voice_document_library","args":{"group_id":"g_1"}})
+        );
+        for (index, (_, mut expected)) in cases.into_iter().enumerate() {
+            expected["group_id"] = json!("g_1");
+            expected["by"] = json!("foreman");
+            assert_eq!(
+                requests[index + 1],
+                json!({"v":1,"op":"assistant_voice_document_library_update","args":expected})
+            );
+        }
+    }
+
+    #[test]
+    fn voice_delete_preserves_recording_error() {
+        let (endpoint, server) = server_once("{\"v\":1,\"ok\":false,\"error\":{\"code\":\"voice_recording_active\",\"message\":\"Stop recording\"}}\n");
+        let error = CCCCClient::new(endpoint)
+            .assistant_voice_document_delete("g_1", "notes.md", None)
+            .expect_err("recording");
+        assert!(
+            matches!(error, Error::Daemon(crate::DaemonError { ref code, .. }) if code == "voice_recording_active")
+        );
+        let request: Value = serde_json::from_str(&server.join().expect("server")).expect("JSON");
+        assert_eq!(
+            request,
+            json!({"v":1,"op":"assistant_voice_document_delete","args":{"group_id":"g_1","document_path":"notes.md","by":"user"}})
+        );
     }
 
     #[test]

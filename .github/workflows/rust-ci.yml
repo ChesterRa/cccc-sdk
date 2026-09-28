@@ -86,3 +86,4 @@ jobs:
           cargo package --manifest-path rust/Cargo.toml --locked
           sdk_version=$(python3 -c 'import json; print(json.load(open("spec/core.json"))["version"])')
           cargo run --manifest-path "rust/target/package/cccc-sdk-$sdk_version/Cargo.toml" --example compat_check
+          cargo run --manifest-path "rust/target/package/cccc-sdk-$sdk_version/Cargo.toml" --example release_smoke
