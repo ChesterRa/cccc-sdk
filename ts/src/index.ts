@@ -68,6 +68,10 @@ export type {
   MessageMode,
   ReplyMessageMode,
   MessageHistoryOptions,
+  MessageHistoryExactOptions,
+  MessageHistoryExactResult,
+  InboxSummaryOptions,
+  InboxSummaryResult,
   AsyncResultEnvelope,
   // Operation argument types.
   SendOptions,

@@ -1,9 +1,13 @@
 # CCCC SDK 0.4.41 migration
 
-Python, TypeScript/npm and Rust source packages target CCCC 0.4.41 at the reviewed
-revision in [core.json](core.json). Compatibility still depends on IPC v1 and
-required operations, not exact package-version equality. Publication is separate
-from this source update.
+> Historical 0.4.41 guidance. The Grok delivery model and Voice IPC changed in
+> later core versions; use the [current migration guide](SDK_0447_MIGRATION.md)
+> for 0.4.47.
+
+The 0.4.41 Python, TypeScript/npm and Rust packages target CCCC 0.4.41 at the
+[core revision recorded for that release](https://github.com/ChesterRa/cccc-sdk/blob/v0.4.41/spec/core.json).
+Compatibility still depends on IPC v1 and required operations, not exact
+package-version equality.
 
 ## Voice document library
 

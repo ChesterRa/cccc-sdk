@@ -5,8 +5,10 @@ TypeScript (`ts/`, npm), and Rust (`rust/`, crates.io). All are named `cccc-sdk`
 
 ## Version and contract policy
 
-All three packages use the supported CCCC release number: **0.4.41** for this
-candidate. Equal versions do not imply equal helper coverage; runtime
+All three packages use the target CCCC release number: **0.4.47** for this
+version. `spec/core.json` pins the reviewed CCCC 0.4.47 release commit and
+the mirrored standards come from that revision.
+Equal versions do not imply equal helper coverage; runtime
 compatibility uses IPC version, capabilities and safe
 operation probes, not an exact daemon-version requirement.
 
@@ -75,7 +77,7 @@ release exists, candidate checks pass, and publication is authorized.
   retrying a partially completed release.
 
 This procedure covers coordinated stable releases. The existing TestPyPI
-workflow is separate prerelease tooling, not a required step for 0.4.41.
+workflow is separate prerelease tooling, not a required step for 0.4.47.
 
 ## Confirm completion
 

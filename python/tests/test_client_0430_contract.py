@@ -292,21 +292,13 @@ class TestClient0433Contract(unittest.TestCase):
             client.assistant_voice_input_append(
                 group_id="g_1", request_id="r_1", composer_text="draft", operation="replace_with_refined_prompt"
             )
-            client.assistant_voice_prompt_draft_submit(group_id="g_1", request_id="r_1", draft_text="refined")
             client.assistant_voice_prompt_draft_ack(group_id="g_1", request_id="r_1", status="applied")
-            client.assistant_voice_request(
-                group_id="g_1",
-                request_text="Review the release",
-                target="@foreman",
-                artifact_paths=["notes/meeting.md"],
-            )
             client.assistant_voice_document_archive(group_id="g_1", document_path="notes/meeting.md")
 
         self.assertEqual(captured[0]["args"]["session_id"], "s_1")
         self.assertEqual(captured[2]["args"]["document_path"], "notes/meeting.md")
         self.assertEqual(captured[4]["args"]["kind"], "prompt_refine")
-        self.assertEqual(captured[7]["args"]["request_text"], "Review the release")
-        self.assertNotIn("requires_ack", captured[7]["args"])
+        self.assertEqual(captured[5]["op"], "assistant_voice_prompt_draft_ack")
 
     def test_removed_ipc_transcription_fails_clearly(self) -> None:
         with self.assertRaises(IncompatibleDaemonError):

@@ -269,6 +269,7 @@ export class CCCCClient {
       'reply',
       'inbox_peek',
       'inbox_read',
+      'inbox_summary',
       'context_get',
       'context_sync',
       'message_deliver',
@@ -526,6 +527,7 @@ export class CCCCClient {
 
   /**
    * Add an actor to a group.
+   * Daemons before 0.4.46 silently ignore `modelLabel`.
    * @param options - Actor configuration (id, runtime, command, etc.).
    * @returns The daemon result (includes assigned actor id).
    * @throws {DaemonAPIError} On invalid group or duplicate actor id.
@@ -534,6 +536,7 @@ export class CCCCClient {
     const optionalFields: Record<string, unknown> = {
       actor_id: options.actorId,
       title: options.title,
+      model_label: options.modelLabel,
       runtime: options.runtime,
       command: options.command,
       env: options.env,
@@ -1397,28 +1400,24 @@ export class CCCCClient {
     }));
   }
 
+  /** @deprecated Removed from daemon IPC; use instance-wide Voice Secretary settings. */
   async assistantSettingsUpdate(
     options: AssistantSettingsUpdateOptions
   ): Promise<Record<string, unknown>> {
-    return this.call('assistant_settings_update', {
-      group_id: options.groupId,
-      assistant_id: options.assistantId,
-      patch: options.patch,
-      by: options.by ?? 'user',
-    });
+    void options;
+    throw new IncompatibleDaemonError(
+      "assistant_settings_update was removed from daemon IPC; Voice Secretary settings are instance-wide: use call('voice_secretary_settings_get', {}) or call('voice_secretary_settings_update', ...)"
+    );
   }
 
+  /** @deprecated Assistant lifecycle and health are managed by CCCC. */
   async assistantStatusUpdate(
     options: AssistantStatusUpdateOptions
   ): Promise<Record<string, unknown>> {
-    const args: Record<string, unknown> = {
-      group_id: options.groupId,
-      assistant_id: options.assistantId,
-      lifecycle: options.lifecycle,
-    };
-    if (options.health) args['health'] = options.health;
-    if (options.by) args['by'] = options.by;
-    return this.call('assistant_status_update', args);
+    void options;
+    throw new IncompatibleDaemonError(
+      'assistant_status_update was removed from daemon IPC; assistant lifecycle and health are managed by CCCC'
+    );
   }
 
   // ============================================================

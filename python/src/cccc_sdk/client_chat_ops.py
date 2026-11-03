@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
+from .errors import IncompatibleDaemonError
+
 
 MessageMode = Literal["send", "request_reply", "mail"]
 ReplyMessageMode = Literal["send", "mail"]
@@ -240,6 +242,18 @@ class ChatOpsMixin:
             },
         )
 
+    def inbox_summary(
+        self, *, group_id: str, cutoff: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        """Summarize current awaiting Mail without advancing any cursor.
+
+        ``cutoff`` is an inclusive RFC3339 age threshold, not a historical
+        snapshot time. The daemon enforces permissions and validates it.
+        """
+        return self.call("inbox_summary", {
+            "group_id": str(group_id), "cutoff": str(cutoff), "by": str(by),
+        })
+
     def message_history(
         self,
         *,
@@ -264,3 +278,31 @@ class ChatOpsMixin:
         if before_event_id:
             args["before_event_id"] = str(before_event_id)
         return self.call("message_history", args)
+
+    def message_history_exact(
+        self, *, group_id: str, actor_id: str, event_id: str, by: str = "user"
+    ) -> Dict[str, Any]:
+        """Read one visible event and its delivery text without consuming Mail.
+
+        The SDK checks the response and raises IncompatibleDaemonError when it
+        cannot establish an exact read, including when an older daemon ignores
+        event_id.
+        """
+        event_id = str(event_id).strip()
+        if not event_id:
+            raise ValueError("event_id must not be empty")
+        result = self.call("message_history", {
+            "group_id": str(group_id), "actor_id": str(actor_id),
+            "event_id": event_id, "by": str(by),
+        })
+        messages = result.get("messages")
+        if (not isinstance(messages, list) or len(messages) != 1
+                or not isinstance(messages[0], dict) or messages[0].get("id") != event_id
+                or result.get("has_more") is not False
+                or "delivery_text" not in result
+                or (result["delivery_text"] is not None and not isinstance(result["delivery_text"], str))):
+            raise IncompatibleDaemonError(
+                "daemon did not return an exact message history result; "
+                "exact reads require CCCC 0.4.46 or later"
+            )
+        return result

@@ -21,15 +21,22 @@ try {
     requireCapabilities: { events_stream: true },
     requireOps: ['groups', 'send', 'tracked_send', 'send_files', 'events_stream', 'connect_catalog',
       'connect_send', 'connect_send_files', 'context_sync', 'term_resize',
-      'assistant_voice_document_library', 'assistant_voice_document_library_update', 'assistant_voice_document_delete'],
+      'assistant_voice_document_library', 'assistant_voice_document_library_update', 'assistant_voice_document_delete', 'inbox_summary'],
   });
   const groupId = (await client.groupCreate({ title: 'SDK release fixture' })).group.group_id;
   await client.groupSetState(groupId, 'paused');
   await client.attach(project, groupId);
-  await client.actorAdd({
+  const { actor: fixture } = await client.actorAdd({
     groupId, actorId: 'fixture', runtime: 'custom', command: [process.execPath, '-e', ''],
+    modelLabel: 'SDK fixture model',
   });
+  assert.equal(fixture.model_label, 'SDK fixture model');
   const { event } = await client.send({ groupId, text: 'release mail', mode: 'mail', to: ['fixture'] });
+  const summary = await client.inboxSummary({ groupId, cutoff: '2020-01-01T00:00:00Z' });
+  assert.equal(summary.actors.find(row => row.actor_id === 'fixture').awaiting_count, 1);
+  const exact = await client.messageHistoryExact({ groupId, actorId: 'fixture', eventId: event.id });
+  assert.equal(exact.messages[0].id, event.id);
+  assert.match(exact.delivery_text, /release mail/);
   await client.inboxRead({ groupId, actorId: 'fixture' });
   await client.reply({ groupId, replyTo: event.id, text: 'reply', by: 'fixture' });
   await client.connectCatalog({ groupId });

@@ -16,11 +16,11 @@ pub use connect::{ConnectCatalogOptions, ConnectSendOptions};
 pub use endpoint::{discover_endpoint, DaemonEndpoint};
 pub use error::{DaemonError, Error, Result};
 pub use protocol::{
-    ContextDetail, DaemonRequest, DaemonResponse, MessageHistoryMode, MessageMode, PingResult,
-    ReplyMessageMode, TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult,
-    TerminalSinceHistory, TerminalSinceOptions, TerminalSinceResult, TerminalSnapshotOptions,
-    TerminalSnapshotResult, WebModelDeliveryMode, WebModelDeliveryPreference,
-    WebModelDeliveryPreferencesResult, WebModelRecoveredTurn, WebModelRecoveredTurnDelivery,
-    WebModelRuntimeRecoverTurnResult,
+    ContextDetail, DaemonRequest, DaemonResponse, InboxSummaryActor, InboxSummaryResult,
+    MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, TerminalHistoryOptions,
+    TerminalHistoryResult, TerminalResizeResult, TerminalSinceHistory, TerminalSinceOptions,
+    TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
+    WebModelDeliveryPreference, WebModelDeliveryPreferencesResult, WebModelRecoveredTurn,
+    WebModelRecoveredTurnDelivery, WebModelRuntimeRecoverTurnResult,
 };
 pub use voice::{VoiceDocumentFolder, VoiceDocumentLibrary, VoiceDocumentLibraryAction};

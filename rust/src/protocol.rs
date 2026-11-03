@@ -3,6 +3,24 @@ use serde_json::{Map, Value};
 
 use crate::DaemonError;
 
+/// Group-wide current awaiting Mail, evaluated at one observation time.
+#[derive(Clone, Debug, Deserialize)]
+pub struct InboxSummaryResult {
+    pub group_id: String,
+    pub observed_at: String,
+    pub cutoff: String,
+    pub actors: Vec<InboxSummaryActor>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct InboxSummaryActor {
+    pub actor_id: String,
+    pub awaiting_count: u64,
+    pub overdue_count: u64,
+    pub oldest_awaiting_at: Option<String>,
+    pub oldest_age_seconds: Option<u64>,
+}
+
 /// Daemon IPC v1 request envelope.
 #[derive(Clone, Debug, Serialize)]
 pub struct DaemonRequest<'a> {

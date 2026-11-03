@@ -21,4 +21,4 @@ if tag.startswith('refs/tags/v'):
 errors = [f'{name}: {value} != {expected}' for name, value in versions.items() if value != expected]
 if errors:
     raise SystemExit('\n'.join(errors))
-print(f'Python, npm and Rust SDK versions match core {expected}.')
+print(f'Python, npm and Rust SDK versions match target {expected} in spec/core.json.')

@@ -4,11 +4,13 @@ Official blocking Rust client for the native CCCC Daemon IPC v1. SDK language
 does not constrain application architecture; Python and TypeScript clients use
 the same daemon contract.
 
+This version targets the CCCC 0.4.47 daemon contract.
+
 ## Install
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.41"
+cccc-sdk = "0.4.47"
 ```
 
 ## Quick start
@@ -91,11 +93,11 @@ Clients created with `new(endpoint)` keep that explicit endpoint.
 capability whose actual operation returns `unknown_op`.
 
 Streaming upgrade operations such as `events_stream` and `term_attach` are not
-exposed as iterators in 0.4.41. `assert_compatible` uses advertised capabilities
+exposed as iterators in this SDK. `assert_compatible` uses advertised capabilities
 for unsafe duplex operations and rejects unverified requirements; a reusable stream API will be added only with stable ownership,
 close, and backpressure semantics.
 
-## 0.4.41 Voice library and Web Models
+## Voice library and Web Models
 
 Use `assistant_voice_document_library`, `assistant_voice_document_library_update`
 and `assistant_voice_document_delete` for the stored Voice library. Updates take
@@ -105,6 +107,7 @@ clears ordering; an empty `Move.folder_id` means root. Deletion permanently
 removes the Markdown file; archive/restore retains it.
 
 Create/update Actors through generic IPC calls with `runtime="grok_web_model"`
-for Grok Bot or `runtime="web_model"` for ChatGPT. Shared login, connectors and
-Bot URL/conversation setup remain in CCCC Web; `grok` is the separate CLI runtime.
-See the [migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0441_MIGRATION.md).
+for Grok Bot or `runtime="web_model"` for ChatGPT. CCCC Web configures the Grok
+Bot URL, native Webhook Routine credentials and remote MCP connector; Grok does
+not use CCCC-managed browser delivery. `grok` is the separate CLI runtime.
+See the [migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md).

@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 官方客户端 SDK
 
-0.4.41 更新：Python、TypeScript、Rust 均新增 Voice 文档库整理与删除接口，同步 Grok Bot 运行时配置及公开契约。归档保留文件，删除永久移除文件；浏览器登录与 Bot URL 仍在 CCCC Web 中设置。[迁移说明（英文）](spec/SDK_0441_MIGRATION.md)。
+0.4.47 更新：Python、TypeScript、Rust 增加精确消息读取和收件箱摘要，并更新 Voice 与 Grok 的使用说明。核心契约快照已固定到 CCCC 0.4.47 发布版本。[迁移说明（英文）](spec/SDK_0447_MIGRATION.md)。
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.41"
+cccc-sdk = "0.4.47"
 ```
 
 Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
@@ -103,7 +103,7 @@ Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本批为 **0.4.41**，合约基准记录在 `spec/core.json`。
+- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.47**。`spec/core.json` 记录用于契约验证的本体发布版本。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

@@ -34,6 +34,7 @@ export interface CCCC0430AssistantOps {
   assistantVoiceDocumentLibraryUpdate(options: VoiceDocumentLibraryUpdateOptions): Promise<VoiceDocumentLibraryResult>;
   /** Permanently deletes the Markdown file; archive retains it. */
   assistantVoiceDocumentDelete(options: { groupId: string; documentPath: string; by?: string }): Promise<Record<string, unknown>>;
+  /** @deprecated Removed from daemon IPC; use the CCCC Web Voice workflow. */
   assistantVoiceDocumentInputRead(options: { groupId: string; by?: string }): Promise<Record<string, unknown>>;
   assistantVoiceDocumentSave(options: VoiceSecretaryDocumentSaveOptions): Promise<Record<string, unknown>>;
   assistantVoiceDocumentInstruction(options: {
@@ -62,6 +63,7 @@ export interface CCCC0430AssistantOps {
     composerSnapshotHash?: string;
     by?: string;
   }): Promise<Record<string, unknown>>;
+  /** @deprecated Removed from daemon IPC; use the CCCC Web Voice workflow. */
   assistantVoicePromptDraftSubmit(options: {
     groupId: string;
     requestId: string;
@@ -77,6 +79,7 @@ export interface CCCC0430AssistantOps {
     requestId: string;
     status: 'applied' | 'dismissed' | 'stale';
   }): Promise<Record<string, unknown>>;
+  /** @deprecated Removed from daemon IPC; use the CCCC Web Voice workflow. */
   assistantVoiceRequest(options: {
     groupId: string;
     requestText: string;
@@ -126,10 +129,10 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   },
 
   async assistantVoiceDocumentInputRead(options) {
-    return this.call('assistant_voice_document_input_read', compactRecord({
-      group_id: options.groupId,
-      by: options.by,
-    }));
+    void options;
+    throw new IncompatibleDaemonError(
+      'assistant_voice_document_input_read was removed from daemon IPC; use the current CCCC Web Voice workflow'
+    );
   },
 
   async assistantVoiceDocumentLibrary(options) {
@@ -211,16 +214,10 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   },
 
   async assistantVoicePromptDraftSubmit(options) {
-    return this.call('assistant_voice_prompt_draft_submit', compactRecord({
-      group_id: options.groupId,
-      request_id: options.requestId,
-      draft_text: options.draftText,
-      no_op: options.noOp,
-      summary: options.summary,
-      operation: options.operation,
-      composer_snapshot_hash: options.composerSnapshotHash,
-      by: options.by ?? 'voice-secretary',
-    }));
+    void options;
+    throw new IncompatibleDaemonError(
+      'assistant_voice_prompt_draft_submit was removed from daemon IPC; use the current CCCC Web Voice workflow'
+    );
   },
 
   async assistantVoicePromptDraftAck(options) {
@@ -232,17 +229,10 @@ const assistantOps: CCCC0430AssistantOps & ThisType<CCCC0430Client> = {
   },
 
   async assistantVoiceRequest(options) {
-    return this.call('assistant_voice_request', compactRecord({
-      group_id: options.groupId,
-      request_text: options.requestText,
-      target: options.target,
-      summary: options.summary,
-      document_path: options.documentPath,
-      artifact_paths: options.artifactPaths,
-      source_event_id: options.sourceEventId,
-      priority: options.priority,
-      by: options.by ?? 'voice-secretary',
-    }));
+    void options;
+    throw new IncompatibleDaemonError(
+      'assistant_voice_request was removed from daemon IPC; use the current CCCC Web Voice workflow'
+    );
   },
 };
 

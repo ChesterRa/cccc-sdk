@@ -14,6 +14,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "group_set_state",
         json!({"group_id":group_id,"state":"paused"}),
     )?;
+    call(
+        "actor_add",
+        json!({"group_id":group_id,"actor_id":"fixture","runtime":"custom",
+               "command":[std::env::current_exe()?.to_string_lossy()]}),
+    )?;
+    let event = call(
+        "send",
+        json!({"group_id":group_id,"text":"release mail","message_mode":"mail",
+               "to":["fixture"],"by":"user"}),
+    )?;
+    let event_id = event["event"]["id"].as_str().expect("event id");
+    let exact = client.message_history_exact(group_id, "fixture", event_id, "user")?;
+    assert_eq!(exact["messages"][0]["id"], event_id);
+    let summary = client.inbox_summary(group_id, "2020-01-01T00:00:00Z", "user")?;
+    assert_eq!(
+        summary
+            .actors
+            .iter()
+            .find(|row| row.actor_id == "fixture")
+            .unwrap()
+            .awaiting_count,
+        1
+    );
     let path = "notes/sdk.md";
     call(
         "assistant_voice_document_save",

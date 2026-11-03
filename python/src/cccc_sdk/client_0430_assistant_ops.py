@@ -72,9 +72,9 @@ class CCCC0430AssistantOpsMixin:
     def assistant_voice_document_input_read(
         self, *, group_id: str, by: str = ""
     ) -> Dict[str, Any]:
-        return self.call(
-            "assistant_voice_document_input_read",
-            _compact({"group_id": str(group_id), "by": by or None}),
+        raise IncompatibleDaemonError(
+            "assistant_voice_document_input_read was removed from daemon IPC; "
+            "use the current CCCC Web Voice workflow"
         )
 
     def assistant_voice_document_library(self, *, group_id: str) -> Dict[str, Any]:
@@ -245,20 +245,9 @@ class CCCC0430AssistantOpsMixin:
         composer_snapshot_hash: str = "",
         by: str = "voice-secretary",
     ) -> Dict[str, Any]:
-        return self.call(
-            "assistant_voice_prompt_draft_submit",
-            _compact(
-                {
-                    "group_id": str(group_id),
-                    "request_id": str(request_id),
-                    "draft_text": draft_text or None,
-                    "no_op": no_op,
-                    "summary": summary or None,
-                    "operation": operation or None,
-                    "composer_snapshot_hash": composer_snapshot_hash or None,
-                    "by": str(by),
-                }
-            ),
+        raise IncompatibleDaemonError(
+            "assistant_voice_prompt_draft_submit was removed from daemon IPC; "
+            "use the current CCCC Web Voice workflow"
         )
 
     def assistant_voice_prompt_draft_ack(
@@ -282,19 +271,7 @@ class CCCC0430AssistantOpsMixin:
         priority: str = "",
         by: str = "voice-secretary",
     ) -> Dict[str, Any]:
-        return self.call(
-            "assistant_voice_request",
-            _compact(
-                {
-                    "group_id": str(group_id),
-                    "request_text": str(request_text),
-                    "target": target or None,
-                    "summary": summary or None,
-                    "document_path": document_path or None,
-                    "artifact_paths": [str(path) for path in artifact_paths] if artifact_paths is not None else None,
-                    "source_event_id": source_event_id or None,
-                    "priority": priority or None,
-                    "by": str(by),
-                }
-            ),
+        raise IncompatibleDaemonError(
+            "assistant_voice_request was removed from daemon IPC; "
+            "use the current CCCC Web Voice workflow"
         )

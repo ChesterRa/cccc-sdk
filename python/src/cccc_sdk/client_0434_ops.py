@@ -34,6 +34,7 @@ class CCCC0434OpsMixin:
         group_id: str,
         actor_id: str,
     ) -> Dict[str, Any]:
+        """Read delivery preferences for a ChatGPT browser Actor."""
         return self.call(
             "web_model_delivery_preferences_get",
             {"group_id": str(group_id), "actor_id": str(actor_id)},
@@ -47,6 +48,7 @@ class CCCC0434OpsMixin:
         mode: str,
         by: str = "user",
     ) -> Dict[str, Any]:
+        """Update delivery preferences for a ChatGPT browser Actor."""
         normalized_mode = str(mode).strip()
         if normalized_mode not in {"standard", "image_compat"}:
             raise ValueError("mode must be 'standard' or 'image_compat'")
@@ -67,6 +69,7 @@ class CCCC0434OpsMixin:
         actor_id: str,
         event_ids: Iterable[str],
     ) -> Dict[str, Any]:
+        """Recover a ChatGPT browser turn; Grok uses its own event path."""
         if isinstance(event_ids, (str, bytes)):
             raise ValueError("event_ids must be an iterable of event id strings")
         canonical_event_ids = [str(event_id).strip() for event_id in event_ids]

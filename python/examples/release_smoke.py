@@ -14,8 +14,15 @@ c.group_set_state(group_id=g, state='paused')
 with tempfile.TemporaryDirectory(prefix='cccc-sdk-project-') as folder:
     c.attach(group_id=g, path=folder)
     # Paused Group: this command is never started and no provider is contacted.
-    c.actor_add(group_id=g, actor_id='fixture', runtime='custom', command=[sys.executable, '-c', 'pass'])
+    actor = c.actor_add(group_id=g, actor_id='fixture', runtime='custom',
+                        command=[sys.executable, '-c', 'pass'], model_label='SDK fixture model')['actor']
+    assert actor['model_label'] == 'SDK fixture model'
     event = c.send(group_id=g, text='release mail', message_mode='mail', to=['fixture'])['event']
+    c.assert_compatible(require_ops=['inbox_summary'])
+    summary = c.inbox_summary(group_id=g, cutoff='2020-01-01T00:00:00Z')
+    assert next(row for row in summary['actors'] if row['actor_id'] == 'fixture')['awaiting_count'] == 1
+    exact = c.message_history_exact(group_id=g, actor_id='fixture', event_id=event['id'])
+    assert exact['messages'][0]['id'] == event['id'] and 'release mail' in exact['delivery_text']
     c.inbox_read(group_id=g, actor_id='fixture')
     c.reply(group_id=g, reply_to=event['id'], text='reply', by='fixture')
     path = Path(folder) / 'file.txt'

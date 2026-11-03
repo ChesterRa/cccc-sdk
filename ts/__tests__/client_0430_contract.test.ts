@@ -264,14 +264,7 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       composerText: 'draft',
       operation: 'replace_with_refined_prompt',
     });
-    await client.assistantVoicePromptDraftSubmit({ groupId: 'g_1', requestId: 'r_1', draftText: 'refined' });
     await client.assistantVoicePromptDraftAck({ groupId: 'g_1', requestId: 'r_1', status: 'applied' });
-    await client.assistantVoiceRequest({
-      groupId: 'g_1',
-      requestText: 'Review the release',
-      target: '@foreman',
-      artifactPaths: ['notes/meeting.md'],
-    });
     await client.assistantVoiceDocumentArchive({ groupId: 'g_1', documentPath: 'notes/meeting.md' });
 
     assert.deepEqual(calls.map((call) => call.op), [
@@ -280,16 +273,13 @@ describe('cccc 0.4.33 JSON op alignment', () => {
       'assistant_voice_document_save',
       'assistant_voice_document_instruction',
       'assistant_voice_input_append',
-      'assistant_voice_prompt_draft_submit',
       'assistant_voice_prompt_draft_ack',
-      'assistant_voice_request',
       'assistant_voice_document_archive',
     ]);
     assert.equal(calls[0]?.args?.['session_id'], 's_1');
     assert.equal(calls[2]?.args?.['document_path'], 'notes/meeting.md');
     assert.equal(calls[4]?.args?.['kind'], 'prompt_refine');
-    assert.equal(calls[7]?.args?.['request_text'], 'Review the release');
-    assert.equal(calls[7]?.args?.['requires_ack'], undefined);
+    assert.equal(calls[5]?.op, 'assistant_voice_prompt_draft_ack');
   });
 
   it('fails clearly for the removed daemon IPC transcription operation', async () => {

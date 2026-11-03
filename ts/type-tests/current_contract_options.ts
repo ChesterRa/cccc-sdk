@@ -35,3 +35,13 @@ void client.systemNotify({
 void client.groupSpaceProviderHealthCheck({ authJson: '{"cookies":[]}' });
 void client.groupSpaceProviderAuth({ action: 'disconnect', projected: true });
 void client.taskDelete({ groupId: 'g_1', taskId: 't-planned', dryRun: true });
+void client.actorAdd({ groupId: 'g_1', modelLabel: 'Model A' });
+void client.inboxSummary({ groupId: 'g_1', cutoff: '2026-11-02T00:00:00Z' }).then(result => {
+  const count: number = result.actors[0].awaiting_count;
+  void count;
+});
+void client.messageHistoryExact({ groupId: 'g_1', actorId: 'peer', eventId: 'e_1' }).then(result => {
+  const eventId: string = result.messages[0].id;
+  const text: string | null = result.delivery_text;
+  void [eventId, text];
+});

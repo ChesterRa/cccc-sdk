@@ -3,10 +3,31 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
-## [0.4.41] — Unreleased
+## [0.4.47]
 
-Targets the maintained CCCC 0.4.41 contract at the immutable revision in
-`spec/core.json`. Python, npm and Rust packages all use 0.4.41.
+This version targets the CCCC 0.4.47 release revision in `spec/core.json`.
+
+### Added
+
+- Non-consuming exact message history reads and Group-wide Inbox summaries in
+  Python, TypeScript and Rust. Exact reads reject older daemon list responses
+  instead of silently returning a different event.
+- Optional `model_label` on Python and TypeScript Actor creation. Daemons
+  before 0.4.46 silently ignore the field.
+
+### Changed
+
+- The four mirrored standards reflect the CCCC 0.4.47 release.
+  Grok Bot guidance describes native Webhook Routines and separates them from
+  ChatGPT browser delivery.
+- Five removed Voice Secretary IPC helpers now raise a local migration error
+  instead of sending an operation that current daemons reject.
+
+## [0.4.41]
+
+Targets the maintained CCCC 0.4.41 contract at the immutable revision in the
+[0.4.41 core pin](https://github.com/ChesterRa/cccc-sdk/blob/v0.4.41/spec/core.json).
+Python, npm and Rust packages all use 0.4.41.
 
 ### Added
 
@@ -32,10 +53,11 @@ Targets the maintained CCCC 0.4.41 contract at the immutable revision in
 
 - Include the repository's Apache-2.0 license text in npm and Rust packages.
 
-## [0.4.40] — Unreleased
+## [0.4.40]
 
 This coordinated release includes the earlier unpublished 0.4.33–0.4.36 source
-work. It targets CCCC 0.4.40; the exact reviewed revision is in `spec/core.json`.
+work. It targets CCCC 0.4.40; the exact reviewed revision is in the
+[0.4.40 core pin](https://github.com/ChesterRa/cccc-sdk/blob/v0.4.40/spec/core.json).
 Rust moves from 0.0.1 to 0.4.40 under the same versioning policy.
 
 ### Added

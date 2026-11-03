@@ -789,22 +789,19 @@ describe('assistant', () => {
     assert.equal(calls[0]?.op, 'assistant_state');
     assert.equal(calls[0]?.args?.['assistant_id'], 'voice_secretary');
 
-    await client.assistantSettingsUpdate({
+    await assert.rejects(client.assistantSettingsUpdate({
       groupId: 'g_1',
       assistantId: 'voice_secretary',
       patch: { enabled: true },
-    });
-    assert.equal(calls[1]?.op, 'assistant_settings_update');
-    assert.deepEqual(calls[1]?.args?.['patch'], { enabled: true });
+    }), /removed from daemon IPC/);
 
-    await client.assistantStatusUpdate({
+    await assert.rejects(client.assistantStatusUpdate({
       groupId: 'g_1',
       assistantId: 'voice_secretary',
       lifecycle: 'working',
       health: { ok: true },
-    });
-    assert.equal(calls[2]?.op, 'assistant_status_update');
-    assert.equal(calls[2]?.args?.['lifecycle'], 'working');
+    }), /removed from daemon IPC/);
+    assert.equal(calls.length, 1);
   });
 });
 

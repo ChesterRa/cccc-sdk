@@ -378,11 +378,9 @@ c.presentation_publish(
     content="# Sprint plan\n- ...",
 )
 
-# Built-in Voice Secretary lifecycle
+# Voice Secretary state and instance-wide settings
 state = c.assistant_state(group_id="g_xxx", assistant_id="voice_secretary")
-c.assistant_settings_update(
-    group_id="g_xxx", assistant_id="voice_secretary", patch={"enabled": True}
-)
+settings = c.call("voice_secretary_settings_get", {})
 
 # Copy a group for migration / backup
 pkg = c.group_copy_export(group_id="g_xxx")
@@ -407,11 +405,13 @@ do not yet have a dedicated helper. Duplex browser/VNC/PTY attach operations
 remain outside this request/response client and require a separate streaming
 transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.
 
-## CCCC 0.4.41 alignment
+## CCCC 0.4.47
 
-All three SDK package versions are 0.4.41; `spec/core.json` records the supported
-core revision. The matching release number is not a replacement for IPC and
-capability checks.
+All three SDK package versions target 0.4.47. `spec/core.json` pins the
+CCCC 0.4.47 release revision. See the
+[migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
+for exact message reads, Inbox summaries, removed Voice operations and daemon
+version limitations. Matching version numbers do not replace capability checks.
 
 Qualified Connect sends require a stable caller-owned retry key:
 
@@ -435,7 +435,7 @@ safe probe now fail instead of being executed or silently skipped. Retired
 Presentation browser and Voice model-install helpers fail locally with migration
 guidance; their interactive replacement belongs to CCCC Web, not daemon IPC.
 
-## 0.4.41 Voice library and Web Models
+## Voice library and Web Models
 
 Use `assistant_voice_document_library`, `assistant_voice_document_library_update`
 and `assistant_voice_document_delete` for the stored Voice document library.
@@ -444,6 +444,6 @@ removes the Markdown file. Empty `root_order=[]` clears ordering and
 `folder_id=""` moves a document to root. The daemon enforces all permissions.
 
 `actor_add(runtime="grok_web_model", ...)` configures a Grok Bot Actor; `grok`
-is the separate CLI runtime. Use CCCC Web to save its existing Bot URL and set up
-shared login/connector access before starting it. Multiple ChatGPT Actors using
-`web_model` are supported. See the [migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0441_MIGRATION.md).
+is the separate CLI runtime. CCCC Web sets up its Bot URL, native Webhook
+Routine credentials and remote MCP connector. Grok delivery uses no CCCC-managed
+browser login. ChatGPT `web_model` uses its separate browser path.

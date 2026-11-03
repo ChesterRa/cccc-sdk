@@ -1,8 +1,9 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.41**, revision recorded in [core.json](core.json). Python,
-TypeScript/npm and Rust packages all use **0.4.41**. Publication is a separate
-explicit action; a source checkout or candidate artifact is not a registry release.
+Target: CCCC **0.4.47**, with its release revision recorded in [core.json](core.json).
+Python, TypeScript/npm and Rust packages all use **0.4.47**. Publication is a
+separate explicit action; a source checkout or candidate artifact is not a
+registry release.
 
 ## Product boundary
 
@@ -16,11 +17,13 @@ SDK-owned notes are not copied over by spec synchronization.
 - 0.4.41 adds Voice document library read/update/delete helpers in all three
   languages. Empty root ordering and move destinations are preserved; the daemon
   owns validation, permissions, files, archive/restore and deletion tombstones.
-- TypeScript explicitly lists `grok_web_model` and `deepseek` runtimes. Actor
-  create/update remains a daemon operation; browser login, shared connectors,
-  ChatGPT receipt verification and Grok Bot URL setup remain Web-owned workflows.
-  See [0.4.41 migration](SDK_0441_MIGRATION.md). No HTTP client, browser controller,
-  Actor credential store or automatic retry was added.
+- `grok_web_model` uses native Webhook Routines and a remote MCP connector;
+  ChatGPT browser login and delivery follow their separate Web-owned path. See
+  [0.4.47 migration](SDK_0447_MIGRATION.md). The SDK adds no browser controller,
+  Actor credential store or automatic retry.
+- Exact message reads and Group Inbox summaries are exposed in all three
+  languages; Python/TypeScript Actor creation accepts `model_label`. Five retired
+  Voice helpers retain their signatures and fail locally with migration guidance.
 
 - Actor creation omits the retired selectable `runner` field; Runtime determines
   its runner. Python previously sent `runner=pty` even for an ordinary create.

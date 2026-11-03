@@ -417,6 +417,8 @@ export interface ActorAddOptions {
   groupId: string;
   actorId?: string;
   title?: string;
+  /** Operator-maintained label. Daemons before 0.4.46 silently ignore it. */
+  modelLabel?: string;
   runtime?: AgentRuntime;
   command?: string[];
   env?: Record<string, string>;
@@ -1314,11 +1316,44 @@ export interface InboxOptions {
   limit?: number;
 }
 
+/** Group-wide current awaiting Mail, with an inclusive RFC3339 age cutoff. */
+export interface InboxSummaryOptions {
+  groupId: string;
+  cutoff: string;
+  by?: string;
+}
+
+export interface InboxSummaryResult {
+  group_id: string;
+  observed_at: string;
+  cutoff: string;
+  actors: Array<{
+    actor_id: string;
+    awaiting_count: number;
+    overdue_count: number;
+    oldest_awaiting_at: string | null;
+    oldest_age_seconds: number | null;
+  }>;
+}
+
 /** Inspect actor-visible chat history without consuming Mail. */
 export interface MessageHistoryOptions extends InboxOptions {
   mode?: 'all' | MessageMode;
   query?: string;
   beforeEventId?: string;
+}
+
+export interface MessageHistoryExactOptions {
+  groupId: string;
+  actorId: string;
+  eventId: string;
+  by?: string;
+}
+
+export interface MessageHistoryExactResult {
+  messages: [CCCSEvent];
+  has_more: false;
+  delivery_text: string | null;
 }
 
 export interface ReplyRequestCancelOptions {

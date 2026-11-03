@@ -131,6 +131,7 @@ class CCCCClient(
             "reply",
             "inbox_peek",
             "inbox_read",
+            "inbox_summary",
             "context_get",
             "context_sync",
             "message_deliver",
@@ -299,6 +300,7 @@ class CCCCClient(
         group_id: str,
         actor_id: str = "",
         title: str = "",
+        model_label: str = "",
         runtime: str = "",
         command: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
@@ -312,11 +314,14 @@ class CCCCClient(
         submit: str = "",
         by: str = "user",
     ) -> Dict[str, Any]:
+        """Add an Actor. Daemons before 0.4.46 silently ignore model_label."""
         args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
         if actor_id:
             args["actor_id"] = str(actor_id)
         if title:
             args["title"] = str(title)
+        if model_label:
+            args["model_label"] = str(model_label)
         if runtime:
             args["runtime"] = str(runtime)
         if command is not None:
@@ -1476,14 +1481,10 @@ class CCCCClient(
         patch: Dict[str, Any],
         by: str = "user",
     ) -> Dict[str, Any]:
-        return self.call(
-            "assistant_settings_update",
-            {
-                "group_id": str(group_id),
-                "assistant_id": str(assistant_id),
-                "patch": dict(patch),
-                "by": str(by),
-            },
+        raise IncompatibleDaemonError(
+            "assistant_settings_update was removed from daemon IPC; "
+            "Voice Secretary settings are instance-wide: use "
+            "call('voice_secretary_settings_get', {}) or call('voice_secretary_settings_update', ...)"
         )
 
     def assistant_status_update(
@@ -1495,16 +1496,10 @@ class CCCCClient(
         health: Optional[Dict[str, Any]] = None,
         by: str = "",
     ) -> Dict[str, Any]:
-        args: Dict[str, Any] = {
-            "group_id": str(group_id),
-            "assistant_id": str(assistant_id),
-            "lifecycle": str(lifecycle),
-        }
-        if health is not None:
-            args["health"] = dict(health)
-        if by:
-            args["by"] = str(by)
-        return self.call("assistant_status_update", args)
+        raise IncompatibleDaemonError(
+            "assistant_status_update was removed from daemon IPC; "
+            "assistant lifecycle and health are managed by CCCC"
+        )
 
     # ---------------------------------------------------------------------
     # Daemon core (shutdown / observability / branding)

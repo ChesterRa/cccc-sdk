@@ -10,9 +10,9 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     discover_endpoint, ContextDetail, DaemonEndpoint, DaemonRequest, DaemonResponse, Error,
-    MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, Result, TerminalHistoryOptions,
-    TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions, TerminalSinceResult,
-    TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
+    InboxSummaryResult, MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, Result,
+    TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions,
+    TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
     WebModelDeliveryPreferencesResult, WebModelRuntimeRecoverTurnResult,
 };
 
@@ -336,6 +336,26 @@ impl CCCCClient {
         self.call("inbox_read", args)
     }
 
+    /// Summarize current awaiting Mail without advancing cursors.
+    ///
+    /// The inclusive RFC3339 cutoff is an age threshold, not a historical
+    /// snapshot. The daemon validates the cutoff and caller permissions.
+    pub fn inbox_summary(
+        &self,
+        group_id: &str,
+        cutoff: &str,
+        by: &str,
+    ) -> Result<InboxSummaryResult> {
+        self.call_typed(
+            "inbox_summary",
+            object([
+                ("group_id", json!(group_id)),
+                ("cutoff", json!(cutoff)),
+                ("by", json!(by)),
+            ]),
+        )
+    }
+
     /// Inspect actor-visible chat history without consuming Mail.
     #[allow(clippy::too_many_arguments)]
     pub fn message_history(
@@ -364,6 +384,50 @@ impl CCCCClient {
             args.insert("limit".into(), json!(limit));
         }
         self.call("message_history", args)
+    }
+
+    /// Read one visible event and its rendered delivery text without consuming
+    /// Mail. Older daemons silently ignore `event_id`; their list response is
+    /// rejected instead of being mistaken for an exact read.
+    pub fn message_history_exact(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        event_id: &str,
+        by: &str,
+    ) -> Result<Map<String, Value>> {
+        let event_id = event_id.trim();
+        if event_id.is_empty() {
+            return Err(Error::InvalidArgument("event_id must not be empty".into()));
+        }
+        let result = self.call(
+            "message_history",
+            object([
+                ("group_id", json!(group_id)),
+                ("actor_id", json!(actor_id)),
+                ("event_id", json!(event_id)),
+                ("by", json!(by)),
+            ]),
+        )?;
+        let exact_event = result
+            .get("messages")
+            .and_then(Value::as_array)
+            .filter(|messages| messages.len() == 1)
+            .and_then(|messages| messages[0].get("id"))
+            .and_then(Value::as_str)
+            == Some(event_id);
+        let delivery_text_valid = result
+            .get("delivery_text")
+            .is_some_and(|value| value.is_null() || value.is_string());
+        if !exact_event
+            || result.get("has_more") != Some(&Value::Bool(false))
+            || !delivery_text_valid
+        {
+            return Err(Error::Incompatible(
+                "daemon did not return an exact message history result; exact reads require CCCC 0.4.46 or later".into(),
+            ));
+        }
+        Ok(result)
     }
 
     pub fn context_get(&self, group_id: &str) -> Result<Map<String, Value>> {
@@ -517,6 +581,7 @@ impl CCCCClient {
         }
     }
 
+    /// Read delivery preferences for a ChatGPT browser Actor.
     pub fn web_model_delivery_preferences_get(
         &self,
         group_id: &str,
@@ -528,6 +593,7 @@ impl CCCCClient {
         )
     }
 
+    /// Update delivery preferences for a ChatGPT browser Actor.
     pub fn web_model_delivery_preferences_update(
         &self,
         group_id: &str,
@@ -546,6 +612,7 @@ impl CCCCClient {
         )
     }
 
+    /// Recover a ChatGPT browser turn. Grok uses its own event path.
     pub fn web_model_runtime_recover_turn(
         &self,
         group_id: &str,
@@ -645,6 +712,7 @@ fn operation_probe_is_safe(operation: &str) -> bool {
             | "reply"
             | "inbox_peek"
             | "inbox_read"
+            | "inbox_summary"
             | "context_get"
             | "context_sync"
             | "message_deliver"
@@ -991,6 +1059,62 @@ mod tests {
             client.message_deliver("g_1", "e_mail", &[], "user", false),
             Err(Error::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn exact_history_rejects_old_daemon_list_responses() {
+        let responses = vec![
+            "{\"v\":1,\"ok\":true,\"result\":{\"messages\":[{\"id\":\"e_1\"}],\"has_more\":false,\"delivery_text\":null}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"messages\":[{\"id\":\"e_1\"}],\"has_more\":false}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"messages\":[{\"id\":\"other\"}],\"has_more\":false,\"delivery_text\":\"text\"}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"messages\":[],\"has_more\":false,\"delivery_text\":null}}\n",
+        ];
+        let (endpoint, server) = server_sequence(responses);
+        let client = CCCCClient::new(endpoint);
+        let result = client
+            .message_history_exact("g_1", "peer", "e_1", "foreman")
+            .unwrap();
+        assert_eq!(result["delivery_text"], Value::Null);
+        for _ in 0..3 {
+            assert!(matches!(
+                client.message_history_exact("g_1", "peer", "e_1", "user"),
+                Err(Error::Incompatible(_))
+            ));
+        }
+        assert!(matches!(
+            client.message_history_exact("g_1", "peer", " ", "user"),
+            Err(Error::InvalidArgument(_))
+        ));
+        let requests: Vec<Value> = server
+            .join()
+            .unwrap()
+            .iter()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            requests[0],
+            json!({"v":1,"op":"message_history","args":{
+                "group_id":"g_1","actor_id":"peer","event_id":"e_1","by":"foreman"
+            }})
+        );
+    }
+
+    #[test]
+    fn inbox_summary_is_a_read_only_current_group_view() {
+        let (endpoint, server) = server_once("{\"v\":1,\"ok\":true,\"result\":{\"group_id\":\"g_1\",\"observed_at\":\"2026-11-03T00:00:00Z\",\"cutoff\":\"2026-11-02T00:00:00Z\",\"actors\":[{\"actor_id\":\"peer\",\"awaiting_count\":0,\"overdue_count\":0,\"oldest_awaiting_at\":null,\"oldest_age_seconds\":null}]}}\n");
+        let result = CCCCClient::new(endpoint)
+            .inbox_summary("g_1", "2026-11-02T00:00:00Z", "foreman")
+            .unwrap();
+        assert_eq!(result.actors[0].awaiting_count, 0);
+        assert_eq!(result.actors[0].oldest_awaiting_at, None);
+        let request: Value = serde_json::from_str(&server.join().unwrap()).unwrap();
+        assert_eq!(
+            request,
+            json!({"v":1,"op":"inbox_summary","args":{
+                "group_id":"g_1","cutoff":"2026-11-02T00:00:00Z","by":"foreman"
+            }})
+        );
+        assert!(operation_probe_is_safe("inbox_summary"));
     }
 
     #[test]

@@ -425,6 +425,194 @@ Result:
 { message: string } // "shutting down"
 ```
 
+#### `owned_process_recovery_list` / `owned_process_recovery_retry` / `owned_process_recovery_accept`
+
+Review of the daemon owner's unresolved local process evidence. These operations
+require explicit `by: "user"`; they reject Actor-bound or Group-scoped requests.
+This is an operation policy, not transport authentication: local IPC remains
+unauthenticated and relies on its operating-system access boundary. They are not
+exposed as Actor MCP tools. Web exposes the review only to administrators and
+refuses it in exhibit mode.
+
+- `owned_process_recovery_list`: `{ by: "user" }`. It is read-only.
+- `owned_process_recovery_retry`: `{ by: "user", id: string, version: string }`.
+  Rechecks only that record and may attempt cleanup under the recorded policy.
+- `owned_process_recovery_accept`: `{ by: "user", id: string, version: string }`.
+  Accepts the remaining risk for that reviewed record without signalling it.
+
+List returns `{ owner: "daemon", records: RecoveryRecord[], diagnostics:
+RecoveryDiagnostic[] }`. A record contains `id`, an opaque `version`, `kind`
+(`launch_intent`, `process_group`, or `opaque_evidence`), nullable
+`created_at_unix_seconds`, `origin` (`same_origin`, `other_namespace`,
+`previous_boot`, or `unknown`), a nonsecret `reason`, `retryable`, and
+`acceptance_supported`. Current reasons include `launch_incomplete`,
+`legacy_identity`, `identity_unconfirmed`, `foreign_namespace`, `origin_unknown`,
+`cleanup_unconfirmed`, and `evidence_invalid`. An opaque artifact can contain
+multiple old records; no contents are returned. Diagnostic entries contain
+`reason`, a `hint`, and MAY include `relative_path`, relative to `CCCC_HOME`.
+Clients MUST handle unknown codes without assuming that the evidence is absent.
+
+Retry returns `{ owner, result: "cleared" | "still_pending", record,
+diagnostics }`, where `record` is null when no longer present. Accept returns
+`{ owner, accepted: true }`. A stale or missing record/version returns
+`process_recovery_changed`; an unreadable or unavailable owner returns
+`process_recovery_unavailable`. A retry can outlive a disconnected client;
+clients MUST list again after an uncertain response rather than replay it.
+An accepted record is an explicit risk acknowledgement, not proof that the old
+local process or any remote work ended. It does not clear independent Voice
+leases, resets or other cleanup gates. When interrupted source files cannot yet
+be safely absorbed, records stay visible with `acceptance_supported: false`.
+
+Web has a separate owner and ledger. The private Web review endpoint uses the
+same record shape and version rule, but is serviced by the Web host holding its
+own instance lock, not by the daemon operation above. For the daemon owner,
+the Web host MAY review offline only while holding the daemon's exclusive owner
+lock; if the lock is held it uses IPC. A failed IPC mutation is never replayed
+through the offline path. Starting Web Voice checks both owner ledgers before
+the provider starts; an unreadable or unavailable daemon ledger is not empty.
+These checks observe the owner state at the time of review and do not create a
+cross-process transaction with unrelated later launches.
+
+#### `chet_history_*`
+
+The daemon owns the local, append-only history of the global assistant, which
+the product calls Chet and which uses the Voice Analyst session described
+elsewhere in this standard. These
+operations require `by: "user"` and reject Actor-bound and Group-scoped
+requests. They record or read evidence; none starts a Runtime. The local IPC
+transport is protected by its operating-system access boundary, not by this
+operation policy. Web restricts the corresponding endpoints to administrators
+and rejects exhibit access.
+
+- `chet_history_register`: `{ by, id, request: { text, context } }`. `id` is a
+  non-nil UUID; `context` is null or `{ group_id, group_title, scope_key }`.
+  A context is a label fixed with the input, not a permission or workspace
+  path. The same ID and complete request return `{ registration: "existing" }`;
+  a different request using that ID returns `chet_history_id_conflict`. Only a
+  confirmed `"inserted"` result can authorize the Web owner to submit input.
+- `chet_history_group_input`: `{ by, input: GroupInput }`. The daemon verifies
+  the Group generation, source ledger event, recipient, sender and current
+  Actor generation before appending a reference. The Group ledger owns the
+  message body and attachments. The same Group generation and event ID return
+  the original input UUID with `registration: "existing"`; inconsistent source
+  information is rejected. `inserted` records receipt, not model admission or
+  completion. An uncertain model submission MUST NOT be blindly replayed.
+  `group_not_found` requires the Group to be absent from the registry as well
+  as unavailable on disk; a Group read or registry error is `io_error`, not
+  proof of deletion. `chet_source_unavailable` means the inspected ledger
+  confirms that the source is missing, no longer matches its reference,
+  imported from an earlier Group, or its member was removed or replaced after
+  the source message. An inconsistent
+  Group document without a committed membership event is not proof of member
+  retirement and remains `invalid_chet_source`. For a previously recorded,
+  unclaimed Group input, the Web owner records `not_started` with
+  `source_unavailable` when validation confirms the source is no longer usable.
+  Read failures and other uncertain errors remain pending for retry. A retry
+  of that fact uses the same ID. The history write MUST reject this reason if
+  a Group dispatch claim already exists, and a later claim MUST NOT submit an
+  input with this terminal fact. Other known pre-admission failures can follow
+  a claim when the host can establish that submission did not occur.
+- `chet_history_claim_group_input`: `{ by, input_id }` atomically records that
+  the host is about to attempt submission. Only a confirmed `"inserted"` claim
+  permits that attempt; an existing claim or terminal fact does not. After an
+  uncertain claim, the host may reconcile the claim but MUST NOT infer model
+  admission or completion from it.
+- `chet_history_list`: `{ by, before?: string, after?: string, limit?: number, resolve_sources?: boolean }`.
+  `before` and `after` are mutually exclusive opaque cursors and `limit` is
+  1–100. A backward page returns `{ records, before, after }`, where `after`
+  is the history head from the same snapshot. A forward page returns
+  `{ records, after, has_more }`; the cursor advances only past returned facts.
+  A cursor outside the history or not on a record boundary returns `invalid_args`.
+  Reading unused history does not initialize it.
+  An interrupted append may leave an unfinished final record; readers return
+  only complete records, and the next writer may discard that unfinished
+  suffix after validating the preceding records. A complete record whose write
+  acknowledgement was lost is retained and must not cause a replay.
+- `chet_history_find`: `{ by, id, resolve_sources?: boolean }` returns `{ records }`, either null or the
+  facts associated with that input ID. It supports reconciliation after a lost
+  response without resubmitting the input.
+- When `resolve_sources` is true, either read also returns `sources`, an object
+  keyed by Group input IDs present in, or referenced by, records in that response. A source is
+  `{ status: "available", group_title, sender_title, text, sent_at,
+  has_attachments, truncated, reply_event_id }` or `{ status: "unavailable" }`.
+  `reply_event_id` is null or a later Chet-authored message in this Group that
+  replies to the source and explicitly addresses its sender. Its presence means
+  that a reply was recorded, not that a recipient received it; its absence does
+  not prove a failed attempt. Available text
+  is at most 8 KiB at a UTF-8 boundary; `truncated` says if more was present.
+  A missing, unreadable, or changed Group or source is unavailable. These are
+  current read-only projections of the Group ledger, not additional durable
+  message copies or evidence of Runtime admission.
+- `chet_history_voice_delegation` records the request produced by a Realtime
+  Voice provider. This is neither the user's verbatim transcript nor proof
+  that an Analyst received it.
+- `chet_history_receipt`, `chet_history_result`, and
+  `chet_history_not_started` append, respectively, a Runtime admission receipt,
+  an observed Runtime terminal result, or a host-confirmed failure before the
+  input was submitted. A pre-admission failure MUST NOT coexist with a receipt
+  or result for the same input. A receipt is not completion; a missing result
+  does not establish whether the Runtime acted. These operations require an
+  already recorded text input, Group input, or Voice delegation and do not
+  dispatch or replay it.
+- `chet_history_transcript` appends an observed voice transcript update with
+  its call, turn, in-call sequence, role, text, and explicit final/incomplete status.
+  An update is evidence supplied by the call owner; it is not a guarantee that
+  the provider emitted or the browser received every possible event.
+
+Write arguments and history records use these shapes (`id` and `input_id` are
+UUID strings; `created_at` is a UTC timestamp):
+
+```ts
+type VoiceDelegation = { call_id: string; delegation_id: string; text: string }
+type Transcript = {
+  call_id: string; turn_id: string; seq: number; role: "user" | "assistant";
+  text: string; final_update: boolean; complete: boolean
+}
+type Receipt = { generation: string; turn_id: string }
+type Outcome = { generation: string; turn_id: string; status: string; text: string; error: string }
+type GroupInput = {
+  group_id: string; group_generation: string; event_id: string;
+  sender: { kind: "user" } | { kind: "actor"; actor_id: string; actor_generation: string };
+  reply_to: string | null
+}
+type ChetHistoryRecord =
+  | { kind: "input"; id: string; created_at: string; request: { text: string; context: GroupContext | null } }
+  | { kind: "group_input"; id: string; created_at: string; input: GroupInput }
+  | { kind: "group_dispatch"; id: string; created_at: string; input_id: string }
+  | { kind: "voice_delegation"; id: string; created_at: string; delegation: VoiceDelegation }
+  | { kind: "receipt"; id: string; created_at: string; input_id: string; receipt: Receipt }
+  | { kind: "result"; id: string; created_at: string; input_ids: string[]; outcome: Outcome }
+  | { kind: "not_started"; id: string; created_at: string; input_id: string; reason: "assistant_unavailable" | "cancelled" | "source_unavailable" }
+  | { kind: "transcript"; id: string; created_at: string; transcript: Transcript }
+type GroupContext = { group_id: string; group_title: string; scope_key: string | null }
+```
+
+`chet_history_voice_delegation` accepts `{ by, id, delegation }`;
+`chet_history_receipt` accepts `{ by, id, input_id, receipt }`;
+`chet_history_result` accepts `{ by, id, input_ids, outcome }`;
+`chet_history_not_started` accepts `{ by, id, input_id, reason }`; and
+`chet_history_transcript` accepts `{ by, id, transcript }`. Successful writes
+return `{ registration: "inserted" | "existing" }`. `Transcript.seq` is the
+call-local first-observation order, not a global event cursor. `complete: true`
+requires a final update and means no truncation or missing portion is known to
+the observer; it does not attest the provider's entire audio stream. Within a
+call, each turn and each sequence number may appear in only one transcript
+record. A second record for the same `(call_id, turn_id)` or `(call_id, seq)`
+returns `chet_history_id_conflict`; an identical retry with the original record
+ID remains idempotent.
+
+Each append has its own UUID and can be repeated with identical content. A
+conflicting reuse is rejected. A second different receipt for an input returns
+`chet_history_receipt_conflict`; a conflicting terminal result or not-started
+fact returns `chet_history_outcome_conflict`. A receipt, result or not-started
+fact referring to an unknown input returns `chet_history_unknown_input`.
+A history storage error may be
+`chet_history_unavailable`, `chet_history_unknown`, or `chet_history_corrupt`;
+unknown means the write outcome is not confirmed. Callers MUST NOT infer that
+an input was not admitted or automatically submit it again from such an error.
+History and drafts can contain private user content and MUST NOT be written to
+diagnostic logs.
+
 ### 8.2 Observability (Global)
 
 #### `observability_get`
@@ -512,17 +700,54 @@ Notes:
 
 #### `attach`
 
-Attach a directory scope to a group (or auto-create/select a group for this scope).
+Attach a directory scope to the supplied group, or create a new group when
+`group_id` is omitted. By default the attached directory becomes the Group's
+active/default scope, and the attached Group becomes the active CLI Group.
+Omitting `group_id` does not select an existing group by project path.
+
+`activate=false` requires an existing `group_id` and only adds or refreshes its
+attached directory. It MUST preserve the Group active scope, its registry default
+scope, every project's default Group mapping, and the global active Group. Actor
+creation/editing uses this mode to add another repository without changing other
+Actors' Follow Group directory. It does not save or restart an Actor. In this
+nonactivating mode, a scope identity already attached at a different physical root
+MUST fail with `scope_conflict` instead of rebinding existing Actors to another
+worktree. The default activating attachment retains its existing explicit rebind
+behavior.
+
+Attaching to an existing Group requires the user or that Group's foreman,
+using the same group-administration permission as other shared scope changes.
+Authorization precedes path inspection, configuration changes and ledger writes.
+
+The path is evaluated on the daemon host. The CLI resolves relative paths
+against its invoking terminal's working directory before sending this request;
+the daemon's working directory is not the CLI's project directory.
 
 Args:
 ```ts
-{ path: string; group_id?: string; by?: string }
+{ path: string; group_id?: string; by?: string; activate?: boolean } // default true
 ```
 
 Result:
 ```ts
-{ group_id: string; scope_key: string; title?: string }
+{
+  group_id: string
+  scope_key: string // the attached directory, even when activate=false
+  scope: { scope_key: string; url: string; label: string; git_remote: string }
+  title?: string
+}
 ```
+
+`url` is the canonical absolute directory recorded at attach time on the daemon
+host: the Git top-level when the path is inside a work tree, otherwise the path
+itself. Reads return it as recorded; workspace projections canonicalize it again
+and report a missing directory as unavailable instead of substituting another.
+On Windows a projection spells that directory without the `\\?\` prefix when the
+drive path names the same location; UNC paths, reserved names and over-long
+paths keep it. Compare a projected path only after canonicalizing it again.
+`scope_key` derives from the normalized `origin` remote when one exists and from
+`url` otherwise, so separate clones or worktrees of one remote share a key and a
+Group binds each key to one directory at a time.
 
 #### `groups`
 
@@ -717,6 +942,9 @@ Notes:
 5. External enable runs preflight first (required env, runtime binary availability, remote URL sanity) and returns
    `reason=preflight_failed:<code>` on deterministic blockers.
 6. `activation_pending` means relist/reconnect is still required; `runnable` means binding is live enough to try; `verified` is reserved for post-call proof, not plain enable.
+7. `cleanup` is accepted but currently ignored. Disabling removes the capability from the given scope's
+   enablement, but does not clean runtime caches, runtime bindings or installations, and this op returns
+   no removal counts. `capability_uninstall` removes a capability from a group and reports what it removed.
 
 Args:
 ```ts
@@ -725,7 +953,7 @@ Args:
   capability_id: string
   scope?: "group" | "actor" | "session"   // default: session
   enabled?: boolean                         // default: true
-  cleanup?: boolean                         // default: false; disable path can also clean runtime cache
+  cleanup?: boolean                         // currently ignored; see note 7
   reason?: string                           // optional short audit reason
   ttl_seconds?: number                      // session scope only
   by?: string
@@ -773,9 +1001,6 @@ Result:
     required_env?: string[]
     action_hints?: string[]
   }>
-  removed_binding_count?: number
-  removed_installation?: boolean
-  cleanup_skipped_reason?: string
   skill?: {
     capability_id: string
     name: string
@@ -1456,13 +1681,29 @@ Result:
 
 Args:
 ```ts
-{ group_id: string; detail?: "summary" | "full" }
+{ group_id: string; detail?: "summary" | "full"; by?: string }
 ```
 
 Result:
 ```ts
-{ group: Record<string, unknown> } // group.yaml content, redacted
+{
+  group: Record<string, unknown> // group.yaml content, redacted
+  effective_scope: {
+    scope_key: string
+    path: string // canonical existing local directory; Windows spelling as in `attach`
+    source: "runtime_launch" | "actor_default" | "group_active"
+  } | Record<string, never> // {} when unavailable
+}
 ```
+
+`effective_scope` is a caller-scoped read projection, not persisted Group or
+Actor state. It uses the authoritative `by` after port identity binding
+(default `user`), never a target `actor_id`. A running managed owner supplies its
+immutable launch workspace; otherwise the Actor default or Group active
+configuration applies. An invalid pin, missing root or mismatched live Actor
+generation MUST yield an unavailable projection rather than another workspace.
+For a Native Actor without a managed owner, this describes CCCC tools only,
+not the original application's physical working directory.
 
 #### `group_preamble_get`
 
@@ -1638,17 +1879,41 @@ Args:
 
 Result:
 ```ts
-{ group_id: string }
+{
+  group_id: string
+  deleted: boolean
+  reaped_processes: ReapedProcess[]
+}
+
+type ReapedProcess = {
+  pid: number
+  start_time: number      // /proc/<pid>/stat field 22; with pid, the process identity
+  actor_id: string        // CCCC_ACTOR_ID of the process ("" when absent)
+  signaled_term: boolean  // SIGTERM was delivered (not that it took effect)
+  signaled_kill: boolean  // SIGKILL was delivered after the TERM grace
+  outcome: "exited" | "running" | "identity_changed"
+}
 ```
 
 Notes:
+- After authorization and a successful stop of the Group's sessions, the daemon stops processes that escaped those process trees (for example a child that called `setsid`) and remain attributed to the Group: same user, `CCCC_GROUP_ID` equal to the Group ID, and canonical `CCCC_HOME` equal to the daemon's home. Processes observed in another home with the same Group ID are excluded. Each process is identified by `pid` and `start_time` and revalidated before SIGTERM and again before SIGKILL; a mismatch or unreadable identity prevents signalling. Signals use numeric PIDs, so revalidation narrows but does not eliminate the race between the last check and signal delivery. `exited` is confirmed termination; `running` means the process was still running after the final wait or could not be signalled. This is a one-shot cleanup with TERM and KILL wait budgets totalling about 2.5 s, plus scanning and identity-check overhead. On platforms other than Linux `reaped_processes` is always empty.
+- Cleanup runs before fallible settings or directory deletion, so a later deletion error does not skip this cleanup. As with the existing session stop, preserving Group configuration after a filesystem error does not restore its stopped processes. A failed authorization or session stop does not start this additional cleanup.
+- `group_reset` completes the same stop and cleanup for the old Group before switching the active Group or deleting the old directory. Its result reports `old_reaped_processes`, which may be nonempty even when `deleted_old` is false and `old_delete_error` is present. Directory cleanup can fail after the old Group has already been unregistered; that error does not imply the old Group is still available.
+- Reset MUST transfer only registry defaults that actually name the old Group, not claim every attached scope; rollback MUST restore only that transferred ownership before removing the replacement. Reset retains declared `extra.local_session_conversation.direct` and `source_ids` configuration so native direct reuse survives, while clearing other runtime/connector state and unknown nested fields.
 - Successful deletion MUST retire all Direct records and disposable catalogs owned by the deleted Group, preserve retired IDs, and release their relation quota. Reset uses the same deletion cleanup; it MUST NOT transfer those grants to the replacement Group.
 - Successful deletion MUST retire every Web Model conversation binding and pending pairing belonging to the deleted Group, without revoking the shared connector or other Groups’ authority. A failure that leaves the group registered and available MUST preserve its pre-delete connector authority.
 - Successful deletion MUST retire every local external-space binding, queued job, and referenced job payload owned by the deleted group. It MUST NOT delete the user's remote notebook or other provider space. A failure that leaves the group registered and available MUST restore the pre-delete local binding and queue state.
+- Deletion first renames the Group directory away. While the original Group path is absent, a ledger read, follow or append that opens the Group's ledger or ledger lock by that path, such as the next poll of an open event stream, MUST fail with not found. It MUST NOT recreate the Group directory or its ledger lock, which would leave an empty directory behind and block the rename that restores the Group when deletion fails. An operation that already held them open when the rename happened may complete.
 
 #### `group_use`
 
 Set the active scope for a group using `path` (must already be attached).
+
+Permission: user or the Group's foreman. A peer or unknown Actor is rejected
+before path inspection, scope selection or ledger changes.
+
+As with `attach`, the CLI resolves relative paths against its own working
+directory before IPC.
 
 Args:
 ```ts
@@ -1759,9 +2024,14 @@ returns `{repository, branch, entries, limited}`. Entries contain workspace-rela
 `path`, index/worktree status characters, optional in-scope `previous_path`, and
 `untracked`, `conflicted`, `directory` flags. Native Git status is bounded to the
 active workspace, including when it is a repository subdirectory. A non-repository
-is distinct from a failed or timed-out query. At most 2,000 entries are returned;
-`limited` explicitly marks a shortened list. Queries are user-driven, without
-background scans or daemon work.
+is distinct from a failed or timed-out query. Git reports a new directory as one
+entry; its untracked files are listed instead when that listing fits in the same time
+and output bounds, and a nested repository remains one entry. A workspace that is
+itself a new directory of its repository lists its files the same way. At most 2,000
+entries are returned; `limited` explicitly marks a shortened list, including one that
+keeps a new directory as one entry, or omits the files of a new workspace directory,
+because they did not fit. Queries are user-driven, without background scans or daemon
+work.
 
 `GET /api/v1/groups/{group_id}/workspace/diff` additionally takes `path` and
 `side: "worktree" | "staged"`, returning `{patch, limited}`. Only a currently listed
@@ -1775,6 +2045,9 @@ than a partial patch. Binary or metadata-only changes remain visible as Git text
 No stage, unstage, discard, commit, branch-switch, pull or push operation is exposed.
 
 #### `group_detach_scope`
+
+Permission: user or the Group's foreman, checked before changing Group,
+registry or ledger state.
 
 Args:
 ```ts
@@ -1820,7 +2093,9 @@ Args:
 
 Patch keys used by CCCC include:
 - Messaging: `default_send_to`
-- Delivery: `mail_notice_after_seconds` (default 1800, zero disables),
+- Delivery: `mail_notice_after_seconds` (default 1800, zero disables all Mail notices),
+  `mail_notice_idle_after_seconds` (default 60, zero disables only the early idle notice),
+  `mail_notice_repeat_seconds` (default 0, zero keeps single-notice behavior),
   `reply_notice_after_seconds` (default 900, zero disables)
 - Automation: `actor_idle_timeout_seconds`, `keepalive_delay_seconds`,
   `keepalive_max_per_actor`,
@@ -1840,21 +2115,23 @@ Secretary service-local ASR runs in-process through the Rust `sherpa-onnx`
 binding. The native runtime is linked into the CCCC binary; model weights remain
 explicit, checksummed downloads under `CCCC_HOME/cache/voice-models`.
 
-Voice Secretary configuration (`enabled` and `config`) remains in
-`group.yaml:assistants.voice_secretary`. Durable workflow records live in
+Voice Secretary configuration is instance-owned in settings; every Group read
+projects the same nonsecret defaults with its own task status. Old Group enablement
+and configuration are ignored. Durable workflow records live in
 `groups/<group_id>/state/assistants.json`: lifecycle, durable health, sessions,
 prompt drafts/requests, and ask requests. Process observations such as PID,
 port, live service/socket state, and actor handles MUST NOT be persisted there.
 Implementations MUST preserve the reserved `rust_state` object when updating
 the common records. A legacy Rust workflow embedded in `group.yaml:assistants`
-is imported canonical-first; after the canonical file commits, only assistant
-configuration remains in `group.yaml`.
+is imported canonical-first to preserve runtime history; any remaining legacy
+configuration in `group.yaml` does not control the global service.
 
 Args:
 ```ts
 {
   group_id: string
   assistant_id?: "voice_secretary"
+  prompt_request_id?: string
   view?: "voice_session" | string
   session_id?: string
   document_path?: string
@@ -1910,8 +2187,39 @@ Result:
   service_runtime?: Record<string, unknown>
   service_models?: Array<Record<string, unknown>>
   service_models_by_id?: Record<string, unknown>
+  secretary_tasks?: Array<Record<string, unknown>> // recent tasks for this Group only
+  prompt_draft?: Record<string, unknown> | null
 }
 ```
+
+For ordinary Secretary status/workspace reads, `prompt_request_id` selects only
+that request's canonical `pending` or `no_change` draft. An unknown or unfinished
+request returns `prompt_draft=null`, never another request's draft. Without the
+selector, the latest pending draft remains the default. `no_change` is a terminal
+success with empty draft text: consumers end their matching request's waiting
+state, keep the composer unchanged and show that no changes were needed. HTTP
+Assistant list/detail reads forward the same query selector to the daemon;
+polling neither creates nor retries work.
+
+Clients MUST retain the accepted Group/request identity while observing queued or
+running work; elapsed time alone does not complete or invalidate a request. Before
+automatically applying a Prompt draft, the client MUST compare the accepted composer
+snapshot with the current text of the original Group, including an inactive Group's
+saved draft. Changed text is preserved and the candidate remains pending for explicit
+review. An `applied` acknowledgement follows actual local application, never model
+completion alone. Ask execution progress comes from the matching Secretary task's
+phase; a pending Ask feedback record alone does not prove that execution is still
+queued. Replies and final outcomes retain their accepted Group/request identity.
+Canonical Ask feedback also retains the producing `secretary_task_id` from the
+daemon's result projection. This identity remains available after that task leaves
+the bounded recent-task list. When a retry replaces the task, older feedback MUST
+NOT settle the new execution; consumers match the result to its task identity or
+that task's confirmed `projected_at`. Elapsed time alone does not settle Ask.
+Hiding a local status hint MUST NOT cancel work, clear shared request history, or
+stop observation needed to deliver its result.
+A failed or cancelled Prompt request with confirmed owner cleanup may be replaced by
+an explicit new request, including from another Group. This does not authorize an
+automatic retry or release ownership of running, needs-user or unconfirmed work.
 
 `service_runtime` is read-only engine metadata with the stable runtime ID
 `sherpa_onnx_streaming`, readiness, and the linked sherpa-onnx version. The
@@ -1920,51 +2228,419 @@ lifecycle; only voice models are downloaded or removed. Voice model records may 
 `update_available`, `last_update_error`, and artifact source fields (`url`,
 `sha256`, `archive`) so model updates remain explicit and inspectable.
 
-#### `assistant_settings_update`
+Shared model maintenance is exposed by the thin Web port at
+`GET /api/v1/voice/asr/models` and
+`POST /api/v1/voice/asr/models/{model_id}/install|remove`.
+It uses the existing instance model cache; mutation requires administrator
+access. Global Secretary settings select the backend/model; Groups do not own another cache.
 
-Update group-scoped built-in assistant settings.
+#### `voice_secretary_settings_get`
 
-When `voice_secretary.enabled=true`, the daemon also materializes a hidden
-internal actor with `internal_kind="voice_secretary"` and `actor_id="voice-secretary"`.
-That actor is a distinct assistant identity, not the foreman and not a normal
-peer. Its startup runtime config (Runtime-derived execution surface, `command`,
-env/secrets, scope, submit behavior) is copied from the current stable foreman actor so the user
-does not configure a second runtime profile. The foreman's enabled/running state
-does not affect assistant config inheritance. If no foreman actor exists,
-enabling Voice Secretary fails. An explicit `enabled=true` request also enables
-the internal actor and, if the group is already running, starts it as needed.
-Saving configuration alone MUST NOT start a stopped actor. Startup confirmation
-and `health.actor.running` MUST use the runtime owner's live state; a managed
-session does not return a traditional PTY launch status, and a retained error
-record does not prove it is running. Structured external runtimes retain their
-enabled/Group-running semantics. A failed start rolls back assistant settings,
-actor configuration, and private env. Disabling Voice Secretary stops/removes
-the actor and its private env.
+Read instance-owned Secretary configuration and saved-input counts. Read-only;
+it MUST NOT start a manager, process, recovery job or model task.
 
-Args:
+Args: `{ by?: "user" }`.
+Result: `{ settings: VoiceSecretarySettings, environment_keys: string[], default_guidance: string,
+configured: boolean, ready: boolean, readiness_code: SecretaryReadinessCode | null,
+readiness_error: string | null, profiles: Array<Record<string, unknown>>,
+backlog_sources: number, held_sources: number, invalid_sources: number }`.
+`SecretaryReadinessCode` is `"not_configured" | "invalid_configuration" | "owner_unavailable"`.
+These four readiness fields are shared by this read, `voice_secretary_tasks`,
+`voice_secretary_runtime` and `assistant.health.secretary`:
+- `configured` means a Runtime or linked Profile is saved. It remains true when
+  that configuration cannot be resolved or the execution owner is unavailable.
+- `ready` means saved configuration is valid and the daemon owner can admit work.
+  It does not verify provider authentication or require a running provider process.
+- `readiness_code` identifies the current blocking cause, or is null when ready.
+  Invalid saved configuration takes precedence over owner unavailability.
+- `readiness_error` is a bounded nonsecret diagnostic, or null when ready.
+  Clients select localized guidance and actions by code, never by English text.
+
+A malformed settings body fails with a safe `invalid_configuration` error;
+this operation MUST NOT invent default settings. Task-list and shared-runtime
+reads remain diagnostic observations of that configuration failure; reads that
+require the complete assistant configuration fail with the same safe error. When the selected Profile cannot resolve because its catalog is damaged, or its
+private environment cannot be read, readable saved settings remain editable while
+reporting not ready. An unrelated Profile catalog failure still fails the settings
+read safely; it does not change admission readiness of a valid Custom Runtime.
+Raw parser values and credentials are never exposed.
+The Profile list contains compatible global/user Profiles with their scope and owner.
+Secretary and Analyst support the same structured runtimes: Codex, Claude Code,
+Grok Build, OpenCode, Kilo and Pi RPC, and Antigravity/Auggie/Copilot/Devin/Cursor/Kimi/Kiro/Hermes/Droid in ACP mode.
+Native TUI Profiles are excluded. No implicit Analyst/foreman settings or credential copy.
+Native tools retain the Runtime permission model; task tools are not a filesystem sandbox.
+
+#### `voice_secretary_settings_update`
+
+User-only global mutation. The configuration is instance-owned; there
+is no per-Group Voice setting or enable toggle.
+
 ```ts
 {
-  group_id: string
-  by?: string
-  assistant_id: "voice_secretary"
-  patch: {
-    enabled?: boolean
+  by?: "user"
+  settings: {
+    runtime?: ActorRuntime | null // absent/null with no Profile pauses model admission
+    runtime_mode?: "default" | "acp"
+    command?: string[] // Web also accepts a shell command string and parses it at its port
+    profile_id?: string
+    profile_scope?: "global" | "user"
+    profile_owner?: string
     config?: {
-      capture_mode?: "browser" | "service"
-      recognition_backend?: "mock" | "assistant_service_local_asr" | "browser_asr" | "external_provider_asr"
-      recognition_language?: "auto" | string
-      retention_ttl_seconds?: number
-      auto_document_enabled?: boolean
-      document_default_dir?: string
-      auto_document_quiet_ms?: number
-      auto_document_min_chars?: number
-      auto_document_max_window_seconds?: number
+      recognition_backend?: "browser_asr" | "assistant_service_local_asr" | "external_provider_asr"
+      recognition_language?: string // auto, mixed, or a language tag; at most 64 UTF-8 bytes
+      external_asr_provider?: "bailian" | "volcengine"
       service_model_id?: string
-      tts_enabled?: boolean
+      service_diarization_model_id?: string
+      auto_document_max_window_seconds?: number | null // 10..300; default 300; null disables periodic checkpoints
+      guidance?: string // global work rules, at most 512 KiB; empty uses built-in rules
     }
   }
+  environment?: { set?: Record<string,string>, unset?: string[], clear?: boolean }
+  backlog_action?: "process" | "hold"
 }
 ```
+
+Alternatively, `{by?: "user", preferences: Partial<VoiceSecretaryPreferences>}`
+atomically updates only the supplied preference fields. This form MUST NOT include
+`settings`, `environment` or `backlog_action`; unknown fields and invalid values
+are rejected before persistence. It preserves the Runtime, credentials, held-input
+policy and unspecified preferences, and does not require Runtime availability.
+Web uses this form for automatic short-choice preferences and explicitly saved
+work rules. A failed update preserves every saved field.
+
+Unknown settings/preferences/environment-patch fields are rejected. Omitting
+`settings.config` preserves the latest saved preferences, so saving a Runtime draft
+cannot overwrite independently saved preferences. A supplied config uses defaults
+for its omitted fields. Runtime resolution and command/private-env
+validation reuse the Analyst's shared AgentRuntimeSettings rules. Secretary custom
+credentials have their own `state/secrets/voice-secretary.json`; values are
+write-only and never returned by GET. Linked Profiles use their own credentials.
+Invalid configuration leaves the saved settings and custom environment unchanged.
+A custom Runtime is optional: recognition defaults can be saved while the model
+service is unconfigured. Saving preferences MUST NOT launch a provider task.
+
+Changing a configured Runtime or its environment while saved unclaimed input
+exists requires an explicit backlog_action before any mutation. A preferences-only
+save does not release held input or require another choice. `process` releases
+retained input for bounded admission; `hold` records a source boundary and processes
+only subsequent input. Holding is not completion or deletion. Held input stays
+visible after restart and can be released by an explicit `process` save with the
+same Runtime. Unconfigured input remains saved without filling the execution queue.
+
+Runtime and rules apply to subsequent task starts/acceptance respectively; a running
+execution keeps its resolved configuration. Recognition, language and checkpoint
+defaults apply to the next recording. An active recording keeps its target,
+recognition configuration and operation mode; lease acquisition snapshots the
+nonsecret recognition configuration, and a heartbeat preserves it. Dictation is
+an explicit client operation routed to `composer`, not a Group enablement setting;
+it creates no Secretary task, transcript sidecar or speaker-analysis job. Disabling
+periodic checkpoints does not suppress final document processing on recording stop.
+
+Result matches settings_get. There is no Group Actor execution path. Startup
+retires obsolete secretary Actors through the existing stop/remove lifecycle
+before restoring Group runtimes. Failed cleanup retains its recovery state;
+obsolete Actors cannot start. Documents, transcripts and unrelated Actors are
+preserved. Old input without an accepted fixed target is not automatically replayed.
+Startup skips registry entries whose Group file no longer exists without editing
+the registry. The retirement scan reads only Actor identities; unrelated Runtime
+configuration (including a removed Runtime) MUST NOT block the global service.
+Full Group configuration is required only when an obsolete Actor needs cleanup.
+Unreadable Actor identities, invalid configuration needed for cleanup, and
+unresolved resource cleanup remain startup failures; they MUST NOT be treated as
+missing Groups. The owner is published only after reconciliation and cleanup.
+
+#### `voice_secretary_tasks`
+
+Args: `{ group_id: string, by?: "user" }`. Read-only result:
+`{ group_id: string, global_owner: boolean, configured: boolean, ready: boolean,
+readiness_code: SecretaryReadinessCode | null, readiness_error: string | null, tasks: SecretaryTask[],
+deferred_sources: number, held_sources: number, invalid_sources: number,
+unprocessed_document_sources: number }`.
+Unresolved tasks first, followed by up to 12 recent terminal records for the requested Group; no other Group data or task grant.
+A latest task whose result has not been projected is unresolved even after its
+execution and cleanup finish. It remains visible until projection succeeds or an
+explicit continuation supersedes it; read requests never perform that projection.
+The same nonsecret `readiness_error` is included in `assistant.health.secretary`
+and the settings read. An unavailable owner can have no tasks; that empty list
+MUST NOT conceal the readiness failure. Reads never start or repair the owner.
+When initialization fails on an unreadable task record, these reads MUST retain
+the owner's safe diagnostic rather than reread and expose the malformed record.
+Startup failure diagnostics survive in the daemon's owner state and identify the
+stage and affected Group/task. They are bounded to 1600 characters and expose
+error categories and parser locations, never raw configuration values. The same
+cause is returned when saved input cannot be queued. A successful explicit start
+replaces the failure; no terminal log or polling-triggered recovery is required.
+A task has immutable `target` (Group, scope, kind and document/request/composer
+identity), `task_id`, timestamps, `source_count`, `preview`, `phase`,
+`cleanup_confirmed`, optional `receipt`, diagnostics, projection error,
+`previous_task_id`, `superseded_by`, candidate availability and forwarding receipt.
+`preview` is a bounded user-input summary (at most 240 Unicode characters),
+not the model instruction envelope. It survives task artifact retirement; missing
+original text is shown as an unnamed task rather than parsed from instructions.
+`projected_at` records successful synchronization into Group results, not browser
+application. Prompt tasks MAY expose `prompt_draft_status` (`pending`, `applied`,
+`dismissed`, `stale`, `no_change`) from the canonical draft only when its
+`secretary_task_id` matches this task. An absent acknowledgment MUST NOT be
+presented as an applied draft. These read projections never start work.
+An executing task MAY also expose `execution: { generation, runtime,
+native_terminal, progress, activity }`. This is a live owner snapshot, not a task
+grant or resumable session. `progress` is bounded to 8192 UTF-8 bytes and contains
+provider message output; `activity` is a bounded tool title without raw arguments
+or results. Both redact the session grant and configured private environment values.
+Progress redaction MUST span streaming delta boundaries before publishing a
+snapshot. A trailing fragment that could still become a private value is withheld
+until subsequent output or a complete message resolves it; incomplete raw tails
+are never included in task or shared-runtime reads.
+Reads MUST NOT open a native terminal or change task/provider lifetime. Terminal
+console output and progress are observations, never a business completion receipt.
+Optional `cancellation_reason` distinguishes `user`, `shutdown` and `group_deleted`;
+`recovery_attempts` records bounded automatic document recovery. Cancelled document
+sources remain visible as unprocessed, never silently considered committed.
+Phases: `queued`, `starting`, `running`, `done`, `needs_user`, `conflict`,
+`failed`, `cancelled`, `unconfirmed`.
+Blocking Runtime permission requests and user interactions, including normalized
+ACP notifications without a provider request ID, settle as `needs_user` with a
+bounded, redacted explanation. The owner does not approve them and closes the resident process before releasing
+the execution position. A normal model-submitted clarification followed by a confirmed
+turn end keeps the resident available for the next task. An existing terminal
+business receipt is preserved; further information uses the ordinary retry path.
+
+#### `voice_secretary_runtime`
+
+User-only read of the shared Secretary session. Args: `{ by?: "user" }`.
+Result: `{ configured, ready, readiness_code, readiness_error, phase, generation?, runtime?,
+native_terminal?, manual_turn?, task?, group_title?, progress?, activity?, diagnostic?,
+process_recovery_pending: boolean }`. Phases: `not_started`, `starting`, `working`,
+`ready`, `stopping`, `disconnected`, `unavailable`. `task` is the current or most
+recent task snapshot; `phase="ready"` means the process remains available, not that
+the last result has been applied. The separate `ready` boolean reports host admission
+readiness as defined above. A configured healthy owner may report `ready=true` with
+`phase="not_started"`; an existing process may remain visible while a changed
+configuration prevents new admission. Closing owners report `phase="stopping"`. This global observation can include another Group,
+so the Web endpoint `/api/v1/voice-secretary/runtime` is administrator-only.
+Reads never start a provider, open its terminal, or replay work.
+`process_recovery_pending` reports only the daemon's owned-process guard; it
+does not summarize independent Voice, lease, task or reset cleanup gates.
+Native turn lifecycle is observed for the whole resident lifetime, including when
+the panel is closed. A manual terminal turn reports `working`, `manual_turn=true`
+and no borrowed last-task/Group target. Queued tasks wait for its confirmed end.
+Losing lifecycle observation invalidates the resident instead of guessing idle.
+
+#### `voice_secretary_runtime_reset`
+
+User-only mutation: `{ generation: string, by?: "user" }`. Rejects stale generations
+and any active admission/turn, including manual terminal turns. Result: `{ resetting: true }`. The owner closes the
+idle session and its native viewer, discards shared model context, and starts a
+fresh session only when another task arrives. Durable sources/results are retained.
+Web uses `POST /api/v1/voice-secretary/runtime/reset`.
+
+#### `voice_secretary_terminal_attach` (streaming upgrade)
+
+Args: `{ generation: string, by?: "user", since?: number,
+bootstrap?: "snapshot_v1", cols?: number, rows?: number,
+mode?: "control" | "viewer", takeover?: boolean }`.
+Explicit administrator attachment to the current global Secretary session,
+including between tasks. Group/task IDs do not select a different session.
+The owner validates the exact live generation and available native TUI. ACP-only,
+disconnected or replaced sessions cannot be attached. This MAY start a native
+viewer for the existing session; it MUST NOT start a provider or model turn.
+Web uses `/api/v1/voice-secretary/term` in interactive mode, with administrator
+checks on connection and throughout the stream.
+
+Framing, replay/snapshot and output acknowledgments follow `term_attach`.
+`mode` defaults to `control`; writer ownership and optional takeover follow
+`term_attach`. Native keyboard/mouse input is forwarded only by the current writer;
+viewer attachments remain read-only. Ownership changes are reflected in the stream.
+Manual input creates no Secretary task or target association. Task submission and
+commit checks keep their existing immutable destinations.
+Ordinary task completion keeps the viewer and provider alive. Closing the panel
+only detaches its browser. Cancellation, unresolved turn termination, configuration
+replacement, explicit reset or daemon shutdown owns viewer/provider cleanup.
+Cleanup failure retains ownership and blocks further admission.
+
+#### `voice_secretary_terminal_resize`
+
+Args: `{ generation: string, attachment_id: number, by?: "user", cols: number, rows: number }`.
+User-only layout mutation for the current writer of the same live native terminal. Both dimensions are
+integers (`cols`: 10–4096; `rows`: 2–4096). Result: `{ resized: boolean }`.
+No task, provider start or terminal input authority is granted.
+
+#### `voice_secretary_task_cancel`
+
+Args: `{ group_id: string, task_id: string, by?: "user" }`. User-only, fixed Group.
+Cancels a queued or executing task, revokes its capability before cleanup, and
+retains the original source. Admission waits are interruptible. A completed
+business receipt remains valid if cancellation races after its commit. Recording,
+other tasks and the Group lifecycle are unaffected. Cleanup must be confirmed
+before releasing that execution position.
+
+#### `voice_secretary_task_retry`
+
+Args: `{ group_id: string, task_id: string, by?: "user", followup?: string,
+confirm_unconfirmed?: boolean }`. Explicit user action after confirmed cleanup.
+`needs_user` requires nonempty information (up to 8,000 characters);
+`unconfirmed` requires acknowledgement that the previous work may have run.
+Creates one distinct successor, preserving the original receipt/candidate and
+fixed target. The shared session receives the preceding clarification question and
+all confirmed follow-up answers for this request (up to 32,000 accumulated
+characters), so short answers retain their meaning. Repeating the same action
+returns that successor; changed information is rejected instead of being silently
+ignored. A `done` task
+with a projection error only reprojects its saved receipt; it does not run a model.
+A removed/archived target or replaced composer/request must not be resurrected.
+
+#### `voice_secretary_task_candidate`
+
+Args: `{ group_id: string, task_id: string, by?: "user" }`. Read-only, fixed Group.
+Returns a retained terminal document candidate after process cleanup, with its
+target and base digest. It does not apply or merge it; the user reviews and copies
+changes through the ordinary document editor. No other task files are exposed.
+
+#### `voice_secretary_task_handoff`
+
+Args: `{ group_id: string, task_id: string, by?: "user" }`. User-only confirmation
+of an Ask receipt's proposed message to one current peer in the original Group.
+Uses the existing ledger notification/Actor delivery path, records `by=user`
+and the original scope/task ID, and deduplicates from its ledger receipt.
+The model cannot send messages or choose a different Group through this operation.
+
+#### `voice_secretary_task`
+
+Internal stdio operation. The MCP broker injects the resident session's private
+grant; EVERY call MUST include `task_id`, exactly matching the current host turn.
+The owner binds that ID to the accepted task. A missing, stale, completed or
+cancelled ID is rejected, including after the same session starts another task.
+Caller arguments cannot choose Group, scope, Actor or the original commit target. Scope-relative read paths do not change that target. The grant is
+never in tool schemas, command lines, task records or diagnostics. Claude Agent
+View receives its grant through the existing per-job private settings env because
+its supervisor filters caller environment. The owner deletes that private launch
+file after cleanup (or failed launch); it is not a resumable Secretary receipt.
+`cccc_voice_secretary_task` is the only tool exposed to this process. Other MCP
+profiles cannot acquire this tool by supplying arguments or capability activation.
+
+Actions: `context` reads the fixed packet and working-copy digest;
+`read(resource, path?, query?)` provides bounded current `messages`, the fixed
+reference `document`, or scope-relative `files`, `file` and literal `search`.
+The host fixes Group/scope from the grant, revalidates attachment/registration,
+uses the existing workspace boundary and excludes private/generated paths.
+Reads report freshness and truncation; they grant no native filesystem write
+or runtime-state access. An Ask may have a registered document reference and
+uses report, not commit. `task_kind: "ask"` on
+`assistant_voice_document_instruction` explicitly selects this behavior; omission
+preserves document editing for a nonempty document_path. A general Ask may use
+`trigger.current_document_path` as a read reference only when that active registered
+document belongs to the accepted scope; an old visible reference cannot redirect
+the request to another scope. An explicit document question uses that document's
+registered scope and retains its read-only answer channel.
+
+`commit(base_version)` submits only the current task's `working_document` from context;
+`report(status, reply_text, source_summary?, checked_at?, source_urls?,
+handoff_target?, handoff_text?)` terminates Ask with `done`, or any task with
+`needs_user`/`failed`; `draft(draft_text?, no_op?)` terminates Prompt refinement.
+Replies are limited to 4,000 characters, drafts to 32,000, and sources to 12 HTTP
+URLs. A handoff is a proposal only; the user confirms sending it.
+Group guidance and ASR/quoted source are data, never authority to change the target.
+Repeated terminal calls while the grant is live return the same receipt.
+Cancellation, generation changes or process exit invalidate it.
+
+The daemon owns `CCCC_HOME/voice-secretary/jobs/<task_id>/task.json` and commit
+journals. Writable copies live in `voice-secretary/workspace/<task_id>/document.md`;
+context returns this path relative to the resident workspace. Existing retained
+working copies are moved without discarding candidates or receipts. Conflicting
+old/new copies stop migration rather than overwriting either.
+
+One on-demand resident provider process and model conversation serves all Groups.
+All task kinds run serially; long document turns may delay Ask/Prompt. Shared model
+history is intentional and is NOT a Group confidentiality boundary. Each turn
+supplies a fresh explicit TASK_ID and target, and reads authoritative current
+requirements through the task tool. Task routing, source identities, document
+versions and composer checks remain daemon-owned. Task and session lifetime are
+separate: `cleanup_confirmed` means task authority is revoked and its turn has
+settled, or the uncertain process was cleaned; it does not mean an idle resident
+was stopped. Business submission alone is insufficient to reuse a busy provider.
+A confirmed provider turn end permits reuse; uncertain admission/termination,
+cancellation and blocking approval close the session before subsequent work.
+The owner bounds post-submission completion waiting and does not replay uncertain
+Ask/Prompt work. No idle timer, pool, custom memory/summary store or per-Group
+resident is introduced. Config changes apply after the current turn; the stale
+resident is stopped. Daemon restart begins a new conversation on demand.
+
+Secretary sessions MUST NOT use/update Actor or Analyst resume receipts or origins.
+Claude Agent View retains its resolved home/private launch settings and is cleaned
+through its control service using the exact owned cwd. Unavailable control with
+remaining job records retains ownership and blocks admission; process-group
+recovery alone cannot confirm cleanup. Old per-task owners are cleaned before
+moving their directories. The current resident's owner is recovered even with no
+active task record.
+
+The session grant reaches MCP through environment or a pointer to the private
+`voice-secretary/session-grant` file, outside the writable workspace. The broker
+validates that exact path before reading it; the pointer is not a bearer credential.
+It is removed on session close and revoked on daemon startup. No active task means
+no task authority even while the session grant exists. Missing, malformed, outside
+or expired grants fail closed. Grants never appear in argv or tool arguments.
+The Secretary MCP profile MUST reject calls when the grant is missing, rather
+than falling back to user/Actor authority.
+The task MCP restriction controls CCCC authority, not arbitrary native IO. Codex sessions
+use Secretary-workspace filesystem permissions, no native-command networking, no
+inherited Apps/plugins/browser hooks/skills/memories, and only the task MCP.
+Model-side research may use permitted provider web search; this is not arbitrary
+local network access or access to connected user services.
+Claude Secretary sessions use strict MCP configuration. Copilot Secretary sessions
+inspect the CLI's configuration catalog, disable other named servers and built-in
+MCPs for that process, and inject the task server. Catalog failure stops startup
+before a prompt. These controls MUST NOT edit user MCP configuration or change
+Actor/Analyst launch behavior. Other native providers may inherit user MCP services;
+task instructions prohibit using them, without claiming a vendor sandbox.
+
+Global acceptance intent and its target/guidance are persisted with the canonical
+input before publishing a job. Capture success is independent of scheduling:
+unconfigured/full/unavailable execution retains the source and returns
+`secretary_processing_deferred: true`, rather than failing persisted transcription.
+Unconfigured inputs do not allocate jobs. Startup loads the task/source index once
+and reconstructs unclaimed sources in one pass; subsequent capacity/configuration
+changes drain those pending sources without rereading all history. Input
+with invalid task information is retained and counted separately; it MUST NOT
+prevent later valid input or other Groups from admission. Shared storage errors
+remain errors rather than silently discarding input. Explicitly held sources do
+not drain until released by a user action. Executing work
+without a terminal receipt becomes `unconfirmed`. Only ASR document batches
+whose original execution confirmed task-only native writes (no request_id), after confirmed cleanup and no prepared
+commit journal, may get one fresh attempt for conflict, shutdown or failed/
+unconfirmed execution. The new attempt snapshots the current document; it never
+applies a stale candidate. Recovered ASR sources precede newer queued document
+batches, preserving source chronology. User cancellations, removed targets, Ask/Prompt and
+prepared/uncertain commits are not automatically replayed. Unisolated execution is never automatically replayed, even if a subsequent
+Profile change selects Codex. Exhausted recovery
+remains visible and requires explicit user action. A prepared document commit is reconciled from its immutable
+candidate and digest without rerunning the model. Required owned-process
+reconciliation precedes capacity reuse. Reads/polling cannot trigger these actions.
+Deleting/resetting a Group cancels its queued tasks and revokes its active grants;
+provider cleanup remains owned by the task worker and cannot join while the Group
+mutation permit is held. Once cleanup is confirmed, deleted Groups lose their
+owned task/source directories; startup completes interrupted retirement. Completed
+projected tasks retire working/prepared copies and compact their input previews,
+while retaining source IDs and business receipts for durable deduplication.
+Unresolved conflict, needs_user, unconfirmed or cleanup-pending artifacts are
+retained. Once a confirmed successor covers the original target and sources, its
+obsolete predecessors also retire their copies while retaining diagnostic receipts.
+Other Groups and ordinary stop/start are unaffected.
+Projected results carry the task's original `scope_key` and `secretary_task_id`;
+terminal projection is idempotent, including after interrupted receipt bookkeeping.
+
+Voice configuration uses one Web editor at **Settings → This instance → Voice**,
+with two feature tabs: **Voice Secretary** and **Voice conversation**. Secretary contains
+Runtime/model, capture/recognition and document-processing sections. Both services
+provide direct Runtime configuration or a linked Profile using the same form,
+while preserving independent credentials, contexts and results. Workspaces open
+the corresponding tab directly and return without starting/stopping calls or tasks.
+Analyst drafts survive closing settings; one call controller owns the call.
+Group settings contain no Voice page or writable assistant configuration. Group
+workflow reads project the nonsecret global defaults; Group documents, transcripts
+and requests retain their original Group/scope. Specific work requirements belong
+to the submitted task. Old Actor HELP instructions are not imported.
+
+#### Shared recognition defaults and task input
 
 `browser_asr` means browser-managed speech recognition and does not guarantee
 browser-device-local model execution. `assistant_service_local_asr` means ASR
@@ -1977,26 +2653,17 @@ selects a daemon-managed local ASR model for on-demand install/use.
 `recognition_language="auto"` means the browser/client chooses the best language
 hint; otherwise callers should pass a BCP-47-like tag such as `zh-CN`, `en-US`,
 or `ja-JP`. `auto_document_enabled=true` is the default path: stable transcript
-segments are compacted into the Voice Secretary input stream, then the
-`voice-secretary` runtime actor pulls unread input and edits the working markdown
-document directly in the repository. `auto_document_quiet_ms` is the client
-silence window before flushing speech into that semantic lane;
-`auto_document_min_chars` and `auto_document_max_window_seconds` are daemon-side
-guardrails that keep long continuous speech from waiting forever for a pause.
-The runtime actor should treat transcript as source material for
-evidence-bounded reconstruction: it may use transcript, group context, existing
-documents, common knowledge, and verified lightweight research to produce a
-coherent artifact, but must not fabricate facts and should compactly mark
-low-confidence entities, numbers, quotations, or dates.
-The document loop should be incremental and non-lossy: each unread input batch
-should be organized into the best current document structure while preserving
-useful concrete details, and idle review should refine/reorganize/enrich rather
-than replace detail-rich material with a short executive summary.
-The daemon does not track per-job completion: it stores an input cursor, nudges
-the actor when unread input exists, and sends idle-review nudges only on
-recording stop or after enough new transcript input plus the group cooldown
-(default: stop flush immediately, otherwise 8 new transcript input flushes and
-at least 5 minutes since the previous idle review).
+segments are compacted into the Voice Secretary input stream and accepted as
+fixed-target tasks. A document task incrementally edits a private working copy;
+only the daemon commits the original after checking its registration, original
+scope and base content digest. A conflict preserves the candidate and does not
+merge or overwrite newer user work. Document/Ask/Prompt completion requires a
+business submission; provider turn completion, input read/delivery cursors and
+console text are not business receipts.
+The document loop remains incremental and non-lossy: preserve useful concrete
+details, uncertainty, entities, numbers and conditions instead of replacing a
+detailed record with a short summary. Structured provider events determine
+execution/cleanup, not TUI idle or elapsed-time guesses.
 If the group has an active workspace scope,
 `document_default_dir` (default `docs/voice-secretary`) is
 resolved under that workspace; otherwise the daemon falls back to CCCC_HOME.
@@ -2005,13 +2672,8 @@ Raw transcript/source/input sidecars stay in CCCC_HOME.
 
 The semantic input authority is
 `$CCCC_HOME/voice-secretary/<group_id>/input_events.jsonl`; its daemon-owned
-read/delivery cursor and retry timing live in the sibling `input_state.json`.
-Implementations MUST NOT maintain an engine-private sequence or cursor. The
-former Rust `inputs.jsonl` and `groups/<group_id>/state/assistants.json:rust_state.input_*`
-shape is a one-way migration source: canonical input/state commit first, then
-the legacy log and cursor fields are retired. If independently written streams
-must be merged, migration may conservatively replay an already-read item but
-MUST NOT advance across or skip an unread item.
+source sequence lives in the sibling `input_state.json`. Fixed task/source receipts
+own deduplication and completion; no Actor read/delivery cursor is maintained.
 
 Result:
 ```ts
@@ -2023,9 +2685,33 @@ Result:
 Download and verify a daemon-managed local Voice Secretary ASR model into
 CCCC-owned cache storage. Built-in releases include a default model manifest;
 tests and local development may add a local overlay at
-`CCCC_HOME/config/voice-models.json`. Each artifact entry must include a fixed
-URL and `sha256`. Reinstalling/updating a model downloads into staging storage
-and replaces the active model only after all artifacts verify successfully.
+`CCCC_HOME/config/voice-models.json`. An overlay path that exists but cannot be
+read, including a dangling link, fails the catalog instead of falling back to
+the built-in manifest. Each artifact entry must include a fixed URL and
+`sha256`. Each install downloads and verifies every artifact into
+staging storage, unpacks archives there and deletes each one unless the model
+definition requires that file, renames the result to a
+new version directory, and then switches to it with one atomic write of the
+model's install state. Until that write the installed version stays current: an
+update that fails before it keeps that version's files and records the failure
+in `last_update_error` if that state write succeeds (otherwise it is only
+logged), and an interrupted one keeps them too. Either way the
+model reports `ready` while that version has every file the current model
+definition requires. When the switching write fails, the state is read back: a
+state naming the new version counts as switched and one naming the installed
+version as not switched; any other result, including a state that cannot be
+read, leaves the state unchanged and keeps both versions. `install_dir` names the current version's
+directory. A version that is no longer current is deleted at a later cleanup
+(when the next install starts, after an install switches, or when the Web host
+starts) once no recognition that opened it is still running. Removing a model
+deletes all of its versions at once, including one still in use. An install
+state that exists but cannot be read or parsed, including a dangling link, or
+whose `payload_dir` is not a valid version directory name,
+reports `status: "failed"` with error code `voice_model_state_unreadable`, and an
+install fails with the same code instead of replacing it. A model ID starts with
+a lowercase letter or digit, so a model directory cannot be `.`, `..` or one of
+the cache's own entries, and does not end with `.`, which Windows drops from a
+directory name.
 
 Args:
 ```ts
@@ -2048,6 +2734,7 @@ Result:
     installed_at?: string
     updated_at?: string
     error?: Record<string, unknown>
+    last_update_error?: Record<string, unknown>
     update_available?: boolean
     installed_manifest_sha256?: string
   }
@@ -2073,8 +2760,8 @@ Content-Type: audio/pcm | audio/wav | application/octet-stream
 ```
 
 Preconditions:
-- `voice_secretary` is enabled for the group.
-- `recognition_backend` is `assistant_service_local_asr`.
+- The Group exists. No per-Group Secretary enable setting or model Runtime is required.
+- The global `recognition_backend` is `assistant_service_local_asr`.
 - The selected offline `service_model_id` is installed and its manifest exposes
   a supported sherpa-onnx model configuration. HTTP transcription accepts mono
   PCM16 or WAV up to 100 MiB. The HTTP body and WebSocket PCM16 frames are
@@ -2240,23 +2927,24 @@ updates the bounded shared session projection in
 to `$CCCC_HOME/voice-secretary/<group_id>/documents/<document_id>/transcript.jsonl`, and
 by default appends a semantic input event for the current Voice Secretary
 markdown working document. The working document is a user-facing repo artifact;
-raw transcript/source/revision sidecars remain in CCCC_HOME. When new input is
-available, the daemon emits a targeted `system.notify` to `voice-secretary` with
-`context.kind="voice_secretary_input"` and a daemon-owned `input_envelope`. The
-envelope is the canonical work item delivered to every actor runtime;
-`assistant_voice_document_input_read` /
-`cccc_voice_secretary_document(action="read_new_input")` remains a legacy,
-recovery, and debugging entrypoint. Input append is durable before runtime actor
-wake-up; if wake-up fails, the input remains readable and the API reports the
-best-effort wake error separately. If wake-up succeeds after the notify was
-created while the actor was stopped, the daemon re-dispatches that same notify
-through the actor's normal runtime input so lazy startup instructions are included.
+raw transcript/source/revision sidecars remain in CCCC_HOME. Global input is
+accepted into a fixed-target task after canonical input and ledger persistence.
+An unavailable execution owner leaves the source intact for daemon-startup
+reconciliation and reports `secretary_processing_deferred=true`; capture stays
+successful after source persistence. Submission cannot create a second manager
+without daemon lifecycle locks. No Actor notification or legacy read tool is used.
 
 The group operation validates or creates the Markdown target before committing
 transcript/session/input state. Retrying the same `session_id` and `segment_id`
 is idempotent for the stable session, document transcript, and semantic input
 records. Document paths must be repository-relative `.md` paths and must not
 traverse symbolic links.
+
+An omitted or blank `segment_id` requests a generated ID. The Web transcript
+endpoint also generates a `session_id` when omitted or blank; direct daemon
+calls require a nonblank session ID. Producers that need retry idempotency MUST
+retain both IDs. Empty text is accepted only with `flush=true` and creates no
+semantic input or Secretary task. Nonblank IDs must remain safe path components.
 
 Idempotency is checked against the complete semantic input log, not the bounded
 session display window. If the input log was committed but its ledger input or
@@ -2356,12 +3044,9 @@ Result:
   document_updated: boolean
   input_event?: Record<string, unknown>
   input_event_created: boolean
-  input_notify_emitted: boolean
-  input_notify_error?: string
-  actor_woken?: boolean
-  actor_wake_error?: string
-  actor_notify_delivered?: boolean
-  actor_notify_delivery_error?: string
+  secretary_task_id?: string
+  secretary_processing_deferred: boolean
+  secretary_processing_error?: string
 }
 ```
 
@@ -2436,11 +3121,13 @@ Result:
 #### `assistant_voice_document_list`
 
 List active Voice Secretary working documents for the group. Archived documents
-are excluded unless `include_archived=true`.
+are excluded unless `include_archived=true`. With `document_path`, the list holds
+at most that document, read from its current storage target and carrying
+`content_target_id` (see `assistant_voice_document_save`).
 
 Args:
 ```ts
-{ group_id: string; include_archived?: boolean }
+{ group_id: string; document_path?: string; include_archived?: boolean }
 ```
 
 Result:
@@ -2457,51 +3144,42 @@ Result:
 }
 ```
 
-#### `assistant_voice_document_input_read`
-
-Read all unread Voice Secretary input events since the actor's last successful
-read. Reading advances the daemon-managed cursor immediately; the actor does not
-see or manage cursor/sequence values. This intentionally avoids a separate
-job-completion protocol. If the actor crashes after reading, the raw input log
-remains in CCCC_HOME for debugging/replay, but the normal live cursor has moved.
-
-Args:
-```ts
-{ group_id: string; by?: "voice-secretary" | "assistant:voice_secretary" }
-```
-
-Result:
-```ts
-{
-  group_id: string
-  item_count: number
-  document_count: number
-  input_text: string
-  input_batches: Array<{
-    document_path: string
-    filename?: string
-    title?: string
-    item_count: number
-    kinds?: string[]
-    intent_hints?: string[]
-    languages?: string[]
-    sources?: string[]
-  }>
-  documents: Array<Record<string, unknown>>
-  has_new_input: boolean
-}
-```
-
 #### `assistant_voice_document_save`
 
 Save or create a Voice Secretary working markdown document. This is the daemon
-path used by Web when the user edits the document surface. The `voice-secretary`
-actor should normally edit repository-backed markdown directly at
-`document_path`; the MCP document tool intentionally has no save action.
+path used by Web when the user edits the document surface. Global Secretary
+processes edit only their task working copy and submit through
+`voice_secretary_task(action="commit")`; they cannot call this general save operation.
 When `content` is omitted for an unindexed path, an implementation MUST NOT
 rewrite an existing repository file: it MAY read the file into the document
 index or reject the request. An empty file MAY be created only when the target
 does not already exist.
+
+The document returned by a save, or by `assistant_voice_document_list` with a
+specific `document_path`, contains `content_target_id`. It is an opaque
+identifier for the resolved storage path, computed at response time; it is not
+an authorization credential. It may change when a Group's active scope or its
+local directory changes, even if the `scope_key` and file contents remain
+identical. The path-specific list response reads the returned content and
+digest from that target together. If the file is missing, it omits content,
+content digest and target id rather than projecting a stale indexed body.
+Broad document lists and assistant state do not supply a target id suitable for
+conditional saving; clients read the selected document first.
+
+If either `expected_content_sha256` or `expected_target_id` is supplied, both
+and `content` are required. They MUST be the 64-character hex values returned
+with the same loaded document content. While holding the Group mutation permit,
+the daemon compares the target to the resolved path and the digest to the
+current file bytes before replacement. A changed target MUST leave the file
+unchanged and return `voice_document_target_conflict`. For an unchanged target,
+a content mismatch or missing file MUST leave the file unchanged and return
+`voice_document_conflict` with `document_path` and `current_sha256` (null when
+missing). A caller that explicitly chooses to replace the observed version MAY
+retry with that returned digest and the same target id; another change causes
+another conflict. Calls without either field retain the legacy unconditional
+behavior and do not obtain this protection. This serializes participating writes
+within the same daemon and Group, not writes from independent processes or other
+Groups that do not share that permit.
 
 Args:
 ```ts
@@ -2512,6 +3190,8 @@ Args:
   workspace_path?: string
   title?: string
   content?: string
+  expected_content_sha256?: string
+  expected_target_id?: string
   status?: "active" | "archived"
   create_new?: boolean
 }
@@ -2525,19 +3205,21 @@ Result:
 #### `assistant_voice_document_instruction`
 
 Append a user instruction for one active working document into the same Voice
-Secretary input stream used for ASR transcript. The daemon emits a targeted
-`voice_secretary_input` notify and the runtime actor works from the inline
-`input_envelope`. The daemon does not directly append the instruction to a
-document. Cross-peer handoff is intentionally handled only by
-`assistant_voice_request`, and only when the Voice Secretary decides the work
-belongs to foreman or one concrete peer.
+Secretary input stream used for ASR transcript. Global work receives a
+document-bound task with a host-prepared working copy; the instruction is not
+directly appended to the document. `task_kind="ask"` returns an answer without
+editing the referenced document; `task_kind="document"` requires an active
+registered `document_path`. Omission selects document work when a path is supplied,
+otherwise a general Ask. Cross-peer forwarding uses a reviewed Ask proposal and
+`voice_secretary_task_handoff`; the model cannot send it directly.
 
 Args:
 ```ts
 {
   group_id: string
   by?: string
-  document_path: string
+  document_path?: string
+  task_kind?: "ask" | "document"
   request_id?: string
   input_append_id?: string
   instruction?: string
@@ -2551,35 +3233,37 @@ Result:
 {
   group_id: string
   assistant?: Record<string, unknown>
-  document: Record<string, unknown>
+  document?: Record<string, unknown>
   request_id: string
   input_append_id?: string
   ask_request?: Record<string, unknown>
   input_event?: Record<string, unknown>
   input_event_created?: boolean
-  input_notify_emitted?: boolean
-  input_notify_error?: string
-  actor_woken?: boolean
-  actor_wake_error?: string
-  actor_notify_delivered?: boolean
-  actor_notify_delivery_error?: string
+  secretary_task_id?: string
+  secretary_processing_deferred: boolean
+  secretary_processing_error?: string
   event?: CCCSEventV1
 }
 ```
 
 `request_id` identifies the logical Ask request. `input_append_id` identifies
 one durable append attempt. A caller retrying an accepted append MUST reuse both
-values. The daemon MUST then return the existing input with
-`input_event_created=false` and MUST NOT append a second semantic input, request
-event, or notification. When either value is omitted, the daemon may generate
-it and no retry guarantee exists until the caller retains the returned values.
+returned values. When only a stable `input_append_id` is supplied, the daemon
+also derives a stable request identity for that append. The daemon MUST return
+the existing input with `input_event_created=false` and MUST NOT append a second
+semantic input, request event, or notification. With no `input_append_id`, an
+exact-append retry guarantee requires retaining the returned identifiers.
+Outstanding Ask records remain authoritative for accepted tasks and their
+explicit continuations. The 30-record history limit applies only to completed
+(`done`) requests; pending, working, failed and needs-user records MUST NOT be
+evicted by that limit.
 
 #### `assistant_voice_input_append`
 
 Append a general Voice Secretary Ask or create/update a composer refinement
-request. The daemon persists the request before emitting one targeted
-`voice_secretary_input` notification. This operation creates work for Voice
-Secretary; it does not create a prompt draft.
+request. The daemon persists the request and input before accepting one global
+task. This
+operation creates work for Voice Secretary; it does not create a prompt draft.
 
 Args:
 ```ts
@@ -2618,56 +3302,27 @@ Result:
   ask_request?: Record<string, unknown>
   input_event?: Record<string, unknown>
   input_event_created: boolean
-  input_notify_emitted: boolean
-  input_notify_error?: string
-  actor_woken?: boolean
-  actor_wake_error?: string
-  actor_notify_delivered?: boolean
-  actor_notify_delivery_error?: string
+  secretary_task_id?: string
+  secretary_processing_deferred: boolean
+  secretary_processing_error?: string
   event?: CCCSEventV1
 }
 ```
 
-#### `assistant_voice_instruction_feedback`
-
-Report progress or the terminal result for an existing Voice Secretary Ask.
-Only the `voice-secretary` actor/principal may submit feedback.
-
-Args:
-```ts
-{
-  group_id: string
-  by?: "voice-secretary" | "assistant:voice_secretary"
-  request_id: string
-  status: "working" | "done" | "needs_user" | "failed"
-  reply_text?: string
-  result_text?: string
-  message?: string
-  document_path?: string
-  artifact_paths?: string[]
-  source_summary?: string
-  checked_at?: string
-  source_urls?: string[]
-}
-```
-
-Result:
-```ts
-{
-  group_id: string
-  assistant: Record<string, unknown>
-  ask_request: Record<string, unknown>
-  event: CCCSEventV1
-}
-```
+`secretary_processing_deferred=true` means the source was saved but execution
+has not started. Clients MUST show the saved/deferred outcome and any
+`secretary_processing_error` instead of claiming active refinement. They retain
+the request identity for a later admitted task or matching draft; status reads
+MUST NOT resubmit the input.
 
 #### `assistant_voice_ask_requests_clear`
 
 Hide Ask history from the current projection. `keep_active=true` preserves
 `pending` and `working` requests in the visible result. Clearing is a display
-operation, not cancellation: the daemon MUST retain enough bounded state to
-accept later feedback for a cleared in-flight request. User-visible feedback
-may make that request visible again.
+operation, not cancellation: the daemon MUST retain the request identity and state
+needed to accept later feedback for a cleared in-flight request, regardless of
+subsequent history growth. User-visible feedback may make that request visible
+again.
 
 Args:
 ```ts
@@ -2687,32 +3342,6 @@ Result:
 }
 ```
 
-#### `assistant_voice_prompt_draft_submit`
-
-Submit the Voice Secretary result for an existing prompt refinement request.
-Only `voice-secretary` / `assistant:voice_secretary` may call this operation.
-The daemon inherits a missing operation and composer snapshot hash from the
-request, stores the result as `pending`, and emits
-`assistant.voice.prompt_draft`. `no_op=true` stores `no_change` with empty draft
-text. Submission MUST NOT append another semantic input or emit another
-`voice_secretary_input` notification.
-
-Args:
-```ts
-{
-  group_id: string
-  by?: "voice-secretary" | "assistant:voice_secretary"
-  request_id: string
-  draft_text?: string
-  no_op?: boolean
-  summary?: string
-  operation?: string
-  composer_snapshot_hash?: string
-}
-```
-
-`draft_text` is required unless `no_op=true`.
-
 #### `assistant_voice_prompt_draft_ack`
 
 Mark a submitted draft as `applied`, `dismissed`, or `stale`. Acknowledgement
@@ -2725,42 +3354,6 @@ Args:
   group_id: string
   request_id: string
   status: "applied" | "dismissed" | "stale"
-}
-```
-
-#### `assistant_voice_request`
-
-Send a structured Voice Secretary action request to `@foreman` or one concrete
-actor without exposing normal `chat.message` send tools to the
-`voice-secretary` runtime actor. The daemon records an `assistant.voice.request`
-event and delivers a targeted `system.notify` with
-`context.kind="voice_secretary_action_request"`. This is the default path for
-spoken "please do X / ask Y to do X" content; ordinary memo/document updates
-MUST stay in the Voice Secretary document surface.
-
-Args:
-```ts
-{
-  group_id: string
-  by?: "voice-secretary" | "assistant:voice_secretary"
-  target?: "@foreman" | string   // one concrete actor id; no @all/user broadcast
-  request_text: string           // concise actionable handoff, not raw transcript
-  summary?: string
-  document_path?: string
-  artifact_paths?: string[]      // repo-relative produced docs/artifacts for user-visible links
-  source_event_id?: string
-  priority?: "low" | "normal" | "high" | "urgent"
-}
-```
-
-Result:
-```ts
-{
-  group_id: string
-  assistant: Record<string, unknown>
-  request: Record<string, unknown>
-  notify_event: CCCSEventV1
-  event: CCCSEventV1
 }
 ```
 
@@ -2861,22 +3454,6 @@ saves, transcript appends and archive requests and are not rediscovered as activ
 documents. The Web consumer clears quoted references and capture targets only
 after a successful response.
 
-#### `assistant_status_update`
-
-Update lifecycle/health for a built-in assistant service. The assistant principal
-(`assistant:<assistant_id>`) may update its own status; users/foremen may also
-update it for control-plane repair.
-
-Args:
-```ts
-{ group_id: string; by?: string; assistant_id: "voice_secretary"; lifecycle: "disabled" | "idle" | "running" | "working" | "waiting" | "failed"; health?: Record<string, unknown> }
-```
-
-Result:
-```ts
-{ group_id: string; assistant: Record<string, unknown>; event: CCCSEventV1 }
-```
-
 #### `group_automation_update`
 
 Replace group automation rules + snippets (scheduled `system.notify`).
@@ -2956,9 +3533,47 @@ Notes:
 - Rule IDs are non-empty and unique within a ruleset. Unknown fields and invalid
   trigger/action combinations are rejected instead of being persisted for one
   engine to ignore later.
-- `group_state` and `actor_control` actions require an `at` trigger. Actor
-  callers may manage only `notify` rules; a peer may mutate only its own
-  personal notification rule targeting itself.
+- Cron day-of-week numbers use POSIX numbering: `0` and `7` mean Sunday,
+  `1` means Monday, and `6` means Saturday. Names, lists, ranges and steps are
+  accepted; a numeric bare step such as `1/2` expands through `7`.
+- New or changed cron expressions must parse before saving. An existing rule's
+  unchanged expression may be preserved even if invalid, so it does not block
+  edits to other rules; an invalid expression does not fire.
+- `group_state` and `actor_control` actions require an `at` trigger.
+- Writes (`group_automation_update`, `group_automation_manage` and
+  `group_automation_reset_baseline`) are authorized by their effect. `user` and
+  `system` may change any rule. An Actor caller acts in its effective role in
+  the Group. A foreman may change every `notify` rule. A peer may change only
+  its own reminders: `notify` rules with `scope: "personal"` and
+  `owner_actor_id` and `to` set to itself. Every rule that a request would add,
+  change or remove must be one the caller may change, in both its saved and its
+  submitted form, so a rule cannot be converted, disabled or dropped past the
+  check. The rules the caller may not change keep their relative order, because
+  rules due at the same time run in array order. Only `user`, `system` and the
+  foreman may change `snippets` or the `standup` override. A refused request
+  returns `permission_denied` and writes nothing. To a peer, the error names
+  only rules it can see and counts the others.
+- For a peer, a submitted rule without `scope` is `personal`, and a personal
+  rule without `owner_actor_id` or `to` is the peer's own. Values it sends are
+  kept and authorized as sent.
+- A Group that has never saved a rules list uses the built-in baseline, a
+  disabled `standup` rule. Writes start from the rules in force, so the
+  baseline stays listed after the first change. A saved empty list stays
+  empty.
+- `group_automation_update` and `replace_all_rules` save `snippets` the same
+  way. A `standup` text equal to the built-in one is not stored. A different
+  one becomes the `standup` override, which takes effect when the rule fires.
+- A saved `rules`, `snippets` or `snippet_overrides` value of the wrong type is
+  not treated as unsaved, and a saved rule that is not an object, has no id or
+  repeats another rule's id is not dropped. `group_automation_manage`, and the
+  writes of Actor callers, return `group_automation_state_invalid` instead of
+  replacing them. `user` and `system` can replace them with
+  `group_automation_update` or `group_automation_reset_baseline`.
+  `group_automation_state` reads a value of the wrong type as the baseline.
+- Rule ids are compared exactly as saved, surrounding spaces included, as the
+  scheduler keys each rule's state by its id. Only a blank id is refused.
+- `set_rule_enabled` requires `enabled` to be `true` or `false`. Any other
+  value, or none, fails the request with `invalid_request` and saves nothing.
 - The first tick of a newly enabled interval rule establishes its clock and
   does not fire immediately. A paused or stopped group runs no automation. An
   idle group runs user rules but suppresses the built-in `standup` rule.
@@ -3034,8 +3649,9 @@ Result:
 
 #### `group_start`
 
-Resume the Group and run every actor whose desired `enabled` state is true.
-Actors explicitly disabled through `actor_stop` remain disabled.
+Resume the Group and attempt to start actors whose desired `enabled` state is
+true. Actors explicitly disabled through `actor_stop` remain disabled; an
+automatic start skips an actor whose runtime confirmation is paused.
 
 Args:
 ```ts
@@ -3044,8 +3660,12 @@ Args:
 
 Result:
 ```ts
-{ group_id: string; started: string[]; event: CCCSEventV1 }
+{ group: Record<string, unknown>; running: true; runtimes: Array<Record<string, unknown>> }
 ```
+
+`runtimes` contains the lifecycle status records returned by the underlying
+runtime operations; it is not an exhaustive list of the Group's actors. The
+`group.start` event is appended to the ledger, not returned in this result.
 
 #### `group_stop`
 
@@ -3059,8 +3679,12 @@ Args:
 
 Result:
 ```ts
-{ group_id: string; stopped: string[]; event: CCCSEventV1 }
+{ group: Record<string, unknown>; running: false; runtimes: Array<Record<string, unknown>> }
 ```
+
+`runtimes` contains the lifecycle status records returned by the underlying
+runtime operations; it is not an exhaustive list of the Group's actors. The
+`group.stop` event is appended to the ledger, not returned in this result.
 
 ### 8.4 Actors
 
@@ -3073,8 +3697,35 @@ Args:
 
 Result:
 ```ts
-{ actors: Array<Record<string, unknown>> } // includes at least id/title/runtime/enabled + role/running
+{ actors: Array<Record<string, unknown>> } // includes at least id/title/runtime/enabled + role/running/effective_scope
 ```
+
+Each Actor row includes the observed Boolean `runtime_confirmation_required`.
+For a managed Claude Actor it is true while a recovery-owned confirmation PTY
+is running without a ready managed session. It is a live projection, not Actor
+configuration, consent, provider readiness or task-delivery acceptance. A false
+value alone MUST NOT be interpreted as approval. Reads MUST NOT start a Runtime.
+
+Each row's `effective_scope` is the `group_show.effective_scope` projection
+evaluated for that row's Actor rather than the caller, with the same shape and
+`{}` when unavailable. For a running managed owner, `path` is its immutable
+launch workspace, not an observation of the process's current working directory
+or of directories its child processes use. Otherwise it is the Actor's
+next-start configuration; for a Native Actor it describes CCCC tools only, not
+the original application's working directory. It is an observation for display
+and external tooling: it MUST NOT be persisted, grant file or tool authority, or
+start runtime work.
+
+Running terminal Actors also expose `pty_last_output_at: string | null` and
+`pty_quiet_seconds: number | null` as diagnostic observations. The timestamp is
+RFC 3339 UTC; the whole-second quiet duration uses a monotonic clock. Both MUST
+be null before that terminal session's first output, after stop, and for a
+non-terminal runner. A new terminal session MUST start without an observation;
+retained transcript history MUST NOT supply one. These values MUST NOT establish
+working/idle state, task completion or delivery acceptance. Managed-session
+state keeps precedence, and reading these fields MUST NOT start runtime work.
+If transcript access is busy, these optional observations MAY be null rather
+than waiting on transcript I/O; a later read can recover the same observation.
 
 #### `actor_add`
 
@@ -3084,7 +3735,9 @@ Args:
   group_id: string
   actor_id?: string
   title?: string
+  model_label?: string // optional operator-maintained declaration; at most 128 characters, no control characters
   runtime?: string
+  runtime_mode?: "default" | "acp" // optional headless ACP for Antigravity, Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid
   command?: string[]
   env?: Record<string, string>
   capability_autoload?: string[] // actor startup autoload capability ids
@@ -3101,12 +3754,16 @@ Notes:
 - `env_private` is restricted to `by="user"` and values are never returned.
 - If `env_private` is provided (even empty), it is treated as authoritative for this create: it clears any existing private keys for that actor_id, then sets the provided keys.
 - `profile_id` links the actor to a global Actor Profile and applies profile-controlled runtime fields + profile secrets.
+- `default_scope_key` is Actor-local next-start configuration, including for Profile-linked Actors. An empty value follows the Group active scope at startup; a nonempty value must resolve to an attached scope. A running managed owner retains its canonical launch workspace for tools, file sending, bootstrap and prompts until exit or explicit restart, including after saved backend changes, detach or an explicit same-key attachment rebind. Its existing runtime owner holds the snapshot; Group/Actor persistence and copies MUST NOT acquire live workspace authority. An invalid explicit selection MUST remain stored and unavailable after detach/normalization, not silently select another workspace. A live owner's missing root or mismatched generation MUST NOT fall back to saved configuration. Tools resolve the authenticated caller, not a target `actor_id` or caller-supplied identity override; human/no-Actor tools follow the Group active scope. Saving a selection does not restart a running Actor, change the Group active scope, or move an external native process's working directory.
+- MCP `cccc_bootstrap.session.active_scope` continues to describe the Group selection. `session.effective_scope` consumes the caller-scoped `group_show.effective_scope` projection, including `source: "runtime_launch"|"actor_default"|"group_active"`, or `{}` if unavailable. Native Actors without managed owners use CCCC tool configuration; an explicit Group scope change/rebind can change those tool roots without changing the original application's cwd. Neither this projection nor workspace fallback grants human/no-Actor callers access to the agent-only Inbox.
+- MCP `cccc_bootstrap.session.members` is a compact projection of the same authorized `actor_list` result already read by bootstrap: `{ actor_id, runtime, role, enabled, source_id? }[]`. `source_id` is present only for an external native membership. It MUST preserve that listing's Group boundary, internal-Actor visibility and effective roles, without exposing launch commands, environment, process details or credentials. It is a read-only membership snapshot, not receive/execution evidence or a grant of management authority. Ordinary member discovery and message addressing MUST NOT require enabling the Group runtime capability pack.
 - When `profile_id` is used, `env_private` is rejected (linked actor private env is profile-controlled).
 - The appended `actor.add` event starts that actor id's current generation. The daemon MUST initialize the new generation's read boundary at that append position, so events from before the add are not delivered as unread. Removing and later re-adding the same actor id starts a new generation at the later `actor.add` position.
 - Actor records also expose an opaque `generation` UUID for delayed remote recipient binding. Add assigns a fresh value, including when a supplied record came from an earlier Actor; update cannot overwrite it. Restart and ordinary edits preserve it. Existing records without this field use their original `created_at` identity (`legacy:<created_at>`) until they are recreated; browser ownership, pairing and tool routing MUST use that same identity and pairing MUST NOT assign a new generation after the browser opens. This does not replace the ledger-based inbox boundary above.
 - Multiple ChatGPT (`web_model`) and Grok Bot (`grok_web_model`) Actors MAY coexist, including linked Profiles and Group imports/resets. Runtime configuration does not grant connector authority. Conversation bindings MUST identify the exact Group, Actor and generation; copied/imported Actors MUST be unpaired.
+- `chatgpt_dots` is a headless event-driven Runtime sharing the `chatgpt_web` connector. One Dot binding per connector MAY authorize exactly one Group/Actor/generation. Profiles, copies and imports carry Runtime configuration, never that binding or cloud-task authority. It MUST NOT use browser message delivery or browser receipt verification. Its host conversation is paired explicitly during native task setup.
 - A new actor generation MUST NOT inherit Web Model delivery preferences or persisted runner/turn status left by an earlier generation with the same actor id.
-- For a Web Model actor, successful add MUST establish the current generation's missing browser target as canonical empty state. A legacy actor-scoped browser shadow MUST NOT populate the new generation merely because it uses the same actor id.
+- For a ChatGPT browser Actor, successful add MUST establish the current generation's missing browser target as canonical empty state. A legacy actor-scoped browser shadow MUST NOT populate the new generation merely because it uses the same actor id.
 - Adding an enabled actor to an `active` or `idle` group MAY start it immediately and transition the group's runtime to running. Adding one to a `paused` or `stopped` group MUST only persist the actor and MUST NOT change the group lifecycle state.
 - When immediate startup is attempted, startup capability baselines follow the same rules as `actor_start` below.
 
@@ -3136,14 +3793,21 @@ Args:
 ```
 
 Patch keys used by CCCC v0.4.x include:
-- Identity/UI: `title`
-- Runtime: `runtime`, `command`, `submit`
+- Identity/UI: `title`, `model_label` (optional operator-maintained declaration; omission leaves it unchanged, an empty string clears it)
+- Runtime: `runtime`, `runtime_mode`, `command`, `submit`
 - Scope: `default_scope_key`
 - Enable/disable: `enabled`
 - Environment (use with care): `env`
 - Capability startup baseline: `capability_autoload`
 
-A linked Profile owns `runtime`, `command`, `submit` and its explicit environment.
+`model_label` is declared metadata only. Absence means undeclared, not a detected
+or default model. It neither configures launch nor verifies the serving model;
+updating/clearing it does not restart the Actor or change launch settings. The
+CLI spelling is `--model-label`, with no `model` / `--model` alias. Cost tables,
+rankings, allocation policy, runtime detection, registries and automatic
+synchronization are outside this field's contract.
+
+A linked Profile owns `runtime`, `runtime_mode`, `command`, `submit` and its explicit environment.
 Actor-local `title`, notes, Web Model conversation bindings and `capability_autoload` remain editable; the Actor's
 capability baseline is additive to Profile defaults. A linked Actor MUST NOT
 merge dormant custom environment values over the Profile. Converting to custom
@@ -3156,9 +3820,16 @@ or the user leaves the editing session.
 Clients editing a command MUST preserve argument boundaries (including quotes,
 spaces and empty arguments) and SHOULD omit unchanged runtime fields.
 
+Changing a native Actor from `enabled=false` to `true` restores only that
+membership's access. In an active/idle Group it MUST persist desired-running
+state and reconcile that Actor's pending deliveries after committing the update,
+including for an imported Group. It MUST NOT resume a paused/stopped Group,
+launch another Actor, or start the user-owned native process. An unchanged
+`enabled=true` in an ordinary configuration save is not a new activation.
+
 Result:
 ```ts
-{ actor: Record<string, unknown>; event: CCCSEventV1 }
+{ actor: Record<string, unknown>; event: CCCSEventV1; runtime_confirmation_required: boolean }
 ```
 
 #### `actor_remove`
@@ -3169,6 +3840,8 @@ Args:
 ```
 
 Notes:
+- A foreman MAY remove a peer but MUST NOT remove itself; a peer MAY remove itself. User and system removal remain allowed. In CCCC, the first visible Actor is the foreman, so removing it promotes the next visible Actor, if any. The daemon emits `group.foreman_change` with `{from: actor_id, to: successor_id | null}` after the committed removal; the actor list remains the authority for role selection.
+- Planned and active tasks clear `assignee` and/or `handoff_to` when the corresponding field names the removed Actor, preserving their status, content and references to other Actors. Finished and archived task references remain historical. The removed Actor's existing `agent_state` is cleared through `agent_state.clear` (both `hot` and `warm`), so its working context does not carry into a later registration with the same ID. The cleanup is recorded as `context.sync`; failure of this post-commit cleanup is logged without undoing the Actor removal.
 - Removing an actor ends that actor id's current generation. Actor-generation-scoped browser target, bootstrap, delivery receipt, delivery preference, and persisted runner/turn state MUST be retired before the operation reports success. A shared provider login profile MAY remain.
 - Every Web Model binding and pending pairing belonging to the removed Actor generation MUST be retired before success. Shared connector credentials and other Actors remain intact. Re-adding the same Actor ID MUST NOT restore an earlier generation’s authority.
 
@@ -3178,6 +3851,21 @@ Result:
 ```
 
 #### `actor_start` / `actor_stop` / `actor_restart`
+
+Daemon-owned runtime resources MUST be retired after owner exit, including abrupt exit.
+On Unix, a daemon MAY use an EOF watchdog and a durable owned-process-group ledger
+to recover groups missed by graceful shutdown. Recovery MUST start only after acquiring
+the exclusive daemon-home lock. Watch lists MUST be isolated per daemon instance;
+cleanup MUST check process identity before signalling, and MUST leave unverified
+groups untouched. Ownership observations MUST record actual observation times, not
+future heartbeat allowances, and relinquishing a child MUST remove it from both
+active and durable cleanup lists. This cleanup MUST NOT invalidate durable provider
+conversation receipts or signal another daemon instance's runtime groups.
+Recovery MUST accept existing `alive_until` records by subtracting their original
+20-second allowance before using the observation as ownership evidence. Unresolved
+groups after TERM, unavailable identity snapshots, and failed escalation MUST
+remain recorded for later recovery. An unreadable cleanup ledger MUST fail startup
+before replacing that ledger or the previous watchdog lists.
 
 Kilo uses the same managed-session ownership as OpenCode: a private authenticated
 loopback ACP backend and a writable native TUI attached to the exact session.
@@ -3202,27 +3890,57 @@ Args:
 
 Result:
 ```ts
-{ actor: Record<string, unknown>; event: CCCSEventV1 }
+{ actor: Record<string, unknown>; event: CCCSEventV1; runtime_confirmation_required: boolean; runtime: Record<string, unknown> | null }
 ```
 
 Notes:
+- Antigravity, Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid `runtime_mode` defaults to `default` (native TUI); `acp` selects official pure headless ACP with derived `runner=headless` and `runtime_state_source=managed_session`. Other Runtime/mode combinations MUST be rejected. An update repeating the same Runtime with no runtime_mode MUST preserve the existing mode; changing Runtime without an explicit mode resets it to default. Mode is Profile-controlled and settings changes apply on explicit restart or next start; listing MUST report the actual running surface as `runner_effective` / `effective_runtime_mode` and project `runtime_state_source` from that registered authority rather than saved next-launch configuration. Without a registered managed surface or retained running PTY, listing MUST derive `runner_effective` from the configured Runtime and mode, including headless Pi and ACP Actors. Antigravity ACP MUST use its separate CCCC-owned provider home. Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid ACP use native CLI login/configuration; CCCC MUST NOT rewrite their global MCP configuration. Kiro V3 ACP MUST explicitly select `--auth-method cli` so its native CLI owns authentication; CCCC does not provide Kiro access tokens through client callbacks. Every ACP process/session MUST receive its own explicit CCCC Group/Actor (or global Analyst) identity and keep its resume receipt separate from the native TUI receipt. Copilot injects local MCP through process-scoped `--additional-mcp-config`; Auggie, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid use session MCP injection. New and resumed sessions MUST reapply explicitly configured model and permission policy. Failed load MUST NOT silently start a fresh session. Native ACP session IDs do not establish durable empty storage: CCCC MUST distinguish never-attempted empty sessions from attempted prompts. The attempt state MUST be durable before sending the first prompt, including an unconfirmed delivery. Never-attempted empty sessions MAY start fresh on restart; attempted sessions MUST load the same identity or expose an error requiring explicit New session/reset. Global Voice persistence uses `materialized` for the same boundary; status polling cannot materialize a session.
+- Optional official ACP Actors have no native TUI. The daemon retains ordinary ledger delivery in FIFO order while a prompt is active, admits it on live same-session provider activity or the prompt response, and projects normalized progress/completion through the existing headless journal. Replay or foreign-session events MUST NOT admit work. Permission requests are interactive unless the effective command selects unrestricted policy; user controls MUST bind the exact session generation and pending request, and grant at most one operation. Cancel/stop MUST retire pending permissions. Provider end_turn means a completed protocol turn, not proof that the task succeeded. An ACP prompt whose admission cannot be confirmed MUST settle its existing runtime.delivery claim as ambiguous and leave the automatic retry lane, including after session or daemon replacement. This MUST NOT be reported as accepted or downgraded to a retryable failure during worker shutdown. A failed prompt submission before confirmed admission MUST also expose a bounded, private-value-redacted diagnostic in the existing Actor control execution record, including numeric JSON-RPC code when available. It MUST NOT fabricate provider admission or a completed turn, expose arbitrary provider error data, or report user cancellation as provider rejection. An admitted failed turn MUST project headless.turn.failed with its normalized provider error, so existing journal/SSE consumers can distinguish incomplete work.
 - For linked actors (`profile_id` set), `actor_start` and `actor_restart` first resolve profile runtime config and profile secrets.
-- Saving Runtime configuration does not itself replace a running session. `actor_start` remains idempotent while a registered session is running. A surviving attached terminal MUST NOT make a disconnected managed registration count as running; Start MUST retry its cleanup and report any failure before launching a replacement. Stop/restart MUST retire registered ownership by Group/Actor identity independently of the saved Runtime; restart MUST NOT start a second backend after a reported cleanup failure. Lifecycle status MUST follow registered sessions until explicit restart applies the saved configuration.
+- Saving Runtime configuration does not itself replace a running session. `actor_start` remains idempotent while a registered session is running. An unrelated failed native resume receipt MUST NOT turn Start into Restart or alter a healthy managed or native surface. Resume retry MUST match the resolved Runtime and receipt transport, and apply only when stopped or explicitly restarting; a registered Claude workspace-trust recovery is the explicit pending-start exception. A surviving attached terminal MUST NOT make a disconnected managed registration count as running; Start MUST retry its cleanup and report any failure before launching a replacement. Stop/restart MUST retire registered ownership by Group/Actor identity independently of the saved Runtime; restart MUST NOT start a second backend after a reported cleanup failure. Lifecycle status MUST follow registered sessions until explicit restart applies the saved configuration.
+- Message delivery and its transport record MUST also follow the registered running surface. Saving ACP mode on a live native PTY MUST preserve native delivery until explicit restart or the next start; a live managed session continues managed delivery after saving native mode. A registered Claude workspace-trust prompt MUST remain pending recovery rather than becoming a native task-input surface, including after a saved Runtime edit.
+- A managed Actor's native terminal is an attachment, not its provider lifetime. Its exit MUST NOT mark a healthy provider stopped, even before terminal-exit reconciliation. Reconciliation MUST follow the registered owner rather than saved next-launch Runtime settings and MUST NOT detach a replacement terminal. Explicit `actor_start`, writable `term_attach` and message delivery MAY reopen the terminal against the same healthy managed session; status reads and passive viewer attachments MUST NOT start it. A stopped or disconnected provider MUST NOT be restarted by terminal attachment. Confirmed provider process absence alone MUST NOT invalidate a durable Claude conversation receipt; existing identity and transcript validation still govern resume.
 - A daemon-launched actor whose executable is directly identified as `codex` MUST use one daemon-owned Codex app-server thread and MUST attach Codex's writable native TUI to that exact thread. Unsupported subcommands, wrappers, or prompt tails fail explicitly instead of silently selecting another transport. The app-server and TUI MUST receive the same executable, supported Codex global arguments, profile/model/provider configuration, and private environment. CCCC-owned listener, MCP identity, approval, and sandbox settings remain host-controlled. For both Actors and Voice Analyst, execution-policy overrides MUST be applied to the app-server; the remote TUI MUST attach without approval, sandbox, or shell-environment policy overrides. Stop/start MUST validate and resume the same version-2 managed receipt only when Runtime, workspace, command, model, and effective Codex storage identity still match. Legacy Codex receipts MUST NOT be resumed.
+- A daemon-launched `pi` Actor MUST use the official Pi JSONL RPC surface, with derived `runner=headless`, `runtime_state_source=managed_session` and default Runtime mode; no new RPC mode or native terminal attachment is implied. The resolved executable MUST report Pi 1.1.0 or newer. CCCC owns working directory, session identity, instructions and session-local CCCC MCP registration. Host lookup/initialization/status MUST NOT send a synthetic model prompt. A `prompt` response is command disposition, not task completion: `started` may admit its exact owner; `queued` or `handled` MUST NOT be mistaken for that owner's model result. Completion MUST follow `agent_settled` and its aborted/error outcome rather than `agent_end`; full final messages and streamed deltas MUST belong to the same generation and turn. Unknown admission or lost output MUST NOT be replayed automatically. Cancellation MUST fence the owned turn, clear pending provider input before `abort`, and await settlement before assigning a replacement turn. Pi may acknowledge abort while a preflight is still pending. Unless official `started` disposition or the exact live user record proved provider execution before abort, the session MUST invalidate and its owner MUST stop the process; dialog admission alone MUST NOT justify warm reuse. The attempted receipt remains and no replacement turn may enter that unresolved process. Pi's uncorrelated `steer` MUST NOT be advertised as safe exact-turn steering. Matching stop/start MUST verify the same idle session and provider-home/launch identity, including effective `PI_CODING_AGENT_DIR`, `HOME` and `USERPROFILE` selectors. Explicit runtime environment values take precedence over inherited daemon values, and Actor and Voice identities MUST use the same fingerprint rules. Failed resume MUST remain an explicit failure until New session/reset, without fresh-session fallback. Session-local MCP registration MUST reject a conflicting global/project `cccc` entry or another server name aliasing CCCC's tool prefix without overwriting user configuration. Native permissions and other configured MCP connections remain provider-owned; task-tool restriction is not a filesystem or complete MCP sandbox.
+- Kiro ACP MUST launch the official V3 engine explicitly with `kiro-cli acp --agent-engine=v3 --auth-method cli`; protocol version 1 alone does not distinguish V2. CLI authentication remains provider-owned. Native model/agent/effort intent MUST be applied through the advertised session catalog after both new/load; unsupported choices MUST fail before prompting. Client MCP definitions MUST be injected again on load. An explicit trust-all command permits only request-scoped one-time approval, never persistent consent.
+- Hermes ACP MUST receive session-scoped CCCC MCP and skip early configured-MCP discovery with `HERMES_ACP_SKIP_CONFIGURED_MCP=1`; later native MCP loading and native-tool permissions remain provider-owned. This is not strict MCP or filesystem isolation. Because some servers return a successful empty load response for an unknown ID, attempted-session resume MUST first confirm the exact ID and workspace through advertised session/list. Unverifiable identity, non-progressing pagination or load failure MUST fail without using session/resume or starting fresh. Session discovery MUST have one bounded overall deadline. Confirmed Hermes cancellation MUST retire the existing process through its owner, because it otherwise prepends interrupted input to the next prompt even after same-process load. Actor and Analyst attempted receipts and durable history remain; their next authorized start may load the exact same identity. The Secretary uses its existing cancelled-task cleanup and starts a new resident only for subsequently accepted work, retaining source and task history. No cancelled input is replayed.
+- Droid ACP MUST use `droid exec --output-format acp`, not a second raw JSON-RPC transport. Configured model and effort MUST use the advertised catalog. Native `--auto low/medium/high` maps to the corresponding advertised autonomy mode; high autonomy MUST NOT be silently converted to unconditional host permission approval.
+- ACP RPC errors MUST identify the host-owned request method and numeric code. Hermes may additionally expose its scalar `error.data.details`, bounded and redacted before startup or runtime publication; arbitrary error data, nested objects and tracebacks MUST NOT be published. Diagnostic details MUST NOT change prompt admission, busy classification or retry behavior.
+- Kimi Code ACP MUST preserve the native command's actual autonomy semantics: `--yolo` maps to advertised mode `auto` with interactive risk approvals, `--auto` maps to `yolo`, and `--plan` maps to planning. Auggie startup indexing requests without an active owner MUST be cancelled rather than silently granting upload consent; a delayed request during a prompt MUST remain an explicit interactive decision under the configured policy, not a synthetic model completion. Both adapters MUST apply explicit model/mode choices from the advertised catalog after new/load and must not hide unsupported choices behind provider defaults.
 - A daemon-launched `claude` actor MUST use one CCCC-owned Claude Agent View background session and MUST start `claude attach` against that exact session. The resolved executable and each observed live worker MUST independently report Claude Code 2.1.259 or newer; their versions need not match. Agent View can retain older workers after upgrading the supervisor and migrate an idle session to a newer worker, so a supported version change alone MUST NOT invalidate the same managed session. CCCC MUST continue validating exact session identity, the protocol-v1 control response shape, and the credential-file boundary; unsupported or unverifiable versions, invalid protocol responses, and credential-boundary violations MUST fail closed. CCCC observes turn ownership and terminal settlement from the append-only provider transcript. A single retryable control-query failure MUST NOT invalidate a still-live session; sustained inability to verify liveness or confirmed job absence MUST disconnect it. CCCC owns background/session/attach, name, MCP identity, autonomy, and resume arguments. Runtime Profile environment values MUST be merged into one stable, owner-scoped, CCCC-protected settings file because Agent View deliberately strips arbitrary process environment from persisted jobs and stores that file path in its durable respawn metadata; raw values MUST NOT appear in the job record, terminal command, receipt, or logs. An ordinary process stop MUST retain this file while the durable session receipt remains resumable. The copy MUST be atomically replaced when that owner's effective settings change and removed when the managed session identity, Actor, or Group is retired. Stop MUST report success only after the Agent View job is confirmed absent. Start MUST validate and resume the same version-2 managed receipt only when Runtime, workspace, command, and the complete effective Claude launch identity, including content of file-backed settings and prompt inputs, still match. A live idle matching session MAY be re-adopted; an active, ambiguous, copied, or identity-mismatched session MUST fail or start fresh according to the existing receipt boundary and MUST NOT be guessed. Legacy Claude Hook and print-mode receipts MUST NOT be resumed.
 - A daemon-launched `grok` actor MUST use one CCCC-owned managed session. CCCC starts a dedicated private Grok leader, connects its ACP observer, and attaches the native writable Grok TUI to the same provider session. Actor startup, Voice Analyst startup, and CLI setup MUST share a verified native `cccc` MCP registration so ACP session creation, resume, and native TUI reload use the same configuration. The shared command MUST resolve the launching CCCC executable dynamically and inherit Actor/instance/profile/origin identity from its process, not persist that identity in global settings. CCCC MUST preserve unrelated MCP entries and native Claude/Cursor imports, reject malformed configuration and conflicting project overrides without replacing them, and serialize its user-level updates across instances. Readiness MUST check the effective executable, arguments, enabled state, and inherited CCCC identity after native configuration overrides, and MUST reject a native policy denial. A valid base table or discovery entry alone is insufficient. Conflicting version/project overrides and policy documents MUST NOT be rewritten to force readiness. This native registration also takes precedence for standalone Grok sessions. Structured lifecycle events remain the working/completion authority. Stop/start MUST validate and load the same version-2 managed receipt when its Runtime, workspace, command, model, and effective provider-home identity still match. Legacy raw-terminal Grok receipts MUST NOT be resumed.
 - An explicit Grok `--trust` runtime argument grants folder trust to the native TUI for the selected workspace. CCCC MUST forward it only to the TUI, not the `agent` subcommand, and MUST NOT add it by default. Without an explicit or previously saved trust decision, native folder confirmation can block business input; PTY delivery acceptance is not provider admission.
 - The Grok ACP observer MUST associate live `_meta.promptId` activity with its local turn and consume matching durable `turn_completed` updates, including `_x.ai/session/update`, for both controlled and native turns. A `send_now` cancellation MUST settle the old turn before the next native input is associated; a delayed prompt RPC response or duplicate terminal MUST NOT settle the new turn or consume its sources. A turn ending before prompt-bearing activity MAY use the persisted session-scoped event sequence following its user record as its completion boundary, never wall-clock timing. Replay records MUST NOT admit controlled or native input. Uncorrelated `prompt_complete` notifications remain non-authoritative. OpenCode and Kilo use their ordered backend event stream as described below.
+- Native-input ownership MUST follow the exact registered payload and live same-session evidence, independently of unmatched earlier registrations. A missing echo MUST NOT prevent a later confirmed input from owning its progress and completion. Identical payloads retain registration order. Unmatched inputs remain unconfirmed; matching a later input MUST NOT complete, discard or replay them. When matching fragmented echoes, completion of one input MUST clear other partial candidates so an unrelated later suffix cannot claim stale input. This applies to ACP native echoes and Claude transcript admission. Grok may wrap an in-progress native interjection in its fixed user-query envelope; only its explicitly marked interjection echo may have that complete envelope removed before exact payload matching. Other provider text, replay and generation fences remain unchanged.
+- A correlated Codex `turn/start` may defer events until its response establishes turn ownership. If that request's response owner times out or is cancelled before admission is resolved, the managed connection MUST report an explicit disconnect instead of indefinitely retaining that event barrier. The possibly accepted input MUST NOT be replayed or attributed by guesswork. An ordinary read timeout MUST NOT disconnect an otherwise healthy session or block its events.
 - Grok ACP initialization MUST advertise `clientCapabilities._meta["x.ai/userMessageEcho"]=true`, and new/load session requests MUST bind `_meta.clientUserMessageEcho=true` because the leader shares initialization across clients. Current Grok persists user input even when its live echo is disabled; persistence alone does not admit the controlled prompt. Both new and resumed managed sessions need this opt-in so correlated progress can flow before the prompt completion RPC, without increasing or bypassing the bounded admission buffer.
-- A daemon-launched `opencode` actor MUST use one CCCC-owned managed session. CCCC starts `opencode acp` with a generation-scoped authenticated loopback backend, observes the ACP session over stdio, attaches `opencode attach` to that exact session, and injects the actor-scoped CCCC MCP server at session creation. The resolved executable MUST report OpenCode 1.18.14 or newer. ACP remains the control and permission port. The observer MUST use the authenticated workdir-scoped `/event` endpoint, whose listener is registered before the HTTP response; the lazily subscribed `/global/event` endpoint cannot guarantee delivery of the first input. Text parts marked `metadata["kilocode.lifecycle"]="transient"` are temporary Kilo UI progress and MUST NOT contribute to streamed or completed Actor/Analyst answer text; later deltas for these parts MUST also be excluded. The `synthetic` flag alone MUST NOT exclude ordinary answer text. This backend event stream MUST order user admission, assistant output, and terminal session status for both controlled and native turns; a prompt RPC response or a duplicate ACP output update MUST NOT finish or contribute text to another turn. Persisted native input is not evidence that the current turn consumed it: correlation MUST follow the assistant message's parent user identity, retaining queued inputs across the preceding turn's idle status. A lost or malformed non-replayable stream invalidates the session. A model selection made in the native TUI becomes authoritative for later CCCC-managed prompts when the user submits the next TUI message; CCCC MUST mirror that message's exact provider/model and variant into the same ACP session. An explicit runtime-command `--model` remains the launch-time override. Stop/start MUST validate and load the same version-2 managed receipt when its Runtime, workspace, command, model, and effective OpenCode storage identity still match. Legacy raw-terminal OpenCode state MUST NOT be resumed.
+- A daemon-launched `opencode` Actor MUST use official OpenCode V2 2.1.4 or newer and one CCCC-owned authenticated loopback `serve --stdio` backend. Its native `--server --session` TUI MUST share that exact session. Actor/Analyst/Secretary MCP identity MUST be injected into this backend's inline configuration, without changing user/global configuration. CCCC input MUST use the public durable HTTP prompt queue, including while the TUI starts; the server MUST generate its ordered message ID. The observer MUST receive `server.connected` before admission and use one ordered `/api/event` stream to associate consumed inbox IDs, assistant steps, MCP results and terminal execution outcomes. Event-stream connection and readiness MUST have bounded startup waits. Prompt admission and an individual tool step MUST NOT imply successful completion. Queued native inputs MUST remain separate from preceding answers. Delivery-mode changes MUST be applied before associating consumed input: steering joins the current turn rather than completing it. Cancellation of a durably admitted CCCC inbox item MUST settle its exact turn as cancelled and release controlled ownership, even if no model step began. Completed text snapshots MUST survive terminal execution events without an empty placeholder replacing them. Duplicate/stale events MUST NOT finish a newer turn. Losing or failing to decode this volatile stream MUST invalidate the owner without replaying uncertain input. A failed, malformed or cancelled prompt-admission request MUST likewise invalidate its unresolved owner instead of leaving later work indefinitely busy or replaying uncertain input. Encoded SSE lines MUST be bounded to 16 MiB, including framing, across HTTP fragmentation/coalescing. Native model/agent selections remain authoritative for subsequent input; an explicit command model is the launch override. Stop/start MUST reload only a matching `opencode_http_v2` managed receipt. A retained V1 ACP receipt MUST NOT be silently converted to a new V2 session or deleted; migration or New session is explicit. V2's session-wide interrupt is not a fenced exact-turn operation and MUST NOT be substituted for one; native TUI interruption and generation-owned process Stop remain available. Permission replies MUST be request-scoped `once`, never a persistent provider approval.
+- Kilo retains its CCCC-owned ACP controller, authenticated workdir `/event` stream and `kilo attach` topology. Its version numbering is independent of OpenCode. Text parts marked `metadata["kilocode.lifecycle"]="transient"` are temporary Kilo UI progress and MUST NOT contribute to streamed or completed Actor/Analyst answer text; later deltas for these parts MUST also be excluded. The `synthetic` flag alone MUST NOT exclude ordinary answer text. This backend event stream MUST order user admission, assistant output, and terminal session status for both controlled and native turns; a prompt RPC response or a duplicate ACP output update MUST NOT finish or contribute text to another turn. Persisted native input is not evidence that the current turn consumed it: correlation MUST follow the assistant message's parent user identity, retaining queued inputs across the preceding turn's idle status. A lost or malformed non-replayable stream invalidates the session. The lifecycle reader MUST bound each encoded LF-terminated line to 16 MiB, including CR/LF framing, rather than applying that budget to an entire HTTP chunk. Valid lines within this bound MUST preserve input correlation, output and subsequent status across transport fragmentation or coalescing. An oversized line MUST invalidate the session through the same non-replayable-stream failure path; it MUST NOT be silently skipped or automatically replayed. This is a per-line bound, not a total process-memory guarantee. A model selection submitted by the native Kilo TUI MUST be mirrored into the same ACP session. Stop/start MUST validate its matching `kilo_acp_attach` managed receipt.
 - Completion of a temporary Actor restore worker or retirement of an IPC request worker MUST NOT terminate an otherwise healthy managed provider session. Providers that bind their lifetime to the spawning OS thread MUST be launched by daemon-lifetime workers. Explicit stop, failed-start rollback, and daemon shutdown retain ownership of process cleanup.
 - If managed Claude startup reports an untrusted workspace, the Actor terminal MAY present the configured Claude command for the operator to approve trust. CCCC MUST NOT write the trust decision. Configuration observation MUST begin before opening that prompt; approval recorded before the watcher starts MUST remain observable. Task delivery stays pending until the managed session is attached. Recovery MUST acquire the runtime-start permit before the Actor start guard and revalidate cancellation and the same live terminal before attachment. Actor and Group stop MUST cancel pending recovery, including prompts without a managed session, and clean up a cancelled launch instead of attaching it.
+- Claude confirmation recovery MAY continue waiting for a verified workspace-trust refusal or a verified bypass-permissions disclaimer refusal. Other launch errors MUST end that watcher and retire its own temporary confirmation terminal. Changes to watched provider confirmation files MAY trigger a managed retry; the change itself MUST NOT be treated as approval, and unrelated configuration changes MUST NOT establish readiness. The temporary terminal is not a managed task-delivery surface.
+- The successful `actor_update`, `actor_start`, `actor_stop`, `actor_restart` and `actor_new_session` results include the same `runtime_confirmation_required` observation both at the top level and in `actor`. A failed rollback MUST NOT claim the former managed owner was restored merely because a confirmation terminal remains open; its existing `rollback_failed` result reports an incomplete restoration. A confirmation ending without a managed session MAY append `headless.session.exited` with reason `interactive_confirmation_ended`; the reason is not proof of consent or denial.
+- During the current daemon process, closing or declining a managed Claude confirmation pauses automatic restarts for that Actor. A queued delivery that has not entered the provider MUST remain retryable, and the pause MUST NOT prevent other enabled Actors from starting with the Group. An explicit authorized Actor or Group start/restart MAY retry it. This pause is in-memory: normal daemon restart restoration MAY attempt that Actor again, without treating restart as approval.
+- A failed Claude resume MUST retain the original provider session ID, record a bounded safe diagnostic and failure count, and fence that outcome to the exact resume attempt. Provider stderr and credential values MUST NOT be persisted in this record. Known temporary startup/control failures MAY remain retryable. Copied session IDs, unavailable durable history after the bounded discovery wait, invalid identity/protocol/credential evidence and other unverifiable resume failures MUST pause automatic startup with `runtime_session_status="resume_failed"`, `runtime_session_resume_eligible=false` and `runtime_session_last_resume_error`. Paused startup returns `claude_resume_failed`; it MUST NOT silently start a fresh session. Undelivered messages remain pending and their handoff claims become retryable `runtime.delivery=failed`, leaving the automatic worker retry lane. An authorized explicit `actor_start` or `actor_restart` MAY retry the same saved conversation and redispatch those messages. Only explicit `actor_new_session` (or configured resume disablement / changed launch identity) selects a fresh conversation; provider history remains intact. Successful resume clears the failure diagnostic and count. Process absence alone is not a resume failure.
+- Codex, Grok, OpenCode and Kilo Actor startup with a validated saved conversation MUST NOT replace that conversation after a resume failure. CCCC MUST retain the provider identity, safe diagnostic and attempt-fenced failure count, project `runtime_session_status="resume_failed"` / `runtime_session_resume_eligible=false`, and leave undelivered messages pending outside the automatic startup retry lane. Paused startup returns `runtime_resume_failed`. Explicit `actor_start` / `actor_restart` MAY retry the same identity; only New session, disabled resume or a changed validated launch identity selects fresh work. Successful resume clears the diagnostic. An unresolved process-cleanup error MUST preserve its ownership and remain distinct from an ordinary paused resume.
 - Managed runtime startup MAY synchronously enumerate the injected actor-scoped CCCC MCP tools before its provider session becomes ready. That catalog discovery MUST use `capability_state` with `view="mcp_catalog"` so it cannot wait on the same Group lifecycle lock held by `actor_start`; ordinary capability reads remain serialized normally.
 - For Codex, Claude, Grok, OpenCode, and Kilo Actors, CCCC MUST hand an incoming Actor delivery to the writable native TUI as soon as that terminal is ready. CCCC MUST NOT inspect provider busy state to choose `steer` versus `queue`, and MUST NOT hold the delivery until the current turn settles. The receiving Runtime owns that policy according to its own configuration. `runtime.delivery=accepted` means the canonical input and submit sequence were written successfully to the Runtime terminal; it does not claim that the provider completed or semantically accepted the work. Structured protocols remain authoritative for session identity, lifecycle, progress, completion, cancellation, and Voice Analyst delegation.
-- Realtime Voice owns the intent decision to create a Voice Analyst delegation; it does not own provider scheduling. Once `delegation.created` exists, CCCC MUST immediately hand the exact correlated input to the managed Runtime and MUST NOT hide it in a server-side wait-for-idle queue. An active Runtime with a verified exact-turn steer operation MAY receive the input through that operation; otherwise CCCC MUST write the exact payload and submit sequence to the same verified native terminal session, after which the Runtime owns the steer-versus-queue decision. CCCC MUST register correlation before the write, project whichever authoritative turn consumes it, and report success only after the Runtime control operation or complete terminal submit sequence was accepted. A missing, closed, or rejecting Runtime input path MUST return an explicit delivery error; busy state alone MUST NOT drop, delay, merge, or reject the delegation.
-- The Web Voice start contract MAY carry optional immutable `application_context` with a validated 1–128-byte ASCII identifier and nonempty UTF-8 instructions up to 8192 bytes. CCCC MUST include it in Realtime startup instructions and each Voice delegation delivered to the Analyst, without changing the provider delegation ID or at-most-once admission. Start idempotence MUST include both context fields; changed context MUST NOT reuse an active call. Context MUST NOT be interpreted as authentication, a selected Group, or a tool grant, and MUST NOT implicitly reset the persistent Analyst. Omission preserves global Voice behavior. Arbitrary context text MUST NOT appear in startup diagnostics.
+- In assistant mode, Realtime Voice owns the intent decision to create a Voice Analyst delegation; it does not own provider scheduling. For a Runtime with a native terminal or verified steering surface, once `delegation.created` exists, CCCC MUST immediately hand the exact correlated input to the managed Runtime and MUST NOT hide it in a server-side wait-for-idle queue. An active Runtime with a verified exact-turn steer operation MAY receive the input through that operation; otherwise CCCC MUST write the exact payload and submit sequence to the same verified native terminal session, after which the Runtime owns the steer-versus-queue decision. CCCC MUST register correlation before the write, project whichever authoritative turn consumes it, and report success only after the Runtime control operation or complete terminal submit sequence was accepted. A missing, closed, or rejecting Runtime input path MUST return an explicit delivery error; busy state alone MUST NOT drop, delay, merge, or reject the delegation.
+- Voice instructions MUST ask for a concise, self-contained handoff preserving confirmed targets, outcomes, explicit limits, uncertainty and latest corrections. A missing essential reference calls for a focused clarification; a clear request needs no cosmetic rewrite. The browser's explicit `provider_event` frame MAY attach `context: {messages: [{role: "user" | "assistant", text: string, incomplete?: boolean}], truncated?: boolean}`. This is an immutable excerpt from the same audio call, bounded to 12 nonempty messages and 8,192 total UTF-8 text bytes, independent of the provider request's existing limit. Unknown fields/roles and oversized or malformed context MUST be rejected before Analyst admission, with a negative Grok tool receipt when applicable; private text MUST NOT enter diagnostics. The browser retains bounded recent snapshots so late ASR changes do not alter a pending delegation's repeated frame. Context is quoted evidence for understanding that request, never extra tasks, a tool grant, a selected Group, or user authorization from assistant/Actor speech. CCCC MUST preserve the provider request and its identity, apply existing call-generation fencing, admission, steering, queuing and cancellation, and retain server-owned host application context. Transcript updates alone MUST NOT start work. Mark clipped history and drafts; the Analyst MUST preserve relevant user constraints and ask when missing essential intent changes the work. Neither a new model call nor a second task system is implied. Persona ignores the entire frame before parsing context.
+- The Web Voice start contract MAY carry optional immutable `application_context` with a validated 1–128-byte ASCII identifier and nonempty UTF-8 instructions up to 24 KiB (24,576 bytes) in both assistant and persona modes. This is a local input size limit, not a provider token budget. CCCC MUST reject oversized instructions without truncating them and MUST preserve accepted text exactly; provider limits still apply. In assistant mode, CCCC MUST include it in Realtime startup instructions and each Voice delegation delivered to the Analyst, without changing the provider delegation ID or at-most-once admission. Start idempotence MUST include the entire validated context, including mode; changed context MUST NOT reuse an active call. Context MUST NOT be interpreted as authentication, a selected Group, or a tool grant, and MUST NOT implicitly reset the persistent Analyst. Embedded assistant expression (language, length, tone, and user-facing attribution labels) MUST follow the host instructions without appending global expression preferences. Assistant calls, including embedded calls, retain provider automatic acknowledgement filler and client delegation. A brief receipt acknowledges hearing the request without waiting for Analyst completion; it MUST NOT claim execution succeeded. Host expression policy governs wording and avoids repeated receipt narration. Omission preserves global Voice behavior. Arbitrary context text MUST NOT appear in startup diagnostics.
+- Antigravity ACP Voice Analyst shares the Actor adapter, has no terminal, and MAY hold up to 32 inputs in an explicit FIFO because official ACP does not accept concurrent session/prompt calls. Its empty persisted command MUST resolve to the Actor default `agy --dangerously-skip-permissions`, setting provider YOLO mode and automatically selecting only a one-time allow option for any remaining permission request. This default MUST be reapplied after both new and resumed sessions; explicit custom commands and linked Profile commands MUST retain their configured permission policy. Web MUST display the same default without materializing it into saved settings. Admission MUST distinguish host queue acceptance (`Queued`, event `analyst_queued`) from provider turn acceptance (`Started`). Each input keeps its correlation and completion association; no merge, eviction, auto-replay after an uncertain outcome, or terminal fallback is permitted. Cancellation MUST remain available before the first provider admission receipt, correlate with that exact pending input in the protocol command loop, and cancel both current and queued inputs. Confirmed cancellation retains the warm session; failure to settle uses the existing bounded invalidation/stop path. A terminal outcome without a provider receipt MUST use a distinct host-generated turn_id per input, shared by both Web consumers for idempotent notification persistence. Stop/reset retires the queue. Actor stop/restart and daemon shutdown MUST also interrupt pending ACP admission waits without automatically replaying the unconfirmed batch. Settings replacement and rollback MUST resume only a genuinely resumable session; execution surface alone does not imply materialization. Disconnect or admission failure MUST expose an unconfirmed/failed outcome. Read-only status reports `structured`, `queued_inputs`, `permissions`, bounded `progress` and `last_error`; it MUST NOT start work. Terminal failure MUST retain a bounded diagnostic message (at most 4096 UTF-8 bytes, no raw RPC envelope), including pre-admission rejection, in the warm Analyst snapshot outside a call. The structured console MUST label partial output as incomplete. The next task or successful/cancelled terminal outcome clears this error. The generation-bound interactive control endpoint accepts manual input, a one-time permission answer or an explicit Cursor user-interaction response. Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid ACP and Pi RPC use this same host FIFO, cancellation and unconfirmed-delivery boundary, without a native terminal. Existing native Runtime admission remains unchanged. The structured Web console MUST publish same-generation authoritative read/control snapshots to its call controller. Cancellation availability MUST cover executing, queued and pending-admission manual inputs, including the interval after a previous turn completes but before the next provider receipt. A terminal event for the previous turn MUST NOT hide cancellation for remaining work.
+- Pure ACP Analyst manual investigations use the existing generation-bound control endpoint with `action="input"`, a stable `input_id`, complete `text` and optional nullable `call_generation`. Omitted/null call identity is standalone; CCCC MUST NOT infer it from an active microphone session. An explicit identity MUST match the attached assistant call and that exact Analyst generation, otherwise admission fails without changing the draft or starting work. Retries preserve both input ID and original call scope; reusing an ID with changed content/scope MUST fail. Admission remains the existing FIFO and at-most-once lifecycle, distinct from provider acceptance. The Web snapshot includes `manual_tasks` (`id`, `text`, nullable `call_generation`, `status`, `result`, `error`) and nullable `manual_task_id` identifying its current/last manual output; these are read-only, generation-local console projections, not a persistent chat or another scheduler. Keep all unsettled tasks and final results awaiting the original call's output; retain at most eight settled disposable rows, with a 64-record total bound that rejects new input rather than discarding unsettled or awaiting-output work. Eviction MUST NOT erase lifecycle deduplication or permit replay. An explicit call-bound investigation receives the call's immutable host context. Only its settled outcome returns through `session.context.append`, with a bounded task label, authoritative final and non-execution instructions; it MUST NOT invent a provider delegation identity. Failed/cancelled work MUST NOT return partial output as a successful answer. Completed rows and failures remain visible outside a call. Call retirement prevents queued/late outcomes from entering a replacement call, while the warm Analyst may finish independent work. Independent native-TUI tasks remain Terminal-originated and are not newly opted into automatic voice projection. Persona calls neither admit call-bound investigations nor consume their results. Context submission does not prove speech; no automatic retry of uncertain task execution or context delivery is added.
+- The browser MUST publish the same-generation call attachment state from the Voice control socket `ready` message before completing startup. The HTTP start response describes a not-yet-attached call; retaining that snapshot after socket attachment MUST NOT misclassify manual investigations as standalone. Socket readiness does not itself prove provider context acceptance or speech.
+- Embedded Voice `application_context.mode` MUST be `assistant` (default) or `persona`, inside the same strict, bounded context object. Omitted and explicit `assistant` modes are equivalent; unknown modes/fields MUST be rejected. Mode is immutable and participates in start-request identity. Persona MUST use only host instructions as the CCCC-supplied Realtime instructions, without assistant role/routing or user expression preferences. Persona MUST NOT resolve, launch, reuse, reset or subscribe to a Voice Analyst, execute provider delegations, consume or reserve notification sources/results, prepare notification output, or apply output receipts. Delegation input MUST be ignored before content parsing; diagnostics MUST NOT contain its payload. Existing Analyst work and notification state remain independent and available for later assistant calls. Call authorization/revocation, generation fencing, microphone lease, heartbeat and cleanup remain enforced. The call-start cue MUST defer opening behavior to host instructions. Persona requests omit quicksilver client-delegation configuration; upstream suppression is experimental and MUST NOT be claimed solely from omission or a successful SDP response. A provider rejection MUST NOT silently fall back to assistant mode. `readiness.supported_modes` advertises supported call modes; persona requires Realtime credentials, not Analyst availability. Call payloads include `mode` and nullable `analyst_generation`; the persona start payload has `analyst: null`, while the active endpoint MAY still report the independently managed global Analyst. These fields confer no additional caller permissions.
+- The existing Web Voice endpoints under `/api/v1/codex_voice` support an optional `provider: "codex" | "grok"`, defaulting to `codex`. The selected provider is immutable and MUST participate in Start idempotence alongside voice, client session ID, offer and application context. A call payload includes `provider`; switching foreground providers MUST NOT implicitly replace the independent global Voice Analyst. Codex requires `offer_sdp` and returns `answer_sdp`; Grok rejects a nonempty offer and returns an empty answer plus a transient `provider_connection` (`transport="websocket_pcm"`, URL, short-lived client secret, expiry and session configuration). Connection secrets MUST NOT appear in active status, persistence, diagnostics or the ledger. An identical accepted Start MAY return the same connection; expiry MUST require an explicit new call, never a hidden credential refresh or second provider session.
+- Grok Voice MUST consume the native Grok Build first-party subscription OAuth identity. Its short-lived authentication helper MAY issue only initialization and native auth-extension requests, never a model session or prompt. Native code owns refresh and its credential lock; CCCC MUST disable API-key fallback, isolate helper configuration/workspace, validate the returned token against that selected OAuth identity, and reap its owned process tree on failure or cancellation. The host exchanges OAuth for a short-lived Realtime client secret; only that secret reaches the browser. `GET /calls/active` MAY include `providers` with each provider's server-owned `voices`, `default_voice`, local `credentials_available` and `native_runtime_available`. These reads MUST NOT start a CLI, refresh credentials, mint a connection or consume provider work. Availability is local prerequisite evidence, not a provider-service health guarantee.
+- Grok's `response.function_call_arguments.done` is a distinct provider input protocol. Only `cccc_investigate` with the sole nonempty bounded `request` field is admitted; the function cannot select Group, scope or caller authority. CCCC MUST scope its internal delegation identity to the call generation while returning the exact raw `call_id` to Grok. The raw provider call ID has a 256-byte budget, independent of its host-owned call-generation namespace. The browser receives `cccc.delegation.receipt` only after host queue/admission or confirmed Runtime delivery (or an explicit rejection), then submits a matching `function_call_output`. A receipt acknowledges acceptance, never completion; its response demand MUST NOT depend on an unrelated context acknowledgement. Grok progress remains in the Analyst UI. Each successful final projection MUST produce one complete, call-fenced host report with its original tool-call IDs and `completed:true`, not partial text or a completion-only header. The host-only `_cccc_report_id` keeps different Analyst turns separate in the browser; it MUST NOT be sent as a provider protocol field. Manual console outcomes bound to a Grok call MUST carry their existing manual task ID through this same report path; they MUST NOT become generic context continuations. The Codex projection retains its native context envelope. Codex's client-delegation configuration and automatic acknowledgement filler above apply to Codex only; Grok uses this native function protocol, without simulated Codex receipts. Persona has no tools or Analyst on either provider.
+- Grok browser audio uses mono PCM16LE at 24 kHz, resampling the actual input-device rate. Audio streams directly between browser and provider, not through the CCCC ledger or daemon. Transcripts update the browser display; only an explicit delegation may carry the bounded recent excerpt above into the retained Analyst conversation. Existing shared microphone/speaker preferences, microphone lease, mute, authorization and call cleanup apply. Server VAD owns upstream interruption; the browser MUST immediately clear interrupted playback and reject late audio for that response. After `input_audio_buffer.speech_stopped`, the browser MUST retain the pending automatic response until `response.created`, rather than start a competing report or receipt response. Report delivery MUST recheck this gate after asynchronous source-policy preparation. If the automatic response does not start within 15 seconds, the call MUST fail explicitly and retain positively unsent source results; it MUST NOT wait forever, blindly replay work, or assume the provider is idle. A response that has already started is not subject to this start deadline. A generated `response.done` MUST NOT count as completed speech before local playback drains; cancelled output MUST NOT count. Host context commands are translated to actual Grok conversation items and acknowledged by their item IDs, not invented Codex append acknowledgements. Context delivery remains independent of speech completion. Each completed report MUST retain a distinct bounded speech demand in arrival order. The browser MUST wait for the current response and local playback to settle before submitting the next report, then request a response scoped to that complete report using per-response instructions that retain the session rules. Source-bearing reports still require current policy preflight just before submission. A conversational automatic response MUST NOT consume a queued report demand. Generic context and tool-receipt continuations may coalesce, but MUST keep their own acknowledgement prerequisites. A delayed `response.created` MUST NOT erase newer demand. An older missing acknowledgement MUST remain unconfirmed and eligible for the existing warning, but MUST NOT block independently ready speech; its later acknowledgement MUST NOT replay context or request duplicate speech. A user interruption does not replay the interrupted report or task and MUST NOT discard later queued reports. Stop retires the call-local queue; no new durable task system or uncertain-send retry is implied. Source-bearing output retains the existing policy preflight and positively-unsent reporting rules; uncertain sends MUST NOT be replayed. Correctable cumulative ASR replaces its draft instead of duplicating text. Foreground provider and each provider's speaking voice are browser preferences; input/output devices remain one shared browser preference set.
 - Codex Voice startup failures MUST distinguish configuration, Analyst startup, recording ownership and Realtime connection failures. The Web start response MUST retain a safe error category and diagnostic details (`stage`, total attempt `elapsed_ms`, and `http_status`/`os_error` when available). Packaged startup MUST emit these safe fields to stderr even without a tracing subscriber. Credentials, private paths, SDP, provider response bodies and arbitrary error chains MUST NOT appear in these diagnostics. Diagnostic classification MUST NOT add automatic provider retries, extend timeouts or discard a successfully started Analyst after Realtime failure.
+- `calls/active` readiness MUST distinguish a missing Antigravity ACP distribution from a missing native Runtime executable. `analyst_runtime_setup_required=true` identifies a resolved Antigravity ACP configuration whose managed distribution is not installed; `analyst_runtime_available` remains false until installation. Web MUST give the explicit `cccc setup --runtime antigravity --runtime-mode acp --login` installation/separate-login instruction rather than native `agy`/PATH restart advice. This read-only discovery MUST NOT install, authenticate or launch an Analyst; installed status does not prove valid provider credentials.
+- The read-only Web catalog `GET /api/v1/runtimes` MAY add `mode_availability: {default: boolean, acp: boolean}` to the Antigravity, Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid entries. Existing `available` and the top-level `available` list retain native-executable semantics. `default` detects native `agy`; `acp` uses the same installed-distribution check as Voice readiness. For Auggie, Copilot, Devin, Cursor, Kimi Code, Kiro, Hermes and Droid both modes detect the native CLI executable; detection is not proof of login or provider task readiness. Detection MUST NOT install, authenticate, start sessions or write provider state. Web MUST distinguish loading/failed/unknown detection from a negative result and provide an explicit read-only recheck; Profile editing remains independent of host installation.
 - Voice Analyst Runtime settings MUST NOT change while a Realtime Voice call is active. After the call stops, active or queued Analyst work MUST block an ordinary settings update rather than being discarded implicitly. An interactive administrator MAY explicitly confirm discarding that work as part of the same settings transaction; CCCC MUST then stop the old managed session before applying the replacement and MUST report whether unfinished work was discarded. Candidate-launch failure MUST restore the prior settings and Runtime, but MUST NOT claim that explicitly discarded work was recovered.
+- Web Voice requests share one lifecycle gate with Web Access Apply. While Voice is stopping or a Web restart is being prepared, Voice start, Analyst settings and reset requests MUST fail with 409 `codex_voice_restarting` (`retryable: true`). While cleanup of earlier Voice resources is unconfirmed (the call, the Analyst, or process groups recorded by an earlier Web host), they MUST fail with 503 `codex_voice_recovery_pending`: `retryable: true` when starting Voice again retries that cleanup, and `retryable: false` when a reset or replacement had begun and its outcome is unconfirmed, so the client checks Voice status first. Apply MUST stop the active Voice call and Analyst before it requests a Web restart. If that cleanup is unconfirmed, Apply returns the same error, the current Web keeps serving and the saved binding does not take effect.
 - Claude transcript entries MUST use the provider `promptId` as the durable provider-turn identity and MUST NOT infer identity from the Agent View summary headline. A human prompt observed before control acceptance is an external turn. Because the authenticated `reply` response does not expose that `promptId`, CCCC MAY return a stable local turn receipt as soon as the control request is accepted, but Voice ownership, progress, and results become authoritative only when the next transcript user record exactly matches the one pending controlled prompt and supplies its provider identifier. A competing prompt plus successful control acceptance is ambiguous and MUST invalidate the managed session rather than replaying the delivery. A controlled request that never starts, or settles without exposing the matching transcript, MUST fail within bounded post-acceptance or post-settlement intervals; active provider work MUST NOT expire solely because its turn is long. `turn_duration`, the provider interruption marker, and an explicit failure record are terminal authority. The state file and selected transcript file identity MUST be revalidated while following the session. An active transcript MAY relocate inside the configured Claude project store only after the old path disappears, a unique same-session file is found, and its entire consumed byte prefix matches the observer’s retained SHA-256 digest. The reader MUST preserve its byte offset and partial record without replaying history. A missing or incomplete relocation destination MUST settle within a bounded 10-second grace period; sustained loss, consumed-history mismatch, ambiguous candidates, same-path replacement, truncation of the active file, or malformed tail records MUST invalidate the session. Relocation alone MUST NOT stop or recreate the provider session.
 - A managed-runtime native-terminal delivery MUST wait for the TUI's advertised input mode before writing any payload; a PTY handle alone does not prove input readiness. Readiness waiting MUST be bounded and cancellable and MUST NOT inject a probe prompt, fall through on timeout, or wait for provider work to finish. Actor deliveries remain unaccepted on readiness failure; Voice native-input deliveries report an explicit error without writing the payload.
 - A Claude receipt MAY name an empty session that has never created a transcript. Before respawning it, CCCC MUST inspect the existing durable job metadata: only positive empty-input evidence with no transcript path, consumed transcript bytes, output, or token usage permits transcript-free recovery. An absent/null or numeric zero output-token counter does not indicate usage; nonzero or malformed counters MUST retain strict transcript validation. Unknown or materialized history MUST retain strict transcript validation, including a transcript written before Agent View publishes its path. This exception MUST preserve the exact provider session ID and MUST NOT replay old input or create a replacement conversation silently.
@@ -3236,15 +3954,18 @@ Notes:
 - Context delivery is separate from Runtime input admission and Provider speech scheduling. The browser MUST deliver checked context in order without waiting for user or assistant speech to finish; the Provider owns speaking and yielding to interruptions. Adjacent unsent fragments with the same context/delegation envelope MAY be joined without truncation, subject to the final append-size limit below. Missing speech transitions or context receipts MUST NOT block later context, trigger blind replay, or discard positively unsent results. A completed speech turn does not prove that all source facts were spoken. This delivery policy MUST NOT delay Analyst inputs or intercept provider delegations.
 - The browser Voice control socket MAY report `provider_error` with an `error` object containing bounded provider `code`, `type`, `event_id`, and `param` identifiers. This is transport diagnostics only: it MUST NOT start, cancel, or replay Analyst work. The Web port MUST validate these identifiers and correlate its diagnostic with the active call generation; it MUST NOT log arbitrary browser payloads, provider error messages, or credentials. The browser MUST distinguish a provider error from an Analyst failure and retain the provider code in its visible error when available. Error reporting alone MUST NOT change provider recovery policy.
 - Actor start, restart, new-session, and daemon restoration MUST NOT submit a model turn solely to initialize an Actor or materialize a provider session. They create or resume the daemon-owned control session and attach its native terminal while the model remains idle. Only real input—a pending CCCC delivery or human terminal input—may start model work. The CCCC startup prompt MUST be deferred to and combined with the first successfully accepted CCCC delivery, MUST NOT be sent as a standalone turn, and MUST remain pending if that delivery is not accepted. Recovery of an actual pending Send is a valid work trigger; lifecycle operations alone are not.
+- Automatic restoration policy MUST use the effective linked Runtime Profile for both eligibility and launch. A paused Group MUST NOT start a headless runtime merely because its stored Actor snapshot still describes a native terminal. An invalid Profile MUST NOT prevent other eligible Actors from restoring.
+- Automatic daemon restoration MUST record `actor.start` with `by="system"` and `data.reason="daemon_respawn"` only when that restoration changes the registered daemon-owned runtime from not running to running. An already healthy owner, a failed launch, or an external structured executor with no local runtime MUST NOT create a respawn fact. A ledger-write failure MUST be logged without stopping the restored owner or suppressing the existing unread-delivery path. This event records runtime startup, not model admission or task completion.
 - A newly created Codex thread MUST be durably resumable before CCCC records a usable receipt or attaches its native TUI. `thread/start` returning an ID and planned rollout path is insufficient. CCCC MUST materialize the empty thread through native metadata operations and verify full-history readability for that exact thread, without submitting a model turn or adding synthetic conversation items. Resumed conversations MUST retain their existing names and history.
 - A provider process exit MUST record `actor.stop` with `by="system"` and `data.reason="process_exit"`, but MUST NOT disable the actor or stop the Group. A user-authored Send or Request Reply explicitly targeting an actor ID, or a Send targeting `@foreman`, is also a wake action: it MUST enable that actor, move a paused or stopped Group to `active`, and start delivery through the normal runtime path whether the prior stop was automatic or user initiated. Broadcast selectors (`@all`, `@peers`, including the materialized default) MUST NOT enable disabled actors; they MAY resume the Group and wake already-enabled recipients. An actor explicitly named alongside a broadcast retains its explicit wake behavior. A broadcast with no enabled recipients MUST NOT resume the Group. This wake policy MUST NOT narrow the message's logical audience or remove it from history. Mail and Actor-authored messages MUST NOT enable disabled actors; Mail and previously queued work MUST NOT independently wake a runtime while a Group remains `paused`.
+- Process-exit events include `data.exit_code` (nullable) and `data.source`: `"runtime"` for a runtime session's observed child exit, or `"managed_reader"` for managed-reader teardown. Runtime status and its exit event MAY include `exit_detail`, the platform runtime's diagnostic description of the exit. This optional text is not a stable classifier or a portable signal identity; consumers MUST NOT infer a cause from `exit_code=1` alone. Managed-reader teardown without a child status MUST retain a null exit code and omit the diagnostic rather than claiming a confirmed provider exit.
 - If the linked profile includes `capability_defaults`, daemon applies baseline capability enables through capability control plane before launch.
 - Daemon also applies role defaults and the actor's `capability_autoload` before launch. These are durable desired capability bindings, so they remain applied when the subsequent runtime launch fails.
 - A daemon-launched runtime process MUST resolve an explicit existing attached scope from the actor default or group active scope. It MUST return `missing_project_root`, `scope_not_attached`, or `invalid_project_root` as applicable and MUST NOT fall back to the daemon working directory. An explicitly external structured executor may omit a local process only when its product capability and documentation say so.
-- Unmanaged native PTY Actors, including Antigravity, retain the shared best-effort input-mode wait and automatic submission path. Startup context MUST accompany the first task in one submission; starting an idle Actor MUST NOT submit a model prompt. Antigravity delivery does not depend on terminal display text or a per-process Web confirmation. Native login/trust setup must be completed before delivery; paste mode alone does not prove that setup is complete. PTY handoff evidence is not a provider receipt. Custom terminal programs retain their separate preamble submission contract.
-- Antigravity Actor startup and CLI setup MUST use native `agy mcp add` and verify the effective CCCC MCP configuration before launch. A conflicting project `.agents/mcp_config.json` entry or malformed configuration MUST fail without being overwritten. Global setup MUST preserve unrelated servers and serialize updates across instances. Its `cccc mcp` entry MUST resolve via the owning Actor launcher on PATH and inherit instance/Actor identity rather than pinning it in shared configuration. The complete startup prompt remains attached to the first task; a bounded, cancellable settling interval before the first payload addresses the observed early paste-mode initialization window. Later deliveries MAY include a conditional bootstrap reminder. Neither pacing nor that reminder changes PTY handoff evidence into a provider receipt.
-- Antigravity preparation also disables the native `showFeedbackSurvey` user preference, because its rating overlay can consume terminal input. Other preferences and user-owned symlinks MUST be preserved; invalid settings MUST fail explicitly without being replaced. This user-wide change also applies to standalone AGY sessions and MUST be documented as such. It does not add a UI-text readiness detector, a survey-dismissal keystroke, or automatic replay of accepted input.
-- The `kimi` runtime targets the current Kimi Code native TUI. Actor startup and CLI setup MUST share MCP configuration at `KIMI_CODE_HOME/mcp.json` (defaulting to the user's `.kimi-code/mcp.json`), preserve unrelated servers, and reject malformed documents without overwriting them. A project `.kimi-code/mcp.json` entry for `cccc` takes precedence; a conflicting project entry MUST fail setup without modification, unless it is the user-level configuration file itself. CCCC MUST NOT infer the active client from legacy directories or invoke the removed `kimi mcp add` command. MCP setup MUST NOT write provider trust records. Native input-mode signals do not establish first-use initialization readiness; users must finish startup dialogs before PTY delivery. Kimi's explicit session arguments are preserved, but CCCC does not claim managed session-ID capture or automatic resume for this runtime.
+- Unmanaged native PTY Actors, including Antigravity in its default TUI mode, retain the shared best-effort input-mode wait and automatic submission path. Startup context MUST accompany the first task in one submission; starting an idle Actor MUST NOT submit a model prompt. Antigravity delivery does not depend on terminal display text or a per-process Web confirmation. Native login/trust setup must be completed before delivery; paste mode alone does not prove that setup is complete. PTY handoff evidence is not a provider receipt. Custom terminal programs retain their separate preamble submission contract.
+- Antigravity TUI Actor startup and native CLI setup MUST use native `agy mcp add` and verify the effective CCCC MCP configuration before launch. A conflicting project `.agents/mcp_config.json` entry or malformed configuration MUST fail without being overwritten. Global setup MUST preserve unrelated servers and serialize updates across instances. Its `cccc mcp` entry MUST resolve via the owning Actor launcher on PATH and inherit instance/Actor identity rather than pinning it in shared configuration. The complete startup prompt remains attached to the first task; a bounded, cancellable settling interval before the first payload addresses the observed early paste-mode initialization window. Later deliveries MAY include a conditional bootstrap reminder. Neither pacing nor that reminder changes PTY handoff evidence into a provider receipt.
+- Antigravity TUI preparation also disables the native `showFeedbackSurvey` user preference, because its rating overlay can consume terminal input. Other preferences and user-owned symlinks MUST be preserved; invalid settings MUST fail explicitly without being replaced. This user-wide change also applies to standalone AGY sessions and MUST be documented as such. It does not add a UI-text readiness detector, a survey-dismissal keystroke, or automatic replay of accepted input.
+- The `kimi` runtime in default mode targets the current Kimi Code native TUI. Native Actor startup and CLI setup MUST share MCP configuration at `KIMI_CODE_HOME/mcp.json` (defaulting to the user's `.kimi-code/mcp.json`), preserve unrelated servers, and reject malformed documents without overwriting them. A project `.kimi-code/mcp.json` entry for `cccc` takes precedence; a conflicting project entry MUST fail setup without modification, unless it is the user-level configuration file itself. CCCC MUST NOT infer the active client from legacy directories or invoke the removed `kimi mcp add` command. MCP setup MUST NOT write provider trust records. Native input-mode signals do not establish first-use initialization readiness; users must finish startup dialogs before PTY delivery. Kimi's explicit session arguments are preserved, but CCCC does not claim managed session-ID capture or automatic resume for the native TUI mode. Explicit ACP mode uses the separate controlled receipt and session MCP contract above.
 - A `deepseek` actor has no native terminal surface and MUST use CCCC's structured ACP surface. The daemon MUST install and resolve CCCC's pinned ACP composition from `CCCC_HOME/runtimes/deepseek/<release>` and MUST NOT modify the user's `DSH_HOME`, home-level npm project, or attached project.
 - The managed DeepSeek root manifest and lockfile MUST declare exactly `dsh-acp`, `dsh-mcp-client`, `dsh-acp-demo`, and `dsh-llm-deepseek` as direct dependencies. Every installed `@deepseek-ai/dsh*` package MUST remain on the release declared by `crates/cccc-contracts/src/deepseek.rs`; checking only direct package manifests is insufficient.
 - Each DeepSeek actor MUST set `CCCC_DEEPSEEK_SESSION_ROOT` to `groups/<group_id>/state/deepseek/<actor_id>/sessions` under the active `CCCC_HOME`. A provider turn MUST reach a successful terminal response within the shared bounded timeout before its source cursor advances; timeout cancellation MUST be durably projected as a failed turn, or the unconfirmed supervisor MUST be stopped. Output and failed-terminal idempotency keys MUST include the provider-attempt identity so a retry cannot be hidden by partial output from an earlier failed attempt; the successful terminal remains idempotent by source event. Crash recovery MUST query that durable per-source completion marker directly (or through its persistent index) and MUST NOT stop recognizing completed turns merely because the append-only headless event log crossed a size or line-count threshold. A permanent credential or context-window failure MUST persist a manual-restart gate before automatic delivery can run again. The gate MUST be bound to both the actor creation identity and the failed provider launch generation, MUST survive daemon restart, and MUST be cleared only after a lifecycle start/restart operation successfully initializes a replacement provider process; daemon restore and message-triggered auto-wake MUST NOT clear it. A late failure from a replaced generation MUST NOT close the replacement actor's gate.
@@ -3311,7 +4032,7 @@ teardown. Reports MUST precede the stop frame and fit both the 1,024-ID observat
 128 KiB WebSocket frame limit; the browser batches at most 64 managed result IDs per report.
 An ID already submitted to the provider MUST NOT be included merely because its receipt is missing. Disconnection,
 missing receipts, or timeout alone MUST NOT release a reserved result for automatic replay.
-The private Realtime context-append protocol limits each append to 500 tokens. The browser MUST
+The Codex subscription's private Realtime context-append protocol limits each append to 500 tokens. The browser MUST
 apply a conservative 500-UTF-8-byte text budget at the final data-channel boundary, after local
 coalescing and notification preflight have produced the actual text. Session and delegation context
 appends MUST preserve the complete text and Unicode code points across ordered fragments. One
@@ -3355,12 +4076,17 @@ exhaustion MUST fail atomically without marking sources processed. This order su
 Analyst restarts and does not alter Runtime input admission or imply speech completion.
 
 The shared local client carries a host-owned Analyst origin on message-write operations. The
-daemon MUST validate that origin and persist an exact source-event/expected-recipient association
-before appending its canonical message. Expected recipients MUST snapshot the same inbox routing
-semantics as delivery, including `@foreman`, `@all`, `@peers` and internal-actor exclusions. Later
-role changes MUST NOT retarget this persisted reply association. Internal origin metadata MUST NOT enter public chat data.
-Ordinary Send, tracked Send, and nested code-mode calls use this same boundary. Failed appends may
-leave an inert source intent, but only an existing canonical ledger event can activate it.
+daemon MUST validate that origin. For a user-authored Voice handoff, it persists an exact
+source-event/expected-recipient association before appending the canonical message. A
+Chet-authored handoff uses the same association when the existing recording lease identifies an
+active `codex_voice` capture dispatched to `codex_voice`. The lease identifies an active call,
+not the modality of an individual Analyst turn: a text handoff during the call may be associated,
+and a slow Voice turn that sends after lease release may not be. Expected recipients MUST snapshot
+the same inbox routing semantics as delivery, including `@foreman`, `@all`, `@peers` and
+internal-actor exclusions. Later role changes MUST NOT retarget this persisted reply association.
+Internal origin metadata MUST NOT enter public chat data. Ordinary Send, tracked Send, and nested
+code-mode calls use this same boundary. Failed appends may leave an inert source intent, but only
+an existing canonical ledger event can activate it.
 
 An active call consumes ledger increments in bounded pages and atomically registers candidate
 references before advancing cursors. Lost broadcasts MUST be recoverable from these cursors.
@@ -3368,14 +4094,19 @@ The first acknowledgement does not terminate reply association. Only the expecte
 reply association is a request result; subscription matching is independent and deduplicated by
 the canonical group/event pair. Attachment-only messages remain eligible; their contents MUST NOT
 be read automatically. Source copies of cross-group messages MUST NOT duplicate the destination.
+For a reply addressed to Chet, the persistent Group-input owner alone submits the model turn;
+the Voice consumer MUST NOT submit a second turn for that reply. If it corresponds to a registered
+Voice handoff, the result may be projected to the existing Voice notification output after its
+Chet history fact is confirmed, including when the reply arrives after the call ends. Output still
+requires the current Group/source, viewed and policy checks. An unconfirmed model submission MUST
+NOT become a Voice result.
 
 Before Runtime handoff, persist the source references and receiving Analyst generation. On an
 unproven post-handoff failure, retain unknown delivery rather than automatically executing again.
 An accepted but unfinished source belonging to a replaced Analyst generation MUST also remain
 visible as unconfirmed, rather than implying that the replacement is still working on it.
 All inputs consumed by one Runtime turn MUST survive in its completion association set. Active
-user answers MUST NOT be silenced by a concurrent non-speaking background update. No Runtime-busy
-wait queue or oldest-item eviction is permitted. Viewing or narrowing subscriptions suppresses
+user answers MUST NOT be silenced by a concurrent non-speaking background update. Only the explicitly reported structured-only FIFO described above may wait for Runtime completion; no hidden Runtime-busy wait queue or oldest-item eviction is permitted. Viewing or narrowing subscriptions suppresses
 unsubmitted background speech, not actual Group work or explicitly requested answers.
 
 The private version-1 state has a bounded 10,000-reference working set, 16 MiB encoded size,
@@ -3385,7 +4116,8 @@ Capacity exhaustion MUST stop scanning before losing references or advancing pas
 events. Unknown handoffs MUST NOT be evicted to free capacity. Completed notification attempts may
 be compacted after their cursor has passed; Group deletion retires its derived references, never
 another Group with the same name. Source associations remain until their Group is retired; they
-are not synthetic permanently-running tasks. Voice-off MUST NOT cause notification model turns.
+are not synthetic permanently-running tasks. Voice-off MUST NOT cause the Voice notification
+consumer to start model turns; an independent Chet Group input may still be processed.
 Cancelling an unhanded background candidate because it was viewed or excluded by preferences
 MUST retire its viewed reference in the same transaction: scan has already passed that source.
 Viewed references ahead of the scan cursor, explicit request context, and handed-off observations
@@ -3400,13 +4132,13 @@ Args:
 
 Result:
 ```ts
-{ actor: Record<string, unknown>; event: CCCSEventV1; new_session: true }
+{ actor: Record<string, unknown>; event: CCCSEventV1; runtime_confirmation_required: boolean; runtime: Record<string, unknown> | null }
 ```
 
 Notes:
-- Supported for Antigravity, `claude`, `codex`, Grok, OpenCode, and Kilo actors.
-- Antigravity uses its ordinary process lifecycle: stop the existing process if present, then start the actor with the same runtime settings and a fresh deferred bootstrap. CCCC does not issue a native `/clear` command or claim automatic Antigravity session resume.
-- Other supported runtimes stop the current actor process if present, clear CCCC's saved runtime session metadata for that actor, then start the actor with the same runtime settings.
+- Supported for `claude`, `codex`, Grok, OpenCode, Kilo and Pi actors, and optional-ACP Actors in ACP mode. Antigravity also supports its native TUI reset behavior below.
+- Antigravity in its default TUI mode uses its ordinary process lifecycle: stop the existing process if present, then start the actor with the same runtime settings and a fresh deferred bootstrap. CCCC does not issue a native `/clear` command or claim automatic Antigravity session resume.
+- Other supported runtimes stop the current actor process if present, clear CCCC's saved runtime session metadata for that actor, then start the actor with the same runtime settings. Receipt selection, snapshot and rollback MUST resolve the current linked Runtime Profile before selecting ACP versus native metadata; the other surface's receipt remains intact.
 - Does not delete provider-side conversation/session history.
 
 #### `runtime_hermes_status`
@@ -3439,6 +4171,7 @@ Notes:
 - CCCC does not create or select a separate Hermes profile.
 - `HERMES_HOME`, when supplied by the user, is treated as ordinary runtime environment. Explicit Actor/Profile environment takes precedence over the host default.
 - `mcp.env` must persist `${CCCC_HOME}`, `${CCCC_GROUP_ID}`, and `${CCCC_ACTOR_ID}` placeholders so each actor process resolves its own CCCC identity.
+- Readiness MUST verify the saved command, arguments, identity placeholders and enabled state. An explicitly disabled `cccc` entry is not ready.
 
 #### `runtime_hermes_prepare`
 
@@ -3466,6 +4199,7 @@ Result:
 Notes:
 - Setup MAY invoke `hermes mcp add cccc ...` and answer Hermes' discovery prompt only when `auto_enable_tools`/`yes` is true.
 - Discovery uses concrete CCCC env values, then CCCC normalizes saved Hermes MCP env back to actor-time placeholders.
+- The official `--args` option consumes the remaining arguments and MUST follow the setup options. Setup success MUST be verified from the saved entry, rather than inferred from CLI exit status: Hermes can exit successfully after cancelling setup or saving a disabled server.
 - Hermes and other runtime MCP configuration/check helpers are finite commands: input, both output streams, and exit share a deadline. Their owned process group / Windows Job is released on completion or timeout. Captured output is bounded to 2,000,000 bytes per stream; oversized output is an explicit command error, never partial setup evidence.
 
 #### `runtime_hermes_mcp_test`
@@ -3532,22 +4266,217 @@ Result:
 { group_id: string; actor_id: string; keys: string[] }
 ```
 
-### 8.5 Actor Profiles (Global)
+#### Local native sessions
 
-Actor Profiles are global reusable runtime profiles stored under `CCCC_HOME/state/actor_profiles/`.
-They are not group-local settings.
+Local sessions are same-OS-user sources connected to this `CCCC_HOME`, independent of Group membership. Source IDs are opaque routing identifiers, not credentials. Registration MUST NOT create Groups/Actors or change the global active Group. Native adapters MAY persist whitelisted lifecycle identity under `state/local_sessions/`; they MUST NOT scan or copy native conversation history. Current receive capability, rather than a loaded-thread cache or a stale MCP environment, determines directory presence.
+
+Explicit integration disablement MUST durably fence registration and native authority for that runtime in this `CCCC_HOME` before provider cleanup. Callbacks still loaded in a host MUST NOT remove that fence, including callbacks for a previously unregistered source. Cleanup failure MUST leave the fence closed. Provider-global MCP, hook and plugin cleanup MUST only change registrations proven to belong to this CCCC installation; a matching display name alone is insufficient. Claude enable/disable MUST recognize the structured `already_in_goal_state` outcome as idempotent, without suppressing real provider failures. Before changing Claude MCP configuration, enable MUST verify the marketplace source and installed plugin provenance; foreign or unreadable registrations MUST fail without changing provider configuration. Explicit enablement may reopen registration only after successful configuration and retirement of old identities; enablement alone MUST NOT resurrect retained identity. A fresh lifecycle callback is required. Recovery MUST report `integration_disabled` while this fence is closed even if the individual lifecycle record is missing or unreadable; an unreadable fence is an explicit recovery error.
+
+An Actor with nonempty `external_session_id` refers to a user-owned native source. Its `runtime` is `codex`, `claude`, `pi` or `opencode`; `runner=headless` and `runtime_state_source=external_session` mean no CCCC-owned terminal, not a managed replacement process. Runtime/model/credential configuration remains native-owned. Start/stop toggle Group access; restart/new-session MUST fail without touching the native process. Removing or stopping a Group MUST NOT terminate its native sources.
+
+Pi uses its official extension session lifecycle and `sendUserMessage(deliverAs="followUp")` API. An extension-owned receive bridge is bound to the captured Pi process and current session revision. It registers metadata without creating a Group. The public extension call returns void and catches asynchronous prompt failures internally; its return MUST NOT acknowledge admission. Acceptance MUST follow the exact native user `message_start` event in the captured session, not assistant output or a model result. Unconfirmed input, including queued input not observed within the existing handoff timeout, remains ambiguous and MUST NOT replay. Receipt correlation MUST retain independent concurrent handoffs from different Groups and remain bounded; it MUST NOT create a second input queue. New/resumed/forked contexts and extension reload/quit retire the old revision; delayed bridge cleanup MUST NOT retire a replacement. A lost admission acknowledgement remains ambiguous and MUST NOT replay native input. Pi MCP uses the verified native parent and current lifecycle registration, never a model-supplied source identifier. CCCC-owned Pi sessions MUST skip the external extension. Setup MUST preserve and reject an existing Actor/Secretary-scoped MCP entry instead of converting its identity to native access. Disablement closes the same durable integration fence before removing the owned Pi package and unchanged MCP entry.
+
+OpenCode V2 uses its official CLI plugin, the existing local backend and
+`session.prompt(delivery="queue")`. Sources are keyed by the native session ID;
+the original TUI owns their receive bridges. Open sessions/tabs are distinct
+sources. Closing a source, unloading the plugin or exiting the TUI retires that
+incarnation without deleting history or stopping the shared backend. A second
+live TUI MUST NOT silently replace a source's current receive owner. Reopening
+the same native session after that owner exits MAY reuse its source and Group
+memberships with a fresh revision. Late cleanup MUST NOT retire that revision.
+Registration captures both the TUI host and local backend process fingerprints;
+native authority requires both to remain live. OpenCode MCP selects the current
+source only from `params._meta["ai.opencode/sessionID"]` and additionally matches
+its actual native parent to the registered backend. The model cannot supply an
+identity selector as tool arguments. This correlation value alone grants no
+authority: existing source/membership/generation fences still apply under the
+daemon permit.
+
+The OpenCode plugin MUST preserve user JSON/JSONC settings and foreign MCP
+registrations. Its temporary `cccc` MCP transform may replace only a recognized
+entry owned by the same CCCC installation; a conflict remains unavailable.
+An existing Actor/Secretary-scoped entry MUST remain unchanged and unavailable
+for native transformation, even when its executable and home match.
+Managed CCCC runtimes MUST skip the native plugin. Input is acknowledged only
+after the provider returns its durable admission for that exact session;
+unknown responses, internal errors and lost acknowledgements remain ambiguous.
+Disablement MUST close the durable native fence before removing unchanged owned
+plugin files. It MUST NOT delete customizations, native sessions or user MCP
+configuration. Native readiness reads do not launch or resume OpenCode.
+
+Ordinary `actor_list` and `actor.activity` projections reflect native receive readiness together with membership and Group access. Activity snapshots MUST include unavailable native members even when no connected tick was previously published; omission is not a stopped-state update. Unchanged availability MUST NOT append repeated activity events or start runtime work.
+
+`local_session_list` (read): `{ include_offline?: boolean, source_id?: string }` returns `{ sources: LocalSessionSource[], self_memberships?: LocalSessionMembership[] }`, where each source has `source_id`, `runtime`, `native_session_id`, `cwd`, `title`, and `connected`, plus optional `origin` (`cli` or `vscode`) for a known Codex creation origin. Origin is display metadata only; it MUST NOT establish identity, Group membership, receive readiness, or current window/process state. Supplying `source_id` additionally returns that source's existing memberships, including disabled memberships, with `group_id`, `group_title`, `actor_id`, `role`, `enabled`, `group_state`, and `group_running`. Membership discovery MUST NOT require a receive channel, mutate access, or create a Group. Native MCP `cccc_session list` supplies its current source identity and returns `self_source_id` (nullable) and `self_memberships` (empty if no identity is available). Disconnected or corrupt individual entries MUST NOT hide other sources; an unreadable individual Group MUST NOT hide valid memberships or prevent direct reuse elsewhere. Registry failures remain errors. This global private directory MUST NOT be exposed to Exhibit, Group-scoped Web principals, or remote model connectors. The private Web requests `include_offline=true` to show live, registered sources whose receive integration is not ready; retired, disabled and dead-host records remain excluded. This is a passive read and MUST NOT trigger qualification. Lifecycle registration MAY read official `thread/read` metadata with `includeTurns=false` on its existing qualification connection to capture `origin`. Only the whitelisted creation origin is retained; previews, turns and other provider details MUST NOT be retained or exposed. Missing/unknown fields, unsupported methods, provider errors and a bounded optional-read timeout MUST NOT discard a completed receive qualification. Ordinary readiness rechecks and directory reads MUST NOT add origin lookups.
+
+`local_session_recovery` (read, human only): `{ group_id: string, actor_id: string, by?: "user" }` returns `{ group_id, actor_id, source_id, recovery: { state: "connected"|"disconnected"|"host_exited"|"session_ended"|"integration_disabled"|"unknown", cwd: string|null, shell: "posix"|"powershell", command: string } }`. Resolve the native source from that Group's Actor binding; arbitrary `source_id`, non-user callers and remote connector bindings MUST be rejected. The private Web exposes administrator-only `GET /api/v1/local_sessions/recovery/{group_id}/{actor_id}`; Exhibit and Group-scoped principals MUST NOT receive this projection. Ordinary Actor listings, Group documents and activity events MUST NOT gain the recovery command or provider configuration directory.
+
+Recovery status describes the native source independently of Actor access and Group pause/stop. Recorded `integration_disabled` or `session_ended` takes precedence over later host absence; explicit disablement also covers retained ended/dead records and MUST NOT be overwritten by a late End. Otherwise, `host_exited` requires evidence that the captured process fingerprint is gone or replaced; a disconnected receiver, missing metadata or an inconclusive host lookup MUST NOT establish process exit. `session_ended` records a matching lifecycle End, not necessarily exit of a shared app-server. Missing metadata returns `unknown`; unreadable/corrupt metadata remains an explicit read error, not a guessed identity. Directory and recovery reads MUST NOT query provider queues/history, launch/resume processes, create delivery claims or append ledger events.
+
+`local_session_refresh` (resource-owned, human only) accepts the same binding and returns the recovery projection plus `refresh_status: "checked"|"unavailable"|"not_checked"`. The administrator-only Web endpoint is `POST /api/v1/local_sessions/recovery/{group_id}/{actor_id}/refresh`. For a live, non-retired Codex source it explicitly rechecks the existing app-server's loaded-thread and queue qualification, then updates only that same fenced registration's readiness. It MUST NOT revive ended, disabled or exited lifecycle identity, start/resume a native session, enqueue input, transfer membership or replay delivery.
+
+`checked` means qualification completed; it does not itself mean the channel is connected. Inconclusive qualification returns `unavailable`, retains previous readiness evidence, and still returns a freshly read recovery projection for the captured member. Claude and unavailable lifecycle records return `not_checked` without qualification. After qualification, the operation MUST recheck the Actor's source, generation and runtime before projecting its details; replacement fails with `local_session_changed`. Unreadable recovery metadata remains an error. The Web port MUST reconfirm administrator access after awaiting recovery/refresh and discard mismatched or stale results.
+
+Web recovery uses one explicit **Refresh status** action: Codex performs this POST; Claude performs the passive recovery GET. Initial/visibility and relevant Actor/Group changes perform passive GETs, not periodic polling. Expanding details does not make another request. Online details default to collapsed. Inconclusive qualification displays its result and the validated snapshot without a second GET or automatic qualification retry. Lost access, changed binding and failed reads clear private details. A stale offline pane is not proof that an End/disable has not occurred.
+
+Restored readiness lets the independent delivery owner continue previously
+authorized pending work in every eligible membership of that source. Its bounded
+ledger refill MUST survive memory-queue overflow and startup pagination; it does
+not require each Group's refresh endpoint to redispatch. This is not a guarantee
+that qualification refresh cannot be followed by native input or model work.
+
+PowerShell literals MUST escape every recognized single-quote delimiter, including U+2018–U+201B, not just ASCII apostrophes. Encoding the enclosing script MUST NOT substitute for safely quoting its embedded paths and IDs. This rule also applies to generated hook and Monitor commands.
+
+Retiring lifecycle identity MUST revoke ordinary tool and receiver authority while retaining the last CCCC-owned lifecycle record for local recovery. Dead-host records MAY also remain but MUST NOT appear as active directory sources or authorize work. Only the latest native ID, working directory and whitelisted provider configuration directory are used; this is not native conversation history or a transcript backup. A later lifecycle callback refreshes that same source's record and revision under the existing host/ID fencing rules. The command MUST safely quote native IDs and paths, select this `CCCC_HOME` and any captured `CODEX_HOME` / `CLAUDE_CONFIG_DIR`, and run in the last recorded directory when known. `shell` describes the CCCC host's command syntax, never the browser's OS: POSIX on Linux/macOS, PowerShell on native Windows. Codex's immutable source binding can supply its native thread ID if metadata is missing; a Claude host/source identifier MUST NOT be substituted for a conversation ID. Without a captured Claude native ID, offer only the original runtime's session picker. Returning these commands does not execute a native resume or transfer membership. A later native receive attachment follows the restoration rules below; native resume can consume queued work and model credits.
+
+`local_session_conversation` (global write): `{ source_ids: string[], source_id?: string, title?: string, direct?: boolean }` creates an ordinary Group for 1–16 selected connected sources, including the optional caller. Returns `{ group_id, group, reused }`. `direct=true` MAY reuse an existing Group with the exact source set and enabled memberships. The private Web **+ New Group** choice MUST pass `direct=false` for every selection size and explicitly create a new Group. Native direct-message reuse remains unchanged. The Web **Connect to Group** action adds selected sessions to the explicit Group; with zero selected sessions it MUST stay disabled rather than navigating or changing membership. Working directories become attached scopes without changing registry project defaults. Source-initiated Group/Actor creation events use `by=svc:cccc.local-session` and retain the initiating `source_id`; human-initiated creation uses `by=user`.
+
+Native MCP `cccc_session` MUST validate parameters for the selected action before
+any daemon side effect. `list` accepts only `action`; `conversation` accepts
+`source_ids` and optional `title`, and creates a Group without sending a message;
+`leave` accepts `group_id`. Message fields (`text`, `mode`, `insight`, `to`,
+`client_id`) belong to `send`; meaningful message content or a non-default mode
+MUST NOT be silently discarded by another action. Known unused optional fields
+set to null, empty strings/arrays, or the shared schema default `mode="send"`
+are treated as omitted on non-send actions. Unknown fields and invalid send
+modes remain errors. Rejected calls return `invalid_args` and point to `send` with `source_ids`
+and `text`. Invalid action types/names also fail. This does not permit model
+arguments to select the authenticated source or supply internal authority.
+
+`local_session_join` (Group write): `{ group_id: string, source_ids: string[] }` adds 1–16 explicitly selected connected sources to an existing Group. This is a human-administrator operation; native source-initiated admission and remote connector access MUST be rejected. Returns `{ group_id, group, reused }`, with `reused=true` when every selected source already has a membership. Existing memberships, including disabled access, MUST remain unchanged. New sources become new Actors appended to membership order and receive `actor.add` generation facts; they MUST NOT replace old Actors, inherit their pending messages, or automatically take over their roles. Attaching their scopes MUST NOT change the Group's active scope, state/running flag, registry defaults, or global active Group. The private Web exposes this through administrator-only `POST /api/v1/local_sessions/join`. Web MUST distinguish existing enabled and paused members of the selected Group. Resuming a paused membership is a separate explicit user action through `actor_update` with `enabled=true` and the selected unchanged `external_session_id`; a mismatched source MUST fail. Joining or resuming access MUST NOT resume the Group or the original application.
+
+Sources whose detected scopes share a `scope_key` but have different physical roots (such as separate clones/worktrees of one Git origin) MUST fail creation or joining with `local_session_scope_conflict`, before registering a Group or modifying its memberships/scopes. Joining MUST also check the Group's existing scopes. They MUST NOT silently bind one Actor to another checkout. Existing persisted scope identity MUST NOT change to accommodate this integration.
+
+For a new conversation, the caller source MUST be the first Actor when supplied; otherwise, preserve the explicit source selection order. Duplicate source IDs represent one member. Existing Group role semantics therefore make the caller or first selection foreman. For a new human-created Group, the Web MAY let the user choose Foreman among selected sources; it MUST place that source first in the submitted `source_ids`, preserving the relative order of the remaining selections. The default-directory preview MUST follow that source. One selected source is automatic; joining an existing Group MUST NOT expose this as a role-change control. This does not add an independent role field or change native-initiated caller ordering. Direct reuse compares the canonical source set independently of order and MUST NOT reorder existing Actors or change their roles.
+
+`local_session_send` (Group write with `group_id`, global write otherwise): `{ source_ids?: string[], source_id?: string, group_id?: string, text: string, to?: string[], message_mode?: "send"|"request_reply"|"mail", client_id?: string, insight?: string }`. Without `group_id`, creates/reuses a direct conversation from the selected sources; a non-empty `to` MUST be rejected, and recipients MUST be the enabled Actors for the selected `source_ids`, not additional members of a reused Group. With `group_id`, a non-empty `source_ids` MUST be rejected and sending requires the caller source to be an enabled member; absent `source_id` means human `user`, and absent `to` retains ordinary `@all` semantics. A null or empty `to` or `source_ids` counts as absent, as CCCS does for an empty `to`, so a client that fills unused optional lists with `[]` keeps the addressing mode it chose. Uses ordinary messaging validation, ledger, delivery claims and receipts. Returns the normal send result plus `group_id`. Native MCP MUST supply the current source identity itself, require explicit Group IDs for ordinary Group tools, enforce membership, and apply normal peer-insight rules. Native `cccc_session send` and native-profile `cccc_message_send` default to Send; explicit Mail remains available. MCP `cccc_session send`, `cccc_message_send` and `cccc_message_reply` MUST expose `mode` and translate it to IPC `message_mode` at the MCP boundary. They MUST reject `message_mode` in MCP input, including duplicate or conflicting names, and invalid mode types/values before appending a message or creating a conversation; they MUST NOT silently replace the requested mode with a default. This port default MUST NOT change ordinary managed-Actor/IPC Mail defaults. Native Preamble and tool descriptions MUST agree and include the explicit Group ID for bootstrap and Group tools. Existing Group tools require valid live native lifecycle identity and enabled membership, not current receive readiness; a lost Monitor/queue MUST NOT by itself revoke read/reply/leave access. Explicitly disabled membership and ended native identity remain unauthorized for ordinary Group tools. Native MCP MUST capture `{ group_id, actor_id, actor_generation, source_id, session_revision }` from trusted lifecycle metadata and membership discovery, never tool arguments. The internal `_cccc_native_binding` snapshot MUST accompany Group operations and be revalidated under the daemon operation permit before execution. The current Actor must be enabled and match the captured source and generation; the live lifecycle record must match the captured revision. Local file/tool and bootstrap paths MUST preserve and revalidate the same snapshot. Source or Actor ID reuse MUST NOT transfer an in-flight request to a replacement membership. This metadata MUST NOT be persisted as message content.
+
+`local_session_leave` (Group write): `{ source_id, group_id }` stops only that membership's CCCC access.
+
+Codex MCP identity MUST come only from the host's direct `params._meta.threadId` nonempty string. Nested fields, aliases, `sessionId`, tool arguments and cwd MUST NOT establish that identity; missing identity permits anonymous discovery only, while malformed identity is an error. Claude's direct stdio executable MAY verify its actual native parent when no explicit adapter host PID is supplied; a nonempty `CLAUDE_CODE_SHELL_PREFIX` prevents automatic parent inference. Generated Claude lifecycle hooks and Monitor use the provider's `CLAUDE_PID` with native ancestry validation. Generated Codex hooks verify the actual native parent chain, including their known Windows shell bridge; MSYS `$PPID` and searching by process name MUST NOT establish a host. Native PID reuse MUST be fenced by boot/start identity on Linux and absolute process creation identity on macOS/Windows.
+
+Native MCP mutations MUST carry captured authority through daemon execution,
+not only a `source_id` checked at the MCP boundary. Ungrouped conversation creation
+and direct sends use the internal `_cccc_native_source_binding` with `source_id`
+and `session_revision`; Group selection/admission then occurs under the global
+write permit. Group-addressed send/leave use the existing `_cccc_native_binding`,
+including Actor ID and generation. The daemon MUST revalidate these snapshots
+after acquiring its permit, rejecting ended/changed lifecycle identity or replaced/
+disabled membership before any message, Group creation or leave side effect.
+Model-supplied internal bindings MUST be discarded. These snapshots are not
+credentials and do not change the human administrator's CLI/Web authority.
+
+Native `actor_start`/`actor_stop` manage membership access only, like
+`actor_update(enabled)`: they MUST preserve Group Stop/Pause and MUST NOT release
+pending delivery through either fence. Resuming access in an available Active/Idle
+Group retains desired-running state; stopping its last enabled member may clear it.
+The Web resume action MUST fence the selected source via `external_session_id`.
+Managed Actor Start retains its existing Group-start behavior.
+
+The Claude adapter uses an ephemeral receiver lease; Codex hands deliveries to its existing app-server thread, steering an eligible active turn and otherwise using its official native queue, as specified below. Adapter-only operations:
+
+- `local_session_receiver_attach` (global write) and `local_session_receiver_heartbeat` (resource-owned): `{ source_id, connection_id }` returns `{ source }`. A live different owner is rejected; heartbeat can renew the same receiver's lease. Only the true attach operation may restore proven Claude/Pi conversation memberships as specified below. Adapters MUST call it after daemon connection loss or a changed lifecycle revision; renewing a lease alone MUST NOT mutate Group membership. The adapter's lifecycle metadata supplies the current native conversation, including changes while the daemon was down.
+- `local_session_receiver_next` (resource-owned): same args; returns `{ source, handoff: null | { handoff_id, source_id, native_session_id, group_id, actor_id, event_ids, text } }`. Offers each physical handoff once. MUST recheck the Actor generation, access, receiver owner and native conversation revision before offering. Changed/replaced ownership MUST settle older handoffs without blocking future work.
+- `local_session_receiver_ack` (resource-owned): same owner args plus `{ handoff_id, state: "accepted"|"failed"|"ambiguous", reason?: string }`. Confirms only an offered handoff still owned by that receiver and conversation revision. An old acknowledgement MUST NOT confirm newer work.
+- `local_session_receiver_detach` (resource-owned): same owner args; clears only that owner and settles its pending physical handoffs. Old cleanup MUST NOT detach a replacement receiver.
+
+Every native message MUST carry its receiving Group ID, Actor ID, current role, and attached scope context in the model-visible text, even when the longer bootstrap is cached. Structured handoff fields alone are insufficient when an adapter forwards only `text`; one source can serve multiple Groups in alternating order. Codex receives the initial complete Preamble and subsequent concise receiving-context headers. Claude Monitor notifications MUST keep their routing identifiers, receiving role/scope key and an exact `message_history` read instruction inside the visible prefix. The complete JSON stdout record is bounded to 480 bytes, including escaping and its newline, based on the observed 500-character truncation in Claude Code 2.1.310; this is an adapter budget, not a guaranteed vendor limit. Full content and the Preamble remain available through the authorized exact read. The notification is a preview and MUST NOT truncate or duplicate the canonical ledger message.
+
+Receipts use existing `runtime.delivery` events with `transport=local_session`. Accepted means transport acceptance, not model execution/read/reply. Known rejection is failed; unknown submission is ambiguous and MUST NOT automatically replay. A failed attempt known to have stopped before native submission carries `retryable=true` and remains pending across access/Group pause and resume. Native rejection or an older failed receipt without this evidence stays out of automatic recovery. Accepted, ambiguous and withdrawn receipts MUST NOT replay, regardless of the flag. A missing acknowledgement is bounded to 30 seconds, after which later messages can proceed. Ordinary native delivery MUST keep offline work pending without a durable claim, claiming only when the receive channel is available and the adapter handoff is ready. A definitely unsubmitted unavailable attempt releases its claim with explicit retryable evidence. After a crash, remaining unsettled claims are still ambiguous; moving the claim boundary MUST NOT authorize replay of earlier ambiguous receipts. Other targets remain independent. Native callbacks and receiver polling MUST NOT start synthetic model work.
+
+A Codex delivery is eligible for the active turn only when one read of the thread without turns reports `canAcceptDirectInput: true` and an `active` status with a known empty `activeFlags` list, and the newest page of turns, without items, shows an `inProgress` turn. `canAcceptDirectInput` alone is not eligibility: it stays true while Codex waits on an approval or on user input. The daemon then sends `turn/steer` with that turn as `expectedTurnId`. A reply that returns the same turn is accepted. An explicit invalid-request or method rejection, including no active turn, a different active turn and a compact turn, means the input was not admitted. So does an ineligible read. In either case the daemon uses the official native queue under the rules below, without chasing a newer turn. After the steer request is sent, a closed connection, timeout, cancellation, internal error or unreadable reply is ambiguous and MUST NOT fall back to the queue or replay.
+
+To make a delivery eligible, the daemon MUST NOT:
+- start, resume, interrupt or reconfigure a thread;
+- read its transcript;
+- answer approvals or questions;
+- persist or edit queued submissions, whether queued by CCCC, the user or another client.
+
+Accepted remains transport acceptance: steered input has joined the active turn, which does not prove the model has read it. Codex can still apply its own policy, such as a blocking `UserPromptSubmit` hook, to accepted input; the receipt stays accepted and the input is never re-queued. This governs only how CCCC hands over its own deliveries; it does not change the input mode a user selects in a Codex client.
+
+Queue-process errors proven to occur before any child exists MUST remain retryable. Errors after a child starts, including post-spawn setup failure, MUST NOT be classified as unsubmitted without further evidence. Codex command-line admission MUST validate the complete rendered payload before claiming it, including context, bootstrap, platform encoding and argument limits. Unrepresentable payloads MUST fail explicitly without truncation or implicit splitting; they MUST NOT turn into ambiguous submissions or replay prior terminal work.
+
+Claude cancellation/expiry MUST withdraw a pending handoff and inspect whether it was offered in one critical section. A receiver MUST NOT offer it after it is classified as unsubmitted. If an acknowledgement already settled the handoff before withdrawal, that acknowledged outcome MUST win over cancellation/expiry.
+
+The native source lifetime is runtime-specific: Codex source identity is its
+native thread; Claude and Pi source identity is the physical host, with in-host
+conversation switches updating the revision while retaining Group memberships.
+Host identity MUST distinguish PID reuse. A lifecycle end MUST match both the
+registered host and native conversation ID; an older host's late end MUST NOT
+retire its replacement. Explicit native Codex resume MAY reconnect the same
+thread source; another thread or a matching working directory MUST NOT establish
+that identity.
+
+Claude/Pi receive attachment MAY reconnect an existing Actor to a replacement
+host of its last recorded conversation. This requires the same runtime, exact
+nonempty native session ID, and the same canonical provider configuration
+directory, plus positive evidence that the former process fingerprint exited or
+was replaced. Permission errors or inconclusive process lookup MUST NOT count as
+exit. The integration must be enabled and neither lifecycle record may have been
+retired by explicit integration disablement. Another live host of that
+conversation, multiple matching former Actors in one Group, or an already
+admitted replacement in that Group MUST prevent automatic transfer there.
+Missing/unreadable matching evidence MUST NOT be guessed from titles or cwd.
+
+Restoration MUST run under the daemon's global mutation permit and revalidate
+the lifecycle revision/host and prior record under the lifecycle file lock.
+Retain Actor ID, generation, ordering, role and enabled access; retain Group
+state/running intent and scopes. Update only the source binding and an Actor
+title still equal to its old registered title, preserving custom titles. Update
+the existing direct-conversation source-set key consistently. Append an ordinary
+`actor.update` audit event by `svc:cccc.local-session`, with the source patch,
+`previous_external_session_id`, and `reason="native_session_resumed"`; provider
+directories MUST NOT enter the ledger. An audit failure MUST roll back that
+membership update. A failed Group restoration MUST NOT fail an otherwise valid
+receive attachment or prevent restoration/delivery for other Groups; record the
+Group ID and error in diagnostics. This is idempotent, not an Actor recreation
+or new admission.
+
+After releasing the lifecycle lock, retire the old member's delivery worker and
+reload pending work through the existing ledger projection. Preserve every
+claim/terminal receipt and its existing retry rules; do not replay accepted,
+ambiguous or withdrawn work. Paused/disabled access and stopped/paused Groups
+MUST remain fenced. Directory/recovery reads and resource-owned heartbeats MUST
+NOT restore membership. If another host later exits after attachment was
+declined, explicitly reload the receive integration to retry; no polling read
+may acquire membership as a side effect. Native MCP membership errors MUST name
+the source and Group, distinguish paused access from absent membership, and
+provide the existing receive-reload or human admission path instead of requiring
+a replacement Group.
+
+Codex receive readiness is a capability snapshot, not proof of consumption or future admission. Lifecycle callbacks MUST revalidate rather than permanently reuse an earlier positive result. Qualification checks use the existing native app-server, confirm loaded-thread membership and official queue availability, and MUST NOT enqueue a probe, resume a thread, start a model, or retain/log queue inputs. Best-effort negative qualification after failed handoff is bounded and asynchronous: it MUST NOT delay delivery receipts or Actor shutdown. An update MUST match the captured host, native ID, revision and endpoint fields (cwd, provider Home and executable), not just revision. Definitive negative qualification invalidates only that registration's readiness; an inconclusive lookup or business rejection alone MUST NOT retire identity, disconnect a replacement, or authorize replay. Directory polling MUST NOT perform these native queries. Explicit user refresh MAY restore positive readiness without a new lifecycle callback. Codex's `unix://` queue endpoint is also the provider's native Windows AF_UNIX transport; adapters MUST NOT substitute an invented named-pipe or WSL endpoint.
+
+An inconclusive lifecycle qualification MAY preserve the last readiness evidence only for the same non-retired host/native incarnation and unchanged endpoint. New, ended or replaced endpoints without positive evidence MUST remain unready. The merge MUST respect concurrent definitive negative evidence under the lifecycle registration lock.
+
+### 8.5 Actor Profiles
+
+Actor Profiles are reusable runtime profiles stored under `CCCC_HOME/state/actor_profiles/`.
+They are not group-local settings. A Profile's identity is `(scope, owner_id, id)`:
+`scope: "global"` has an empty owner; `scope: "user"` requires an owner.
+Global Profiles are readable by users and writable by administrators; user Profiles
+are readable and writable by their owner or an administrator.
+
+Operations addressing a Profile accept `profile_scope?: "global" | "user"` and
+`profile_owner?: string` (aliases: `scope` and `owner_id`), defaulting to `"global"`
+and `""`. Records lacking these stored fields have the same default identity;
+an explicit global reference must work for reads, secret operations, updates and
+deletion. Saving such a record stores its effective identity without creating a
+second Profile or changing its secrets. A different scope or owner identifies a
+different Profile, even when the `id` is the same.
 
 #### `actor_profile_list`
 
 Args:
 ```ts
-{ by?: string }
+{ by?: string; view?: "global" | "my" | "accessible" | "all" }
 ```
 
 Result:
 ```ts
 { profiles: Array<Record<string, unknown>> } // each profile includes usage_count
 ```
+
+`view` defaults to `"global"`; `"my"` lists the caller's user Profiles,
+`"accessible"` lists global and caller-owned Profiles, and `"all"` is administrator-only.
 
 #### `actor_profile_get`
 
@@ -3580,7 +4509,10 @@ Args:
   profile: {
     id?: string
     name: string
+    scope?: "global" | "user"
+    owner_id?: string
     runtime: string
+    runtime_mode?: "default" | "acp"
     command?: string[] | string
     submit?: "enter" | "newline" | "none"
     env?: Record<string, string> // deprecated legacy input; values are migrated into profile secrets
@@ -3595,6 +4527,7 @@ Args:
 ```
 
 Notes:
+- Updates preserve the existing Profile's effective scope and owner; explicitly supplying the same default identity for an older record is not an identity change. Writes still require the corresponding owner or administrator permission and honor `expected_revision`.
 - Runtime variables are unified as profile secrets (`actor_profile_secret_*`).
 - `profile.env` is accepted only as a legacy bridge and migrated into profile secrets; stored profile `env` is kept empty.
 - `command` accepts the historical shell-command string for compatibility, but successful writes normalize it to a `string[]`. Readers must continue to accept an existing string until that profile is saved again.
@@ -3687,9 +4620,16 @@ Args:
 {
   profile_id: string
   source_profile_id: string
+  source_profile_scope?: "global" | "user" // default global
+  source_profile_owner?: string           // default empty
   by?: string
 }
 ```
+
+The target requires write access and the source requires read access, each checked
+against its own Profile identity. Reject an inaccessible source before changing
+the target's secret map. Source selectors also accept `source_scope` and
+`source_owner_id`, matching the existing Web copy request.
 
 Result:
 ```ts
@@ -3698,7 +4638,8 @@ Result:
 
 #### `actor_profile_copy_voice_analyst_secrets`
 
-Copy the Voice Analyst custom private environment into a Runtime Profile without returning values.
+Copy the named voice identity's custom private environment into a Runtime Profile without returning values.
+Secretary and Analyst sources remain independent; neither operation reads the other's credentials.
 This operation is administrator-only and is used when the Voice settings surface saves its Custom
 configuration as a reusable Profile.
 
@@ -3717,7 +4658,133 @@ Result:
 { profile_id: string; keys: string[] }
 ```
 
+#### `actor_profile_copy_voice_secretary_secrets`
+
+Same administrator-only Profile access checks, arguments and key-only response as
+`actor_profile_copy_voice_analyst_secrets`, using the Secretary's custom private
+environment. It never copies Analyst, Actor or ASR credentials.
+
 ### 8.6 Chat Messaging
+
+#### `ledger_search`
+
+Read events from one Group without delivering messages or creating runtime work.
+
+```ts
+{
+  group_id: string
+  kind?: "all" | "chat" | "notify" // default all
+  q?: string                     // case-insensitive text search; default empty
+  by?: string                    // exact event.by filter; empty means unrestricted
+  by_any?: string[]              // OR of concrete event.by identities; empty/omitted means unrestricted
+  to?: string                    // exact member of event.data.to
+  since_ts?: string              // inclusive RFC3339 lower bound on event.ts
+  until_ts?: string              // inclusive RFC3339 upper bound on event.ts
+  before?: string                // exclusive ledger event ID
+  after?: string                 // exclusive ledger event ID
+  limit?: number                 // default 50, clamped to 1..200
+  with_read_status?: boolean
+  with_obligation_status?: boolean
+}
+```
+
+Result: `{ events: CCCSEventV1[], count: number, has_more: boolean }`.
+Filters combine with AND; `by_any` matches any identity in its set. Both sender
+filters may be used together, in which case both must match. Entries in `by_any`
+MUST be nonblank strings; invalid collections return `invalid_args`.
+Recipient filtering matches a stored recipient identity; it does not expand roles or
+selectors. Events without that recipient do not match. Timestamp bounds compare
+instants (including offsets), not timestamp strings. Invalid or blank filter
+values and a lower bound later than the upper bound return `invalid_args`.
+Null or omitted filters are unrestricted. With a time bound, an event with an
+unparseable timestamp does not match. These filters are also accepted as plain
+HTTP query parameters by the ledger search endpoint.
+Filtering precedes the page limit. Without `after`, return the latest matching
+page before `before`; with `after`, return the earliest matching page after it.
+Results retain ledger order and one cursor spans all selected senders. Cursor IDs
+need not match the sender filter. An unknown cursor returns `event_not_found`.
+For HTTP `GET /api/v1/groups/{group_id}/ledger/search`, `by_any` is a JSON-encoded
+array query parameter. Existing single-sender `by` queries retain their semantics.
+
+With `with_obligation_status`, `ledger_search`, `ledger_tail` and
+`ledger_window` decorate each event with the fields `ledger_statuses` reports
+for it, prefixed with `_` (`_obligation_status`, `_user_request`, and others).
+For a `request_reply` message that gives the user an obligation,
+`ledger_statuses` adds:
+
+```ts
+user_request: {
+  question: "valid" | "none" | "unavailable" // CCCS §6.4 reading rule
+  requester: "available" | "unavailable" | "unknown" | "unsupported"
+  reply_event_id?: string     // the user's reply, once it closed the request
+  reply_route?: "composer"    // with "unsupported": answer with an ordinary reply
+}
+```
+
+Whether the request is open remains `obligation_status.user`.
+
+#### `message_pins_list`
+
+Return the Group's shared Web message pins without delivering messages or
+changing the ledger. This is a user operation: `by` may be omitted or `user`;
+an Actor or another value is rejected with `permission_denied`.
+
+```ts
+{
+  group_id: string
+  by?: "user"
+  detail?: "ids" | "full" // default full
+}
+```
+
+Result:
+```ts
+{
+  pins: Array<{
+    event_id: string
+    pinned_at: string
+    event?: CCCSEventV1 | null // included for full only
+  }>
+}
+```
+
+Existing messages are ordered by ledger position. Unavailable messages remain
+in the list after the existing ones, in the order they were pinned, with
+`event: null` in full detail. Full events include the same read and obligation
+status decorations as `ledger_search` with both status flags enabled. `ids`
+omits the event and its status fields. Invalid detail returns `invalid_args`;
+an unreadable pin state fails instead of silently resetting the list.
+
+#### `message_pins_set`
+
+Set the desired pin state for a message; this is not a toggle. The same user
+restriction, detail parameter, result shape and ordering as `message_pins_list`
+apply. Pins are stored in Group state, not as ledger events. Authorized Web
+users with access to that Group share the list. Exhibit Web and Actor ports do
+not expose it.
+
+```ts
+{
+  group_id: string
+  event_id: string
+  pinned: boolean
+  by?: "user"
+  detail?: "ids" | "full" // default full
+}
+```
+
+Adding a pin requires a `chat.message` in the same Group; an unavailable or
+non-message target returns `pin_target_not_found`. A Group can hold at most 100
+pins; adding another returns `pin_limit_reached` without removing existing pins.
+Repeating the requested state succeeds without changing `pinned_at`. An
+unavailable target can still be unpinned. Writes are serialized per Group and
+exclude concurrent reads. A failed projection does not change the stored list.
+On the Web, `GET /api/v1/groups/{group_id}/pins` lists pins and `POST` to the
+same path accepts `{ event_id, pinned }`; either accepts `detail=ids` as a query
+parameter.
+Web clients reload the state when entering a Group or returning to a visible
+page, so two continuously visible clients do not promise immediate updates.
+
 
 #### `send`
 
@@ -3742,6 +4809,12 @@ Args (core):
   dst_group_id?: string         // optional "send record" metadata (source messages)
   dst_to?: string[]
   dst_message_mode?: "send" | "request_reply" | "mail"
+  question?: {                  // a choice for the user; see CCCS §6.4
+    v: 1
+    prompt: string
+    options?: { label: string; consequence?: string }[] // none, or 2-4; ids are assigned A, B, C, D
+    recommended?: { option_id: "A" | "B" | "C" | "D"; reason: string }
+  }
 }
 ```
 
@@ -3752,6 +4825,29 @@ Result:
   message_mode: "send" | "request_reply" | "mail"
 }
 ```
+
+When `dst_group_id` is validated, null or a blank string counts as absent;
+another non-string value fails with `invalid_args`. An already accepted ordinary
+send can be returned by its `client_id` lookup before this validation.
+
+With `question`, the message MUST use `message_mode="request_reply"`, address
+`user` alone after recipient normalization, come from a sender other than
+`user`, and have no destination Group, so that it is always one the user's
+open requests list (`user_reply_requests`). The daemon assigns option ids in
+order, keeps `text` as the question's `context`, stores the question and
+replaces `text` with the text generated from it (CCCS §6.4), all before any
+other validation or write. An invalid question fails with `invalid_question`
+and `details: { field, limit?, actual? }`, where limits count Unicode scalar
+values. A non-null `answer` is never accepted from `send` arguments
+(`invalid_args`); a null `question` or `answer` counts as absent.
+A `client_id` on a question is checked after the mode, audience and other
+normalization above, so a retry that a question cannot have still fails as
+such. It replays an earlier message from the same sender only when the
+normalized message is the same, apart from the sender's title, runtime and
+avatar recorded with it; any other message under that `client_id` fails with
+`idempotency_conflict`. The lookup requires every stored record to read as a
+complete event (see `user_reply_requests`), and a lookup that cannot complete
+fails with `idempotency_unavailable` instead of creating a second question.
 
 `send` and `request_reply` preflight the concrete runtime audience, append the
 message, and then attempt prompt delivery. `mail` appends only; it MUST NOT wake,
@@ -3774,10 +4870,18 @@ Every daemon-rendered `chat.message` handed to an actor runtime MUST expose the
 current ledger identity before the message body:
 
 ```text
-[cccc] <sender> → <recipients> [event_id=<current_event_id>]: <body>
-[cccc] <sender> → <recipients> (reply:<short_parent_id>) [event_id=<current_event_id>]: <body>
-[cccc] <sender> → <recipients> [event_id=<current_event_id> reply_required]: <body>
+[cccc] <sender> → <recipients> [event_id=<current_event_id> sent=<ledger_time>]: <body>
+[cccc] <sender> → <recipients> (reply:<short_parent_id>) [event_id=<current_event_id> sent=<ledger_time>]: <body>
+[cccc] <sender> → <recipients> [event_id=<current_event_id> sent=<ledger_time> reply_required]: <body>
 ```
+
+`sent` is the event's original `ts` as recorded in the ledger, in RFC 3339 UTC
+truncated to whole seconds (for example `2026-10-28T01:45:03Z`). It is not the
+handoff or presentation time: a runtime can present accepted input much later,
+for example when a native queue holds it until the current turn ends, and the
+marker lets the actor recognize an old instruction without a history lookup. An unreadable
+`ts` omits the marker. A delivered `system.notify` line carries the same value
+as `[cccc] SYSTEM (<kind>) [sent=<ledger_time>]: <body>`.
 
 `event_id` is the target an actor passes to `cccc_message_reply` when answering
 the delivered message. A reply MAY expose its parent as the existing short
@@ -3790,7 +4894,7 @@ next action. A `request_reply` message MUST instead add the actionable
 the same envelope in native-terminal, structured, and Web Model delivery. The metadata MUST
 remain in the existing first header line so adding it does not turn a one-line
 message into multiple runtime input lines. It does not add or mutate ledger
-fields, and it is not required for `system.notify`.
+fields, and the `event_id` metadata is not required for `system.notify`.
 Every delivered batch containing one or more `chat.message` events MUST append
 one concise instruction telling the actor to call `cccc_message_reply` with its
 `event_id` argument set to the target message's current `event_id`. The
@@ -3806,6 +4910,21 @@ instructions to take over, reframe, or review unrelated work. Actor collaboratio
 guidance belongs in the configured runtime instructions, not operation receipts.
 A peer-insight validation error MUST retain `delivery_state="not_sent"` and
 `new_side_effects=false`, with a concise explanation of the missing field.
+
+For MCP results from `cccc_message_send`, `cccc_message_reply`,
+`cccc_tracked_send` and `cccc_file_send`, including composite partial-failure
+receipts, the MCP port MAY project message events by omitting
+only `data.text` or `data.insight` whose complete string exactly equals the
+corresponding field explicitly supplied in this call. A value MUST remain if the
+input is absent or non-string, or if the stored value differs, including when
+the daemon expands or normalizes it. The port
+MUST list each omitted field in `mcp_omitted_fields`, an object mapping the
+event's result path (for example `event` or `result.source_event`) to an array
+of field names (`text`, `insight`). Only the documented message event locations
+are projected; this does not recursively alter errors, task details, questions,
+attachments, receipts or other data. `content` and `structuredContent` MUST
+describe the same projection. This is an MCP response projection only: the
+daemon result, ledger and delivery remain complete and unchanged.
 
 The MCP file surface separates read permission from message delivery:
 `cccc_file(action="read"|"info"|"blob_path", rel_path=...)` is read-only and
@@ -3859,10 +4978,15 @@ The operation MUST perform the deterministic validation used by the eventual
 Insight, and content, without waking actors, changing group state, writing the
 ledger, storing blobs, or starting delivery. `send` and `reply` additionally
 perform successful-idempotency lookup and MUST return a duplicate result before
-an upload is committed. Local cross-group uploads are unsupported and rejected.
-Connect reply uploads use the canonical reply authorization. The HTTP port MUST discard its staged files on rejection
+an upload is committed. `send_cross_group` returns a duplicate only when the
+destination copy exists; an accepted send interrupted before that copy returns
+`ready: true` so the commit completes it; a `reply` whose accepted local
+cross-group copy lacks its far copy is handled the same way. A `reply` routed back to a local
+cross-group origin is validated as that cross-group send. Connect reply uploads use the canonical reply authorization. The HTTP port MUST discard its staged files on rejection
 or duplicate replay. The eventual operation MUST validate again at the commit
 boundary; preflight is not a reservation.
+For a cross-group duplicate, `result` is the underlying cross-group send or
+reply receipt, including its source and destination ledger events.
 
 #### `send_files`
 
@@ -3870,11 +4994,17 @@ Store one or more files from the group's active scope in the group blob store,
 then append one `chat.message` carrying those files as attachments. This is the
 daemon-owned upload boundary for SDK clients; callers MUST NOT write directly
 to `state/blobs/` or manufacture attachment records.
+With `dst_group_id`, send those files to another Group on this instance through
+the existing `send_cross_group` path. CCCC Connect uses `connect_send_files`
+instead; `dst_instance_id` is not a selector for this operation. Null or blank
+`dst_group_id` is treated as absent; validation and duplicate handling follow
+the rules for `send` above.
 
 Args:
 ```ts
 {
   group_id: string
+  dst_group_id?: string         // another local Group; omitted means same-Group send
   paths: string[]               // absolute, or relative to the active scope root
   text?: string                 // defaults to a compact file notice
   by?: string
@@ -3885,7 +5015,11 @@ Args:
 }
 ```
 
-Every resolved path MUST be a regular file beneath the group's active scope.
+Every resolved path MUST be a regular file beneath the authenticated caller's
+effective workspace, using the same projection as local tools. A running managed
+caller MAY send from its own verified launch root after detach or a same-key
+rebind; the source event retains that launch scope attribution. This exception
+MUST NOT expand another caller's root or destination-only scope validation.
 All paths are validated and read before any message is appended. The resulting
 event uses the selected `message_mode` recipient, permission, and delivery rules.
 If `client_id` already identifies an accepted message, the daemon MUST return
@@ -3894,6 +5028,14 @@ have been validated and read, deterministic normal-send validation (including
 message mode, recipients, and required peer insight) MUST succeed before any new
 blob is stored. A request rejected by that preflight MUST NOT add a blob or
 ledger event.
+For a cross-group send, the combined files MUST fit the 100 MiB cross-group
+limit. Destination and recipient preflight precedes source reads and blob
+storage. Source file paths do not select a destination workspace. An accepted
+retry MUST use the saved source record without rereading source files; if the
+destination copy is missing, it completes that copy rather than returning a
+premature duplicate. The receipt is the `send_cross_group` receipt, whose
+`event`/`dst_event` belongs to the destination Group and `source_event`/`src_event`
+is the source audit record. Without `dst_group_id`, the result below is unchanged.
 
 Result:
 ```ts
@@ -3902,6 +5044,16 @@ Result:
   message_mode: "send" | "request_reply" | "mail"
 }
 ```
+
+Web resolves stored message attachments through
+`GET /api/v1/groups/{group_id}/blobs/{blob_name}`. The endpoint supports HEAD and
+byte ranges (206/416), streams rather than buffers the whole file, and rechecks
+Group access for each request, including conditional cache reads. Responses use
+`Cache-Control: private, no-cache`. A supplied `If-Range` returns the full current
+representation. `download=true` adds a safe attachment filename; otherwise inert
+image/video types are detected from the stored bytes, not trusted filename
+extensions. Unrecognized content remains `application/octet-stream` (plain text
+may use its display filename).
 
 #### `reply`
 
@@ -3925,6 +5077,29 @@ Args:
   require_peer_insight?: boolean // profile gate; default false
 }
 ```
+
+`reply`, `send_files`, `send_cross_group` and `connect_send` reject a non-null
+`question` with `invalid_question` and a non-null `answer` with `invalid_args`
+before any write (`send_files` also before reading any file); a question is
+sent with `send`, and the user answers it with `reply_request_answer`.
+
+Local cross-group replies route qualified recipients back to the parent message's
+source Group. Both ledger copies MUST reference their own Group's parent event:
+`reply_to` in the caller's Group and `dst_reply_to` for the destination parent on
+the source audit record. Retries reuse these persisted identities. Mixed local
+and cross-group audiences, or another destination Group, are rejected before
+writing either ledger. A retry of an accepted local cross-group reply with the
+same `client_id` but a different `reply_to` MUST fail with `idempotency_conflict`
+without writing either ledger, including after partial delivery. Attachments
+follow the `send_cross_group` rules; invalid attachments MUST be rejected
+before recording the reply or settling its reply obligation. A reply routes back only when the
+origin Group's ledger holds the source event named by the parent's
+`src_event_id` with `dst_group_id` equal to the replying Group; provenance
+fields a caller wrote onto a local message grant no route
+(`invalid_recipient`).
+The returned `event` MUST be the caller's local event;
+`dst_event` identifies the delivered copy. Dispatch ownership MUST cover both
+Groups, using the existing cross-group send policy.
 
 Replies default to `message_mode="send"`. Callers MAY choose
 `message_mode="mail"` when fulfilling the original reply obligation does not
@@ -4005,7 +5180,7 @@ Cross-group send implemented as:
 
 Args:
 ```ts
-{ group_id: string; dst_group_id: string; text: string; by?: string; to?: string[]; message_mode: "send" | "request_reply" | "mail"; insight?: string; require_peer_insight?: boolean }
+{ group_id: string; dst_group_id: string; text?: string; attachments?: AttachmentRefV1[]; by?: string; to?: string[]; message_mode: "send" | "request_reply" | "mail"; insight?: string; require_peer_insight?: boolean }
 ```
 
 Result:
@@ -4017,8 +5192,25 @@ Notes:
 - Local `user` / `system` principals and registered source actors, including
   peers, may send cross-group messages; unknown source actors are rejected. The
   foreman-only group administration permission does not apply to message delivery.
-- Local cross-group forwarding rejects attachments. Connect sends use their
-  qualified instance/Group destination and bounded attachment contract.
+- Text or at least one attachment is required. Each attachment `path` MUST
+  name a blob in the origin Group. The daemon hashes the stored bytes and
+  verifies that their digest matches the blob name's digest prefix, then
+  rejects a declared `sha256` or `bytes` that differs (`invalid_attachments`),
+  and rejects more than 100 MiB in total (`attachment_too_large`). Records are
+  rewritten from the stored bytes; `kind` is `image` exactly when `mime_type`
+  is `image/*`.
+- Verified blobs are placed in the destination Group under the same
+  `state/blobs/` name before either ledger entry is written, so each copy reads
+  its own Group's blob. Placement is idempotent and repeats on a relay retry.
+  Existing entries MUST resolve within the destination blob store and match
+  the verified source bytes; invalid entries are rejected before recording,
+  not overwritten. Placement grants no read access to the origin Group.
+- Connect sends use their qualified instance/Group destination and bounded
+  attachment contract.
+- Destination Group, recipient, message scope and attachment validation MUST precede the
+  source append. Reusing an accepted `client_id` with a different
+  `dst_group_id` MUST fail with `idempotency_conflict`; a partial delivery retry
+  keeps the accepted message's content, recipients and thread references.
 
 #### Agent Insight Profile marker
 
@@ -4046,6 +5238,142 @@ Result:
 
 Only the source sender or `user` may cancel. The operation is idempotent for an
 already-cancelled source event.
+
+#### `reply_request_answer`
+
+Answer one open `request_reply` message to the user in place, as the user.
+
+Args:
+```ts
+{
+  group_id: string
+  source_event_id: string
+  by?: "user"                  // any other caller is refused (permission_denied)
+  client_id: string            // required; at most 200 characters
+  answer: { v: 1; option_id: string } | { v: 1; text: string }
+}
+```
+
+Result: the same as `send`, plus `duplicate: true` when it returns an earlier
+answer.
+
+The answer is appended as the user's `send` reply to the requester, with
+`reply_to`, `quote_text` and `client_id`, and is delivered like any reply. When
+the request carries a valid question (CCCS §6.4), the reply stores `answer`,
+its text is generated from it, and `quote_text` quotes the question's
+`prompt`, so the requester sees which question was answered even when a long
+context fills the start of the request's text. A request without one (or whose
+question is unavailable) accepts only `{ text }`, appended as an ordinary reply
+in the user's words without `answer` and quoting the request's text.
+
+Under the Group's write permit, in this order:
+- Every stored record of the Group's ledger MUST read as a complete event
+  (see `user_reply_requests`); otherwise the answer fails with
+  `ledger_unreadable`, because the unreadable record could be an earlier
+  answer or the request's closure.
+- A `client_id` already used by the user returns that earlier result when it
+  was this answer: a `send` reply to the same request, addressed to the
+  requester alone, with the same answer (free text compared exactly). It does
+  so even after the request closed or the requester left. Any other message
+  under that `client_id`, such as an ordinary reply to someone else or a Mail,
+  fails with `idempotency_conflict`. A lookup that cannot complete fails with
+  `idempotency_unavailable`; it is never treated as absent.
+- The source MUST be a `request_reply` message giving the user an obligation
+  (`invalid_source_event`), and that obligation MUST be open
+  (`reply_request_closed`, `details.state` = `answered` | `cancelled`).
+- The requester MUST be proven to be the Actor registration that asked, as in
+  CCCS §6.4: `requester_unavailable` when it was removed or added again since,
+  `requester_unknown` when the ledger cannot prove it, and
+  `unsupported_request_source` (`details.reply_route="composer"`) for requests
+  relayed from another Group or a Connect instance, which take an ordinary
+  `reply`.
+- An `option_id` MUST name an offered option (`invalid_answer`); on a question
+  that cannot be read reliably it fails with `question_unavailable`.
+- The body accepts only the arguments above (`invalid_args`).
+
+Recording the answer closes the obligation; delivery to the requester is
+reported separately, as for any message. Unlike an ordinary user message to
+an Actor, answering MUST NOT change the Group's state or any Actor's
+`enabled` flag: it does not resume a paused or stopped Group or re-enable the
+requester. In a paused or stopped Group, or for a disabled requester, the
+answer is recorded without being delivered, and delivery follows the ordinary
+behavior once the user resumes the Group or enables the Actor. Clients
+therefore report an answer as recorded, not as received.
+
+#### `user_reply_requests`
+
+Read the user's open requests in one Group, newest page first.
+
+Args:
+```ts
+{ group_id: string; by?: "user"; before?: string; limit?: number } // limit 1..200, default 50
+```
+
+Result:
+```ts
+{
+  events: CCCSEventV1[]                // this page, oldest first
+  statuses: Record<string, MessageStatus> // as ledger_statuses, for these events
+  total: number                        // open requests in the Group
+  has_more: boolean
+  before?: string                      // opaque cursor for the next, older page
+}
+```
+
+A request is open until the user replies to it or it is cancelled (CCCS §6.3).
+Pages and totals come from one projection of the ledger kept from committed
+byte offsets, so a request that closes or arrives between pages neither shifts
+nor hides another. Unlike ordinary ledger reads, which skip records that do not
+decode, the projection requires every stored record, including an unterminated
+last one, to be a complete event with its stored `id` and `ts`; a complete
+event that lacks only its final newline is read. Any other bytes fail the
+operation with `ledger_unreadable`, since the unreadable record could be a
+reply or cancellation that closed a request. So does a history that the
+per-event status in `ledger_statuses` would read differently: a request id
+used by more than one record, or a reply or cancellation stored before the
+request it names. Ordinary replies remain available; the in-place view
+returns once the ledger is repaired.
+
+The cursor records the identity, length and modification time of every
+ledger source at the time of its page. It remains valid while every source
+is unchanged except that the active ledger file may have grown. A source of
+the same length with another modification time, or a replaced, truncated,
+rotated or compacted source, fails the next page with `cursor_stale`; the
+caller reads again from the newest. This relies on the ledger's append-only
+invariant: an old byte edited in place without a change in file metadata is
+not detectable. A malformed cursor fails with `invalid_cursor`. A cursor
+only marks a position and is not authenticated, so an altered cursor that
+still parses reads from the position it names. Callers other than the user
+are refused (`permission_denied`).
+
+#### `user_reply_requests_summary`
+
+Count the user's open requests per Group.
+
+Args:
+```ts
+{ by?: "user"; group_ids?: string[] } // omitted: every Group
+```
+
+Result:
+```ts
+{
+  as_of: string
+  groups: (
+    | { group_id: string; state: "fresh"; pending: number; oldest_ts: string | null; revision: string; as_of: string }
+    | { group_id: string; state: "unknown"; pending: null; error: "group_not_found" | "unreadable"; as_of: string }
+  )[]
+}
+```
+
+Each Group is computed from its current ledger when queried, using the same
+incremental projection as `user_reply_requests`; polling reads only what was
+appended since the last query. `revision` changes whenever the Group's ledger
+sources change. A Group that cannot be read, including one with a damaged
+record, is `unknown`, never `pending: 0`.
+Callers other than the user are refused. The Web port passes the Groups the
+principal may open and refuses both reads, as well as the answer, in
+read-only (exhibit) mode.
 
 #### `message_deliver`
 
@@ -4089,10 +5417,12 @@ operation returns.
 
 For each concrete recipient handoff, the daemon appends `runtime.delivery`
 using the CCCS contract. `claimed` precedes external I/O; `accepted`, `failed`,
-or `ambiguous` records the outcome. A transport queue accepting a payload is an
-accepted handoff; it is not a claim that the model understood it. Automatic
-retry is forbidden after `accepted` or `ambiguous`. Concurrent claimants treat
-`claimed` as in-progress. Daemon startup settles claims stranded by the prior
+`ambiguous` or `withdrawn` records the outcome. A transport queue accepting a payload is
+an accepted handoff; it is not a claim that the model understood it. Automatic
+retry is forbidden after `accepted`, `ambiguous` or `withdrawn`. An obsolete
+notice is withdrawn only when its owner can establish that no external submission
+occurred; a stranded claim without that evidence remains ambiguous. Concurrent
+claimants treat `claimed` as in-progress. Daemon startup settles claims stranded by the prior
 daemon process to `ambiguous` before attempting runtime recovery.
 Recovery MUST interpret a same-generation legacy `chat.read.event_id` as an
 inclusive ledger watermark for that actor, not as a per-event receipt. It MUST
@@ -4114,11 +5444,45 @@ from `inbox_peek` / `inbox_read`. Concrete-recipient Mail batches retain the
 earliest eligible deadline. New Mail does not reset it. Broadcast-like Mail
 remains visible in the Inbox but does not start an active runtime notice timer.
 
-After `mail_notice_after_seconds`, an active/idle enabled actor may receive one
-content-free `system.notify(kind="mail_notice")` for the concrete batch. The
+An enabled running actor whose managed Runtime positively reports idle may receive
+one content-free `system.notify(kind="mail_notice")` after
+`min(mail_notice_idle_after_seconds, mail_notice_after_seconds)`. When Mail is
+written while a concrete recipient's Runtime reports idle, that notice is issued
+at once by the write itself, under the same Group write permit as the unread
+tick, rather than after the idle delay or at the next tick; the write issues
+only Mail notices, and only for that Mail's recipients. Working or
+unknown Runtime states use `mail_notice_after_seconds`; native PTY output is not
+an idle detector. Zero for the idle delay disables this early notice, including
+the one issued as Mail is written; zero
+for the ordinary delay disables all Mail notices. Both timers retain the batch's
+earliest eligible deadline. This creates a notice, never an automatic promotion
+or Mail cursor advance. Passive status polling does not create notices.
+Before handoff, the owner rechecks whether the batch remains eligible. An obsolete
+notice established as unsent is withdrawn, not delivered or automatically retried. The
 notice states only that Mail is waiting and directs the actor to `inbox_read`;
-it does not copy message bodies, repeat, escalate, or create another Inbox
-obligation. Bootstrap, the next explicit Push, and low-frequency coordination
+it does not copy message bodies, escalate, or create another Inbox obligation.
+By default it is issued once per pending batch. With the opt-in
+`delivery.mail_notice_repeat_seconds` greater than zero, a notice with an
+`accepted` or `ambiguous` handoff stops holding back the next notice once that
+many seconds have elapsed since it was issued. Queued, claimed and failed
+handoffs retain their original delivery ownership, regardless of age.
+The clock starts at issue, not acceptance: delayed delivery can make two
+actor-visible notices arrive closer together than this interval.
+The next unread pass may issue a fresh notice containing every still-pending
+Mail, including later arrivals. An unsent withdrawn notice releases its batching
+claim without waiting for the repeat interval. A later notice is a new source,
+not a retry of that withdrawn delivery. Repetition remains eligible at the
+configured interval while the Mail is pending; there is no attempt budget.
+With repetition enabled, expired handed-off claims and withdrawn claims are
+pruned from the projection; pending delivery ownership is never pruned by age.
+Changes to the interval or Actor generation rebuild the relevant cached state
+from the ledger. A read, reply, accepted/ambiguous delivery of
+the Mail itself, or Actor-generation change ends that Mail's eligibility as
+above; acceptance of the notice itself does not. Runtime restart and
+`actor_new_session` preserve the Actor generation and pending Mail; they only
+restart the ordinary post-resume notice delay. Each repeat starts its own
+interval. Repeating a notice **does not repeat the underlying task execution**,
+promote Mail to Push, advance an Inbox cursor, or create a new Mail obligation. Bootstrap, the next explicit Push, and low-frequency coordination
 responses MAY carry a passive `mail_pending` count without writing a notice.
 
 A `request_reply` obligation starts its timer only after an accepted runtime
@@ -4151,6 +5515,23 @@ with the same id. When a cursor contains a resolvable `event_id`, cursor
 advancement and unread membership MUST use ledger append order; timestamp is
 informational only.
 
+Passive `mail_pending` summaries MUST preserve these same cursor, recipient and
+Actor-generation boundaries without materializing a persistent full-ledger index
+merely to count unread Mail. A reverse scan MAY stop at the cursor or generation
+boundary; segment discovery and reads MUST share the ledger reader boundary so
+concurrent rotation cannot hide events. These reads MUST NOT advance the cursor.
+
+Native Inbox snapshots retain the active ledger descriptor across rotation and
+validate sealed archive identities when opening them on demand. Simultaneous
+file descriptors do not grow with the number of archive segments; decoding
+runs outside the append lock. Page reads batch selected records by segment,
+decoding each selected gzip prefix once while preserving request order and
+shared-recipient duplicates. A changed sealed archive, incompatible active
+prefix or cursor invalidates the captured page before publication. Ordinary
+active-ledger appends do not delay publication of that prefix; subsequent reads
+catch up from its committed offsets. Unchanged read errors are returned rather
+than hidden by retries.
+
 Args:
 ```ts
 { group_id: string; actor_id: string; by?: string; limit?: number }
@@ -4160,6 +5541,67 @@ Result:
 ```ts
 { messages: CCCSEventV1[]; cursor: { event_id: string; ts: string } }
 ```
+
+#### `inbox_summary`
+
+Passively summarize current-generation awaiting Mail across a Group. This is a
+Group-wide Inbox view: the existing user/system and Foreman permissions apply;
+Peers and unknown actors cannot use it. Stopped and disabled Actors are included.
+The operation is a Read and does not start Actors, deliver notices, advance Mail
+cursors, write an index, or schedule background sampling.
+
+Args:
+```ts
+{ group_id: string; cutoff: string; by?: string }
+```
+
+`cutoff` MUST be an RFC3339 timestamp no later than the server's `observed_at`.
+The boundary is inclusive: an awaiting Mail is overdue when its original
+`chat.message.ts <= cutoff`. The cutoff filters **current** awaiting state; it
+does not reconstruct Inbox state as of that timestamp. Age is measured from the
+original Mail timestamp to `observed_at`, independently of notice delivery or
+Actor restart. The observation time is sampled after the captured projection
+prefix is loaded, and is resampled if publication validation retries.
+A malformed or future Mail timestamp has unknown age and cannot
+establish overdue status. Invalid/future request cutoffs are errors.
+
+Result:
+```ts
+{
+  group_id: string
+  observed_at: string
+  cutoff: string
+  actors: {
+    actor_id: string
+    awaiting_count: number
+    overdue_count: number
+    oldest_awaiting_at: string | null
+    oldest_age_seconds: number | null
+  }[]
+}
+```
+
+Each current Actor has one row, including zero-count rows. Awaiting uses the
+existing Mail predicate: unread, not replied, and no `accepted` or `ambiguous`
+delivery of the Mail itself to that recipient in the current Actor generation.
+Delivery of an Inbox notice is distinct and does not clear its source Mail.
+Send, Send + Reply, and `system.notify` are not Mail. The recipient, cursor and
+latest-`actor.add` append-order boundaries are the same as Inbox. A reply,
+read/cursor advance, or delivery may remove Mail from the current result even
+when its original timestamp precedes the cutoff.
+
+`oldest_awaiting_at` and `oldest_age_seconds` are null for an empty row or when
+any awaiting Mail has an invalid/future timestamp, since its oldest age cannot
+be established. Known ages are nonnegative whole seconds. No message bodies,
+source ids, escalation policy or notification action are returned.
+
+All Actor rows MUST share one incremental Group projection snapshot. Warm
+polls reuse committed projection offsets rather than rescan full ledger history
+per Actor or per poll. The projection retains the existing bounded Group cache,
+generation/cursor validation and rotation publication checks.
+
+CLI: `cccc inbox-summary --group <group> --cutoff <RFC3339> [--by <identity>]`.
+The consuming `cccc inbox` command is unchanged. No default MCP tool is added.
 
 #### `inbox_read`
 
@@ -4229,18 +5671,36 @@ Args:
   mode?: "all" | "send" | "request_reply" | "mail"
   query?: string
   before_event_id?: string
+  event_id?: string // exact visible message/notice; exclusive with filters/pagination
   limit?: number
 }
 ```
 
 Result:
 ```ts
-{ messages: CCCSEventV1[]; has_more: boolean }
+{ messages: CCCSEventV1[]; has_more: boolean; delivery_text?: string | null }
 ```
 
 Results are newest-first, limited to the actor's current generation, and MUST
 contain only messages sent by or addressed to that actor. The operation is
 read-only and MUST NOT append `mail.read` or mutate any delivery state.
+
+With `event_id`, return exactly that visible `chat.message` or targeted
+`system.notify` from the Actor's current generation, with complete rendered
+`delivery_text`. Native Actors also receive their current Preamble in that text.
+Use the same visibility rules as delivery; unknown, invisible and prior-generation
+IDs all return `event_not_found`. Exact reads cannot be combined with `mode`,
+`query`, `before_event_id` or `limit`. They remain non-consuming and do not
+acknowledge execution, create a delivery or replay a handoff.
+
+The MCP `cccc_message_history` tool presents an exact read as
+`{ delivery_text, message }`, where `message` is the single returned event. From
+a `chat.message`, it omits `data.text` (compared without trailing line breaks)
+and the normalized `data.insight` only when that complete value appears in
+`delivery_text`; all other fields, including `quote_text`, attachments,
+references and source fields, are kept. A `system.notify` and an event without
+rendered text are returned whole. The IPC result above and history lists are
+unchanged.
 
 ### 8.8 Context and Tasks
 
@@ -4248,7 +5708,15 @@ read-only and MUST NOT append `mail.read` or mutate any delivery state.
 
 Args:
 ```ts
-{ group_id: string; detail?: "overview" | "summary" | "full" }
+{
+  group_id: string
+  detail?: "overview" | "summary" | "full"
+  limit?: number          // 1..500 tasks per page; default 100 once paging
+  cursor?: string         // next_cursor of the previous page
+  max_bytes?: number      // >= 4096; the page shrinks until the answer,
+                          // rendered as pretty JSON, fits
+  include_archived?: boolean // paging only; default true
+}
 ```
 
 Result:
@@ -4256,6 +5724,8 @@ Result:
 {
   version: string
   tasks_version: string
+  truncated?: boolean     // paging only: more tasks follow
+  next_cursor?: string | null
   coordination: {
     brief: {
       objective: string
@@ -4314,6 +5784,18 @@ Result:
 
 Notes:
 - Task objects returned in `coordination.tasks`, `board`, or `task_list` include `task_type`.
+- Paging starts when `limit`, `cursor` or `max_bytes` is present; without them
+  the snapshot stays complete. A page holds at most `limit` tasks numbered
+  after `cursor` in `coordination.tasks` (and, for `full`, in `board`), halved
+  until the whole answer fits `max_bytes`, and never fewer than one task. A
+  task too large for the page on its own has its longest free text (notes,
+  outcome, title or a checklist item) cut to fit, ending in
+  `… [clipped to fit the page]`; `task_list` returns it whole. If even that
+  page does not fit, the call fails with `invalid_args` and names the size of
+  the smallest page.
+  `attention` becomes counts and `tasks_summary` still counts every task;
+  `task_list` pages the attention tasks themselves. `cccc_context_get` always
+  pages, at most 100 tasks and 256 KiB per answer.
 - Daemon IPC defaults `detail` to `full`; the Web HTTP route defaults it to
   `summary` for routine refreshes.
 - `detail="overview"` does not read task files and omits `coordination.tasks`,
@@ -4327,13 +5809,15 @@ Notes:
   `outcome`, `notes`, and `checklist`, so a summary refresh cannot erase a
   client's editable draft.
 - `detail="full"` returns the complete task objects and board projections.
-- MCP convenience tools MUST preserve their focused response contracts instead
-  of exposing this complete snapshot: `cccc_coordination(action="get")` returns
-  only `version`, `coordination`, `attention`, `board`, and `tasks_summary`, while
+- MCP convenience tools MUST preserve their focused response contracts instead of
+  exposing this complete snapshot: `cccc_coordination(action="get")` returns only
+  `version`, `coordination` (brief and recent decisions and handoffs, without the task
+  list), `attention` (each list as at most 10 of the `cccc_task` summary rows, see
+  `task_list`, plus `<list>_total` when the list is longer) and `tasks_summary`, while
   `cccc_agent_state(action="get")` returns only `version` plus the selected
   `agent_state` (or `agent_states` when no actor is selected). `include_warm=false`
-  keeps only `id`, `hot`, and `updated_at`; archived tasks remain hidden from
-  coordination unless `include_archived=true`.
+  keeps only `id`, `hot`, and `updated_at`. Coordination attention lists only open
+  tasks, and `tasks_summary` counts every status, archived included.
 
 #### `context_sync`
 
@@ -4372,6 +5856,12 @@ Result:
   }
 }
 ```
+
+Task reads carry `rev`. Existing-task ops may supply `if_task_rev`; a stale
+revision rejects the batch with `task_conflict` and details naming the task,
+expected revision and actual revision. Unrelated context changes leave this
+token usable. `if_version` remains an independent whole-context guard. See
+`CCCC_CONTEXT_OPS_V1.md` for revision, no-op and batch semantics.
 
 #### `memory_reme_layout_get`
 
@@ -4686,7 +6176,7 @@ Result:
 }
 
 // Compatibility listing when task_id, task_ids, statuses, and limit are absent:
-{ tasks: Array<Record<string, unknown>> }
+{ tasks: Array<Record<string, unknown>>; tasks_version: string }
 ```
 
 Notes:
@@ -4697,6 +6187,23 @@ Notes:
 - `include_index=true` adds an unfiltered, non-archived, lightweight task index.
   It is intended for relationship selectors; it is not a substitute for exact
   task detail.
+- The MCP `cccc_task` tool (`action="list"` without `task_id`) reads the compatibility
+  listing with only `query`, `assignee` and `attention`, and returns one page of
+  summary rows from that snapshot: `{ tasks, statuses, counts, total, offset, limit,
+  has_more, tasks_version, note }`. A row keeps `id`, `title` (longer than 120
+  characters it is cut and ends in `...`), `status`, `rev`, `updated_at`, checklist
+  progress as `"done/total"`, and `assignee`, `priority`, `task_type`, `parent_id`,
+  `handoff_to`, `blocked_by` (at most 10 ids, with `blocked_by_total` when there are
+  more) and `waiting_on` when set; notes, outcome and checklist text are read with
+  `task_id`. Without `status`, rows are planned and active tasks, with `query` also
+  done ones, and `include_archived=true` adds archived tasks; an explicit `status`
+  lists that status only. Rows keep the compatibility listing's order, most recently
+  updated first. `counts` covers every status of the tasks that matched `query`,
+  `assignee` and `attention`. `limit` (rows, default 50, 1..100) and `offset`
+  (default 0) apply after the status filter; a caller paging on restarts from offset 0
+  when `tasks_version` changes.
+- For MCP task lists, a null or blank `task_id` counts as omitted and list filters
+  remain in effect; a non-string, non-null value fails with `invalid_args`.
 - Filters are applied before pagination. Planned tasks sort newest-created first;
   other columns sort most-recently-updated first, with numeric task id as a stable
   tie-breaker.
@@ -4719,6 +6226,48 @@ Result:
 ```ts
 { state: Record<string, unknown> }
 ```
+
+For an admitted managed turn, settlement MUST follow the registered session's
+matching thread and turn. A structured headless stream MUST record one terminal
+outcome: `headless.turn.completed`, `headless.turn.failed`, or
+`headless.turn.cancelled`. Native terminal sessions retain their existing
+successful-turn projection; published failures or cancellations MUST NOT create
+duplicate turn terminals.
+For Pi RPC sessions, identified `tool_execution_start` and
+`tool_execution_end` events project to `headless.activity.started` and
+`headless.activity.completed` under one turn-scoped `activity_id`. Failed
+calls finish that activity with a failure summary; they do not themselves
+fail the model turn. Anonymous titles and streaming tool-result updates stay
+transient. The journal retains the tool name and category, with at most a
+bounded program/subcommand or file basename after private-value redaction;
+command arguments, directories, tool inputs and results are not copied.
+Only simple shell commands receive a program/subcommand detail; commands with
+shell substitutions or control syntax retain just the tool name, because word
+splitting alone cannot safely identify their executable.
+
+Headless journal snapshots restore historical output only; replay MUST NOT
+overwrite current Actor or Group runtime state. Independent live streams can
+also deliver an older journal event after newer daemon-owned status; clients
+MUST retain that event as history without overwriting newer state or retiring
+another active turn's output. Native successful turns may
+update daemon-owned status without appending a corresponding journal event.
+Output settlement is independent of status freshness: a matching turn terminal
+MUST close its own stream even if a newer status snapshot arrived first. A
+session-stop event MUST clean up that Actor's live output when the daemon already
+reports it stopped, without replacing the authoritative stopped snapshot or
+reviving the Actor. Late terminals MUST NOT close another turn's output.
+Cancelled or interrupted turns settle to `idle`, while provider failures settle
+to `error` with a nullable `reason`; Actor listing exposes the same reason through
+`effective_working_reason`. That reason MUST be bounded and private-value-redacted
+before journal or status publication, using selected diagnostic text rather than
+arbitrary nested provider payloads. A later normal status transition clears the
+old reason. Cancellation closes the transient stream and its replay boundary
+without claiming a fault; completion of a protocol turn does not prove the
+business task succeeded or that the provider process stopped.
+
+#### `headless_control_state` / `headless_control`
+
+Read returns `{ state: null | { generation, runtime, runtime_mode, runner, running, working, permissions } }` for the actual managed session. The Web port exposes GET/POST `/api/v1/groups/{group_id}/actors/{actor_id}/headless/control`. Read does not create a session. Write requires `by="user"`, exact `generation` and `{ action:"permission", request_id, allow:boolean }`, `{ action:"interaction", request_id, response }` or `{ action:"cancel" }`. Permission metadata contains the pending operation for user review, never private environment/configuration. Cursor blocking `cursor/ask_question` and `cursor/create_plan` requests MUST remain explicit user decisions even under tool YOLO. Metadata uses `kind=question` with `questions` or `kind=plan` with `overview` / `plan`; responses contain the documented Cursor `outcome` (answered/skipped/cancelled or accepted/rejected/cancelled). Answers MUST match all pending question IDs and allowed option IDs/cardinality. CCCC MUST bind pending interactions to the active session generation and turn, retire them on cancellation/completion/disconnect, and reject arbitrary RPC replies. Pi extension interactions use `kind=pi_confirm`, `pi_select`, `pi_input` or `pi_editor` with bounded provider title/message/options/placeholder/prefill. Confirmation uses the permission action with boolean `allow`; select/input/editor use the interaction action with `{value:string}` or `{cancelled:true}`. Unrecognized fields MUST NOT be forwarded to the provider. Select values MUST match an advertised option. These are explicit extension decisions, not a claim of native filesystem sandboxing. Voice structured controls use the same interaction action and validator. `request_id` MUST be an opaque CCCC-generated token unique to each pending interaction and bound to its exact turn; clients MUST echo it unchanged. Provider JSON-RPC ids remain private to the adapter and MUST NOT serve as these tokens, because providers may reuse them across turns. Stale tokens, generations and settled requests fail without modifying another session. Cancellation stops the current turn; ordinary queued Group messages remain owned by the ledger.
 
 #### `headless_set_status`
 
@@ -4922,11 +6471,11 @@ Result:
 
 #### `debug_tail_logs`
 
-Tail daemon/web/im-bridge log files (developer mode).
+Tail daemon/web/im-bridge log files or the daemon diagnostics log (developer mode).
 
 Args:
 ```ts
-{ component: "daemon" | "ccccd" | "web" | "im" | "im_bridge"; group_id?: string; by?: string; lines?: number }
+{ component: "daemon" | "ccccd" | "daemon_diagnostics" | "web" | "im" | "im_bridge"; group_id?: string; by?: string; lines?: number }
 ```
 
 Result:
@@ -4934,13 +6483,19 @@ Result:
 { component: string; group_id: string; path: string; lines: string[] }
 ```
 
+Notes:
+- `daemon_diagnostics` reads the diagnostics log of a daemon started by the `cccc` CLI: `ccccd-diagnostics.log` and its previous file `ccccd-diagnostics.log.1` in the daemon directory, each at most 1 MiB. `lines` counts across both files, oldest first. Reading, clearing and rotation hold the same lock. A daemon started through the library's `run()` does not install it; an embedding application may opt in with `run_with_diagnostics()`.
+- Each line is a JSON object whose `kind` is `start`, `rotation` or `event`, with `ts`, `version` and `source_id`. An `event` line adds `level`, `module` and `line`, and when known `file` (relative to the source tree), `group_id`, `actor_id`, `event_id`, `code` and `action`. Only WARN and ERROR events from the daemon, core and runtime crates are recorded. Message text, error text, paths and provider output are never recorded; `code` and `action` come from fixed allow-lists.
+- Repeats with the same level, source location, Group, Actor, code and action are written at most once a minute; the next written line carries `suppressed`, the number held back. Repeats held back when the repetition stops are not written.
+- Diagnostics are best effort: a write that finds the in-process writer or the file lock busy is skipped rather than waiting for it. A single write may still be delayed by the filesystem, and a write error does not change the result of any daemon operation. The `daemon` log (`ccccd.log`) is separate and not bounded by these limits.
+
 #### `debug_clear_logs`
 
-Truncate daemon/web/im-bridge log files (developer mode).
+Truncate daemon/web/im-bridge log files or the daemon diagnostics log (developer mode). `daemon_diagnostics` clears both of its files.
 
 Args:
 ```ts
-{ component: "daemon" | "ccccd" | "web" | "im" | "im_bridge"; group_id?: string; by?: string }
+{ component: "daemon" | "ccccd" | "daemon_diagnostics" | "web" | "im" | "im_bridge"; group_id?: string; by?: string }
 ```
 
 Result:
@@ -5025,6 +6580,7 @@ After a successful handshake, the connection becomes a terminal stream (see §4.
 Notes:
 - `term_resize` MUST be sent over a separate daemon connection (the PTY stream is not NDJSON).
 - `term_attach` returns `not_pty_actor` when the actor is not effectively running on the PTY runner.
+- Control mode MAY recreate a missing native terminal for an already-running managed Actor without replacing its provider. Viewer mode only attaches to an existing terminal; it MUST NOT launch one. Neither mode starts a stopped provider.
 - `attachment_id` and `initial_output` are optional extensions. Callers MUST
   consult `ping.capabilities.term_attachment_status` and
   `ping.capabilities.term_attach_snapshot_v1` before depending on them. The
@@ -5062,6 +6618,11 @@ Notes:
   frame instead of retaining the handshake value for the lifetime of the connection.
 
 ### 8.12 Ledger Maintenance
+
+Both operations require an existing Group. For a Group that does not exist,
+including one removed by `group_delete`, they MUST fail with `group_not_found`
+before taking the ledger lock, and MUST NOT create the Group's directory, ledger
+lock, snapshot or segment files.
 
 #### `ledger_snapshot`
 
@@ -5319,6 +6880,21 @@ canonical commit. An explicit IM unset MUST clear the canonical target files
 and consume those legacy durable fields so a later native load cannot restore
 configuration or delivery authority. Non-durable runtime diagnostics in
 `im_bridge` MAY remain.
+
+Per-target `relay` is `all`, `mentions`, or `to_user_only`. The IM `/verbose`
+command and Web verbose control MUST update the same relay state and its
+`verbose` projection atomically: on selects `all`; off changes `all` to
+`mentions` and preserves `to_user_only`. Absent relay uses the existing verbose
+setting. These choices MUST agree across authorized and subscribed records.
+Telegram diagnostics distinguish API reachability (`last_api_ok_at`,
+`last_api_error`, `last_api_error_at`) from delivery (`last_send_ok_at`,
+`last_error`, `last_error_at`). A successful reachability probe is not evidence
+that update polling or message delivery succeeded. Recovery clears only that
+operation's current error; historical diagnostics remain in bridge logs.
+Only a successful Telegram message send or edit may advance `last_send_ok_at`,
+clear a delivery error, or record a delivered log entry. Skipped, throttled,
+unchanged and duplicate-suppressed events MUST leave delivery diagnostics
+unchanged. A partly failed multi-part send remains a failure.
 
 Across IM authentication and subscriber state, `thread_id` is a platform-owned
 opaque identifier. Implementations MUST preserve it as either a legacy JSON
@@ -6595,7 +8171,10 @@ For `web_model_pull`, every returned source event MUST already have a durable
 `runtime.delivery` state of `accepted`. For `web_model_browser`, this operation
 only establishes the browser claim; `web_model_browser_delivery_record` settles
 the claim after the submit boundary. A second wait while the actor owns an active
-turn MUST return `turn_in_progress` and MUST NOT replace that turn.
+turn MUST return `turn_in_progress` and MUST NOT replace that turn. The nonempty
+`active_turn_id`, rather than a display status such as working/idle/waiting, owns
+that turn; status heartbeats do not release it. Completion releases only its
+matching active identity and cannot clear a replacement turn.
 `coalesced_text` MUST preserve the complete daemon-rendered batch without a
 secondary character-count truncation. Browser-originated oversized text is
 converted to a `.txt` attachment before daemon delivery; the canonical
@@ -6757,7 +8336,10 @@ terminal outcome. `submitting` and `pending` remain observations only. The
 browser owner MUST record the terminal handoff before `runtime_complete_turn` so
 completion cannot outrun delivery evidence. If the record call itself fails, a
 verified submission remains completion-pending and reconciliation retries this
-operation; it MUST NOT resubmit the browser prompt.
+operation; it MUST NOT resubmit the browser prompt. A verified late submission
+MUST remain recorded even after an earlier ambiguous outcome; it may establish
+accepted handoff without changing a newer active turn. Missing active projection
+alone MUST NOT convert a claimed submission into a withdrawn notice.
 
 #### `web_model_browser_attach`
 
@@ -6849,7 +8431,9 @@ Result:
 
 Notes:
 - Export MUST exclude live runtime state, browser profiles, credentials, connector secrets, lock files, and rebuildable caches.
-- Export and import MUST exclude persisted IM reply credentials, including `state/im_weixin_context_tokens.json`; import MUST apply exclusions even when an older package declares `contains_secrets: false`.
+- Export and import MUST exclude the Group message pin directory (`state/message_pins/`), including transient files. Copied or imported Groups start with an empty pinned-message list; the original messages remain in the copied ledger.
+- Export and import MUST exclude persisted IM credentials and temporary authorization state, including `state/im_weixin_credentials.json`, `state/im_weixin_context_tokens.json`, `state/im_dingtalk_sessions.json`, and `state/im_pending_keys.json`, as well as legacy `state/actor-secrets.json`; import MUST apply exclusions even when an older package declares `contains_secrets: false`.
+- Export and import MUST exclude `.tmp`-prefixed files directly in the Group root or `state/` directory, where atomic writes may temporarily contain unredacted data.
 - Export MUST scrub actor environment secrets from packaged `group.yaml`.
 - `contains_secrets: false` means CCCC-managed live credentials and auth sessions are excluded. The package can still contain user-provided sensitive content such as ledger history, memory, blobs, and attachments.
 - This compatibility operation is intended for small packages. Large packages SHOULD use `group_copy_export_file` and pass the returned `package_path` to preview/import.
@@ -6916,12 +8500,12 @@ Result:
     source_group_id: string
     source_title: string
     actor_count: number
-    actors: Array<Record<string, unknown>>
+    actors: Array<{ id: string; title: string; runtime: string; runner: string; enabled: boolean; native_session: boolean }>
     source_workspace_root: string
     workspace_root_exists: boolean
     group_id_conflict: boolean
     target_default_scope_conflict?: boolean
-    requires_reconnect?: Record<string, boolean>
+    requires_reconnect?: { chatgpt_web_model: boolean; grok_web_model: boolean; notebooklm_group_space: boolean; native_sessions: boolean }
     workspace_included: false
     contains_secrets: false
     runtime_reset?: Record<string, unknown>
@@ -6932,6 +8516,7 @@ Result:
 Errors:
 - `invalid_group_copy` when the payload is not a valid supported CCCC group copy.
 - `contains_secrets: false` in the preview has the same meaning as export: system credentials are excluded, but user content in ledger history, memory, blobs, and attachments can still be sensitive.
+- Preview Actor `enabled` describes the imported state: native-session memberships are disabled, even within the same Home. `native_session` and `requires_reconnect.native_sessions` MUST identify these memberships without guessing from Runtime alone.
 
 #### `group_copy_import`
 
@@ -6964,7 +8549,10 @@ Result:
 Notes:
 - Import MUST stage and validate copy package contents before moving them into `groups/<group_id>`.
 - If the source `group_id` conflicts in the target home, import MUST allocate a new group id.
+- In the active ledger and archived ledger segments, a history line whose top-level `group_id` identifies the source Group MUST use the imported `group_id`. Its nonempty source active `scope_key`, when present, MUST be mapped to the imported active scope. Other Groups' identities, unidentified records, event ordering, IDs, and event data MUST be preserved. Mapping an identity does not certify an otherwise damaged record as readable.
+- When neither Group nor active scope identity changes, archived segment bytes MUST be preserved. Import MUST NOT make later gzip members visible as history when the ledger reader would only read the first member; it MAY reject such a segment when identity rewriting is needed.
 - Imported groups MUST start stopped: `running=false`, `state="idle"`.
+- Imported native Actors MUST retain their `external_session_id` and history but have `enabled=false`; ordinary managed Actors retain their configured enabled state. Import MUST clear the copied native direct-reuse index and MUST NOT change the source Group. Native memberships require an explicit user resume/admission before they can access tools or receive messages, including when the same Home already has that source alive. Copy packages do not carry lifecycle/receiver authority.
 - `workspace_root`, when supplied, remaps the active workspace root during import.
 - Import MUST reject unsupported copy package schema versions, workspace-including copy packages, secret-containing copy packages, path traversal, symlinks, duplicate entries, and unsafe package paths.
 
@@ -7116,18 +8704,20 @@ The private Web port owns one shared ChatGPT browser/profile with a persistent i
 
 Shared login and Actor windows MUST become viewable and closable after navigation starts, without waiting for the provider's DOMContentLoaded or load event. Window availability is distinct from delivery readiness: the existing target, composer, draft and running-state checks still apply before claiming or submitting work. The global shared-browser close endpoint MUST close only its provider's owned login Page; it MUST preserve Actor windows, bindings and authenticated profile, without requiring Actors to stop. Web shutdown remains responsible for closing the shared process and display resources.
 
+Browser status MUST distinguish positive sign-in or security-verification evidence from a missing, loading or unrecognized conversation input. An inspection failure MUST NOT imply missing login. Private Web browser-session reads expose the latest `checked_at` and may report `page_not_ready`, `loading`, `unchecked`, or `inspection_failed`; an explicit `inspect=true` recheck observes the existing Page without navigation, prompt submission or task creation. Delivery and pairing MUST share message-role recognition for the current ChatGPT DOM: a batch echo requires a user message, and a pairing receipt requires a subsequent assistant message before the next user boundary. A surrounding turn containing both roles is not an assistant receipt.
+
 These IPC operations use the daemon global write permit and require `by=user`; none is an Actor MCP catalog operation:
 
 | Operation | Required input / effect |
 |---|---|
-| `web_model_connector_configure` | Optional `provider` (`chatgpt_web`, default, or `grok_web`); create or rotate only that provider’s instance credential and return its secret once. Rotation retains bindings and routing keys. |
+| `web_model_connector_configure` | Optional `provider` (`chatgpt_web`, default, or `grok_web`); optional boolean `create_only` (default `false`). Create or rotate only that provider’s instance credential and return its secret once. `create_only=true` atomically rejects an active existing connector with `connector_exists`, preserving its credential, bindings and routing keys; a revoked connector permits fresh creation. A non-boolean flag is `invalid_argument` and MUST NOT fall back to rotation. Rotation retains bindings and routing keys. |
 | `web_model_connector_revoke` | `connector_id`; disable all tool routes and pending pairings. |
 | `web_model_pairing_begin` | `connector_id`, `group_id`, `actor_id`; optional `automatic=true` requires an enabled, unbound Web Model Actor in a running, non-paused Group; otherwise requires a stopped Actor. Issue one 10-minute code, persisting only its hash and automatic intent. |
 | `web_model_pairing_accept` | `connector_id`, `code`, `session_key`; private Web port forwards the authenticated host session hash. Return a unique, idempotent receipt for this candidate/session; receipt alone grants no business authority. |
 | `web_model_pairing_confirm` | `connector_id`, `group_id`, `actor_id`, `pairing_id`, `url`; current generation, accepted unexpired pairing and verified stable ChatGPT URL. Recheck the persisted automatic lifecycle condition (or stopped Actor for manual replacement). Bind atomically; reject session/URL collisions. |
 | `web_model_pairing_cancel` | `connector_id`, `group_id`, `actor_id`, `pairing_id`; cancel only the named incomplete candidate without changing an existing binding; retain the cancellation to prevent automatic retries. |
 | `web_model_pairing_fail` | `connector_id`, `group_id`, `actor_id`, `pairing_id`, `error_code`; retire the named incomplete attempt, reject later acceptance/confirmation, preserve existing bindings and display the failure. A late failure MUST NOT alter a replacement or committed attempt. |
-| `web_model_grok_bind` | `connector_id`, `group_id`, `actor_id`, `url`; user-only, stopped Grok Actor and matching Grok connector. Canonical HTTPS `grok.com/bot/<UUID>` URL, unique within the connector. Saving the same current-generation URL is idempotent. A changed URL requires no unresolved delivery. |
+| `web_model_grok_bind` | `connector_id`, `group_id`, `actor_id`, `url`; user-only, no active turn and matching Grok connector. The exclusive daemon operation preserves enabled state. Canonical HTTPS `grok.com/bot/<UUID>` URL, unique within the connector. Saving the same current-generation URL is idempotent. A changed URL requires no canonical active turn. |
 | `web_model_binding_remove` | `connector_id`, `group_id`, `actor_id`; stopped Actor with no unresolved delivery; remove only its binding/pairing. |
 
 Normal Actor startup authorizes one initial automatic setup exchange for an enabled, unbound Actor in a running Group. The Web supervisor prepares its owned window; no business delivery is claimed until a binding is verified. An existing current-generation attempt, including expired, failed, cancelled or orphaned attempts, MUST prevent another automatic send. Unrelated Actor setup MUST NOT prune these attempt fences.
@@ -7142,21 +8732,231 @@ Pairing/navigation/delivery share the Actor control permit. Cancellation invalid
 
 Unresolved delivery forbids changing conversations or removing the binding, including persisted completion `ambiguous` and `completion_conflict` states after the daemon has stopped working. Re-pairing the same saved stable URL MAY restore access while retaining all pending evidence. The Web UI MUST keep this manual recovery reachable for a stopped unpaired Actor with a saved conversation, even without an earlier pairing attempt. The browser port observes the owned Page URL and serializes pairing/navigation against delivery; URL opening alone never changes authority. Both preview navigation and saved-conversation alignment MUST preserve unsent text and attachment-only drafts.
 
-The ChatGPT remote MCP entrance advertises one fixed tool schema. Connector-level `cccc_pair` and read-only `cccc_connector_status` work before Actor activation; they are not nested tools in CCCC's `cccc_code_exec`, and do not constrain the host's own connector dispatch mechanism. Pairing MUST be declared state-changing: it records a pending link but does not itself read workspace files, execute tasks or grant business-tool access. Setup instructions MUST respect host approval requirements and report rejected calls; browser receipt verification activates the Actor route before subsequent calls can use its configured permissions. All business calls require a current enabled Web Model Actor binding. Each call uses host `params._meta["openai/session"]`, scoped by optional `openai/subject` and `openai/organization`; values must be nonempty strings, at most 1,024 bytes, without control characters. Persist only salted hashes, never raw host identifiers. Missing metadata or invalid/stale bindings MUST fail closed; tool arguments, HTTP session IDs, titles and default Actor selection MUST NOT substitute for host metadata.
+The ChatGPT remote MCP entrance advertises one fixed tool schema. Connector-level `cccc_pair` and read-only `cccc_connector_status` work before Actor activation; they are not nested tools in CCCC's `cccc_code_exec`, and do not constrain the host's own connector dispatch mechanism. Pairing MUST be declared state-changing: for browser Actors it records a pending link; for Dots, an explicitly user-issued setup code pairs the fixed event Actor immediately. Neither path reads workspace files or executes tasks. Dots pairing grants claim-only access, never business-tool access. Setup instructions MUST respect host approval requirements and report rejected calls; browser receipt verification activates the Actor route before subsequent calls can use its configured permissions. All business calls require a current enabled Web Model Actor binding. Each call uses host `params._meta["openai/session"]`, scoped by optional `openai/subject` and `openai/organization`; values must be nonempty strings, at most 1,024 bytes, without control characters. Persist only salted hashes, never raw host identifiers. Missing metadata or invalid/stale bindings MUST fail closed; tool arguments, HTTP session IDs, titles and default Actor selection MUST NOT substitute for host metadata.
 
 Code-mode nested calls MUST recheck captured Actor generation and binding revision before executing. Request context fixes the caller (`by`) and Group; `cccc_actor.actor_id` remains the explicit management target and MUST NOT be replaced with the caller. Other identity-bearing tools continue to use the bound Actor. Command stdin/output and code cells MUST remain scoped to their original Actor/binding; re-pairing MUST NOT transfer access to retained work. Credential rotation invalidates the old credential without reassigning conversations; revocation and Actor/Group removal invalidate affected routes. These checks cannot undo an already executed command.
 
+Native execution credentials are tool-argument data. A native host SHOULD retain
+the successful claim result, including its `actor_token`, turn ID and exact
+event IDs, together in temporary state for that execution. Direct tool calls and
+host-side JavaScript orchestration MAY pass the current credential as the
+tool's `actor_token` argument, including a literal argument value when required
+by the host. This permission MUST NOT extend to `cccc_code_exec` `source`/`code`,
+business code, files, commands, logs, saved task instructions or user-facing
+messages. No host-specific persistence API is required.
 
-### Grok Bot routing and provider isolation
+Losing a temporary variable reference does not invalidate its credential: the
+same execution MAY read its original successful claim tool result to populate
+tool arguments. It MUST NOT claim again to retrieve that value or recover a
+credential from another execution, chat history, subscription configuration or
+saved memory. Discard temporary context after confirmed completion. If the
+original result is unavailable, report the block and preserve unfinished work
+for explicit recovery; do not infer another identity, replay work or complete
+without the exact turn receipt. These data-flow rules do not change any
+admission, epoch, generation, binding-revision or task-ownership checks.
 
-`grok_web_model` uses a headless Actor and the same browser queue, exact user-message receipts, review/recovery controls and draft/attachment protection as `web_model`. It has no CLI command and no ChatGPT pairing exchange. The private Web port owns a separate shared Grok profile, with one persistent Page/window per Actor. Provider settings MUST NOT rotate another provider's connector or close another provider's browser. The version-3 connector store preserves existing version-2 ChatGPT credentials, bindings and correlation salt.
 
-Opening a Grok Actor window requires its current binding's canonical Bot URL. The Web port MUST reject an unconfigured Actor with `grok_bot_url_required` before creating a browser surface; it MUST NOT fall back to the Grok homepage or a new conversation. The shared login window is separate and MAY open the provider homepage. An Actor viewer MUST complete the owned-window open operation before attaching, rather than treating a registered surface during initialization as a completed open.
+### Grok Bot native Webhook execution
 
-The Bot URL belongs to the Actor, including when its runtime comes from a linked Profile. A private Web binding save MUST align an already-open, idle Actor page with the saved Bot URL before reporting success. It MUST verify the page's provider and Actor generation before reuse. A stale page is retired only after checking for drafts and in-progress responses, then replaced through the current provider's shared profile; the new window follows the navigation-start availability rule above. Navigation failure leaves the Actor stopped and the same URL can be retried. This alignment belongs to the save operation, not status GETs or viewer opening.
+`grok_web_model` is a headless Actor using native Bot Webhook Routines and the existing remote MCP connector. There is no browser delivery, shared Grok login, browser credential or mode selection. All Grok browser-session, browser pairing and shared-browser endpoints MUST reject this Runtime/provider. ChatGPT browser behavior remains separate. A configured Bot link MAY open the provider page manually; it grants no task authority.
 
-Grok Bot URL saving is routing configuration authorized in the private CCCC UI. It proves no host-provided Bot identity. Grok business-tool requests MUST include `actor_token`, an opaque credential selecting an existing Group/Actor/generation/binding revision within the authenticated Grok connector. Possession grants that Actor's configured authority; intentional sharing lends that same authority. Missing, invalid, revoked, stopped or stale routes MUST be rejected. Model-supplied Group/Actor names, progress tokens, transport sessions and connector names MUST NOT substitute for this credential. `cccc_connector_status` MAY report connector connectivity without a token but MUST NOT select a default Actor. Grok MUST NOT advertise `cccc_pair`.
+The canonical HTTPS `grok.com/bot/<UUID>` URL belongs to the Actor, including linked Profile Actors, and MUST be unique within its Grok connector. Saving an unchanged current-generation native URL is idempotent. Replacing the route or changing Routine credentials requires no canonical active turn; the daemon MUST check this and commit the change under the same exclusive dispatch permit that fences task admission. These native configuration writes preserve the Actor's enabled state and MUST NOT stop/restart it or interrupt accepted work. Removing the route still requires a stopped Actor and no canonical active turn. Local setup drafts MAY be edited while work is active, but MUST NOT apply automatically when work completes. Browser-only integration leftovers MUST NOT block native setup. Old unowned claims on another transport settle as ambiguous, never replay or cause repeated empty wakes. Actors without native configuration project `unconfigured`; there is no browser fallback or inferred default Actor. Provider settings MUST NOT rotate another provider's credentials.
 
-The Web MCP boundary removes `actor_token` before dispatch. Nested code-mode calls inherit and revalidate the captured binding, preserving explicit management targets. Browser delivery reconstructs a stable credential using the private provider signing key and binding identity; it adds the credential only to the rendered task prompt. Canonical ledger events, runtime turns, public settings, binding snapshots, tool output and activity diagnostics MUST NOT expose it. Stop/start and unchanged URL saves retain the binding; unbind, URL replacement, provider/runtime changes and Actor/Group removal retire affected authority. Copy/import/reset MUST NOT copy it.
+Grok's MCP path does not prove a host Bot identity. Native business calls MUST include the current claim's execution `actor_token`, an opaque credential selecting connector, Group, Actor generation, binding revision, epoch and task. Possession grants that Actor's authority; sharing lends that authority. Group/Actor names, transport sessions, progress tokens and connector names MUST NOT substitute for it. `cccc_connector_status` MAY check connector connectivity without selecting an Actor. Grok MUST NOT advertise `cccc_pair`. The Web MCP boundary removes credentials before dispatch; nested code-mode calls inherit and revalidate the captured execution context while preserving explicit management targets. Credentials MUST NOT enter ledger events, public snapshots, ordinary tool output or diagnostics.
 
-Grok delivery uses `standard` mode only. `image_compat` is ChatGPT-specific and MUST be rejected for Grok. An enabled Submit control alone is not evidence that Grok is idle: Bot working indicators fence later delivery. Only a batch marker inside a Grok user-message element can settle an uncertain handoff; assistant echoes do not count. Host tool approval or safety rejection is reported rather than bypassed or retried blindly.
+Private configuration is keyed by Group/Actor in `web_model_connectors.yaml` (`grok_webhooks`) and contains the native Bot Routine POST URL, Bearer key, epoch, current wake/execution and last completed execution. It is not Group state, a Profile field or an exported binding. Only HTTPS `api2.cursor.sh/automations/webhook/<id>` without credentials, port, query or fragment is accepted. The Web port does not follow redirects or expose provider response bodies. This is the native Bot Routine Bearer/200 surface, not the separate signed Grok Automations API.
+
+A wake POST contains `{event:"cccc.grok.ready",event_id,actor_token}`. The credential is an opaque HMAC over connector, binding identity/revision, epoch, wake and claim domain. It authorizes only `cccc_runtime_wait_next_turn`; it grants no business tools. A successful `grok_work_claim` calls the existing `runtime_wait_next_turn` with `transport="web_model_pull"`, commits its private projection, and returns a distinct execution `actor_token` bound additionally to the admitted turn. Canonical active-turn ownership fences duplicate claims, including a crash with missing private projection. Competing claims return `turn_in_progress` without task body or credentials. A used wake cannot claim later inputs.
+
+Native execution capabilities and captured code-mode contexts MUST be revalidated against current epoch and canonical active turn, including after waits and under daemon operation permits. After completion, only an exact completion retry may use the previous execution capability; all other business calls fail. At the daemon completion boundary, the requested turn MUST equal the credential's captured turn before any receipt lookup or append. The existing receipt/active-turn checks MUST then enforce that same turn's exact ordered event IDs; a completion-only credential cannot acknowledge a newer task even when its IDs are supplied. The existing exact turn/event completion receipt and append order remain authoritative. The next wake is eligible only after completion releases canonical ownership.
+
+The Web network worker owns only I/O. The daemon leases each attempt for 30 seconds and persists attempt outcomes; HTTP 200 records `delivered`, never business `accepted` or completion. Transient network/429/5xx failures retry the same wake at most three times with 2s/4s backoff. Other HTTP results are terminal for automatic delivery. A delivered wake is not automatically resent; after 120 seconds without a claim it projects `unclaimed`. Explicit retry reuses its identity/capability and cannot replay accepted work. Multiple Web workers share the daemon lease. Network sends are bounded to 15 seconds and independent Actors may progress concurrently.
+
+Actor stop/restart/new-session and Group pause/stop retire native epoch authority. Accepted unfinished work remains canonical, is shown as interrupted, and MUST NOT be automatically replayed. A user may explicitly resolve the exact active turn/event IDs while the Actor is enabled or paused, preserving an already committed completion or appending cancelled completion. Resolution retires old execution authority under the Group write permit and preserves the Actor's enabled state. Claimed inputs with uncertain handoff are settled ambiguous. This is retirement of CCCC authority, not cancellation of provider cloud work. Disconnect, URL replacement, runtime/provider replacement, Actor/Group removal, copy/reset and connector revocation retire private configuration with the binding. Revocation MUST NOT hide an accepted unfinished turn: canonical ownership keeps the recovery view available even without the old connector. An unchanged native URL save retains the configuration.
+
+| Private daemon operation | Inputs and behavior |
+| --- | --- |
+| `grok_webhook_status` | `group_id`, `actor_id`; read-only connected/bound/configured flags, phase, queued count, active IDs and sanitized last completion. No Webhook URL/key/capability and no runtime work; the viewer may receive the canonical Bot URL. |
+| `grok_webhook_configure` | user only; `group_id`, `actor_id`, `url`, `key`. No active turn; check and write under one exclusive permit, preserving enabled state. A `transport` field is rejected. |
+| `grok_webhook_retry` | user only; Group/Actor; only failed/unclaimed wake, active Actor, no accepted task. Reuses the current wake. |
+| `grok_webhook_next_delivery` | user-owned Web worker only; no selectors required; atomically lease one eligible wake, returning private URL/key/body/epoch/attempt for I/O. |
+| `grok_webhook_delivery_record` | user-owned Web worker only; connector/Group/Actor, event_id, epoch, attempt, http_status or null. Late/stale outcomes do not overwrite claims or newer epochs. |
+| `grok_work_claim` | bound Actor only; captured claim authority from the authenticated Web MCP port. Runtime wait MUST NOT bypass this path for any Grok Actor. |
+| `grok_work_resolve` | user only; exact active turn_id and event_ids; retires old execution authority without changing enabled state, replay or provider cancellation. |
+
+`grok_webhook_status` includes nullable `active_turn_elapsed_seconds`: seconds
+since the matching private execution was claimed, calculated by the daemon at
+the time of the read. It is available only when the private execution belongs
+to the current canonical active turn and has a valid claim time that is not in
+the future. An unavailable time, including an older execution without a stored
+claim time, is null. This value does not establish that provider work is still
+running, has succeeded or failed, or may be replayed; reading status performs no
+runtime work.
+
+Private Web `GET /api/v1/web-model/grok-webhook` returns the native state directly from the daemon. POST accepts `instructions`, `bind`, `disconnect`, `configure`, `retry`, or `resolve`. `bind` and `disconnect` call the existing provider-isolated binding operations; `configure` accepts only URL/key, with no delivery mode. Instructions are credential-free and describe creating/updating one native Routine, not a timed poll. The desktop Routine URL/key belong only in the private setup UI. The native viewer MUST NOT use browser-session status or open a browser surface. Setup/connection controls require the same private administrator access as Dots. Routine permissions, provider limits and provider-side pauses remain external constraints.
+
+### ChatGPT Dots event execution
+
+`chatgpt_dots` uses the existing authenticated `chatgpt_web` connector with MCP
+Events. Its binding has `transport="mcp_events"` and the fixed viewer URL
+`https://chatgpt.com/dots/home`. This URL and model-supplied Actor/Group names
+grant no authority. A connector MUST have at most one Dots binding; ordinary
+ChatGPT conversation bindings MAY coexist. Browser pairing and browser delivery
+MUST NOT be used for Dots, including as a fallback after an event delay.
+
+Subscriptions need not contain OpenAI conversation metadata. The CCCC-issued
+subscription credential authorizes only native event subscription, not tool
+calls or task claims. It stays in native subscription configuration and MUST
+NOT be saved in handler instructions, chat memory or business messages. An
+event is only a wake notification and MUST NOT contain an execution credential
+or task body.
+
+Native setup explicitly pairs the Dot's host conversation with the selected
+Actor through the existing `cccc_pair` tool and a user-issued, 10-minute code.
+Only the code hash is persisted. Unlike browser pairing, successful Dots code
+acceptance commits the session association under the daemon lifecycle permit;
+no browser URL or assistant receipt is an identity proof. The selected Actor
+must still be Dots, with the same generation and binding revision, and
+must have no accepted unfinished turn. Repeating the same successful pairing
+is idempotent and MUST NOT interrupt an active turn. Codes cannot be used by
+another session, after expiry, or after lifecycle replacement. A host session
+already assigned to another Actor MUST NOT be transferred to Dots.
+Pausing or resuming access MUST NOT invalidate an unexpired setup code for the
+same Actor binding. Pairing MAY finish while paused, but MUST NOT enable the
+Actor or restore task execution authority. Claims and execution credentials
+remain fenced by the current enabled state and execution epoch.
+For an already paired Dot, `cccc_connector_status` MUST expose `paired`,
+`enabled`, `subscribed` and its current phase as `state`. Successful setup MUST
+check this status before the optional initial claim. A paused Actor remains
+paired: report setup complete and wait for explicit access resumption; do not
+enable it, replace its binding or describe the pause as lost pairing.
+Tool admission MUST distinguish `paired_actor_stopped` (access paused),
+`paired_actor_identity_changed` (generation replaced),
+`paired_actor_runtime_changed` (runtime or runner changed), and
+`paired_actor_unavailable` (Actor removed). These reasons MUST NOT weaken any
+existing generation, enabled-state or binding checks.
+
+Subsequent Dots claims call `cccc_runtime_wait_next_turn` with `{}`. The already
+authenticated MCP entrance matches host `openai/session`, with optional subject
+and organization, against the explicitly approved salted session hash. The
+paired session grants continuous claim-only access to that fixed Actor. It
+MUST NOT authorize business tools without the current turn's execution
+credential. A subscription credential MUST NOT substitute for pairing, and an
+invalid supplied execution credential MUST NOT fall back to a session route.
+Missing, changed or unpaired host metadata MUST fail closed; the sole Dot
+binding, model-supplied names, subscription parameters and event payloads MUST
+NOT be used to guess a caller. A previously paired Actor whose host identity
+changed requires explicit user disconnect/connect before a new pairing; setup
+instruction reads cannot silently replace its approved session.
+
+The saved native handler contains no literal claim or pairing credential.
+Setup updates the existing event task for the same Actor instead of creating a
+duplicate. Retrieving instructions for an already paired Actor MUST preserve
+its session, subscription, wake, epoch and queued work, and MUST NOT claim work.
+After explicit setup, the saved handler MAY run once to claim already queued,
+unclaimed work. Idle, stopped or busy results MUST NOT initiate polling, a new
+wake or recovery of accepted work. Status distinguishes `waiting_pairing` from
+`waiting_subscription`; subscription success alone MUST NOT imply readiness,
+and no new wake is sent until the Dot is paired.
+
+Private connector settings retain at most ten recent native subscription,
+pairing, claim and completion outcomes, plus failures of published tool calls,
+in `events_log`. Entries contain the time, method, optional `tool_name`, success
+flag and a fixed reason code; they MUST NOT record call arguments, raw errors,
+response bodies or credentials. This history belongs to the shared connector,
+including ordinary ChatGPT Actors, and MUST NOT replace a Dots Actor's current
+daemon-owned phase. Successful observational calls do not displace this history.
+A diagnostic write failure MUST NOT change an already accepted tool result.
+Pairing and claim records with valid ChatGPT host metadata MAY additionally
+contain `host_identity` fingerprints for `session`, `subject`, and
+`organization`; absent optional fields are null. Each fingerprint MUST be a
+domain-separated hash scoped by the connector ID and private routing salt,
+never a raw host identifier or the routing session key. These fingerprints are
+diagnostic only and MUST NOT select an Actor, replace a binding or authorize a
+claim. The ten-record bound and shared-connector scope remain unchanged.
+
+The claim captures the current binding, Actor generation, execution epoch and
+wake identity before waiting for the daemon's operation permit. The daemon MUST
+revalidate that exact snapshot under the permit. An idle claim MUST NOT create a
+wake or borrow one created after its snapshot. The first successful claim
+persists the accepted execution and returns its `actor_token`; duplicate or
+competing claims return no task body or execution credential. The execution
+credential is bound to the connector, Actor generation, binding revision, epoch
+and wake ID, and authorizes only that persisted turn. Tool arguments cannot
+select another Group, Actor or turn. Nested capability/code calls and command IO
+retain and revalidate the captured task identity.
+
+Local-power consumers MUST revalidate that captured authority after awaited
+scope or execution preparation, and before starting local reads, writes,
+processes or command input. Queued blocking workers and command IO waits MUST
+recheck when they resume; retained cells and commands MUST recheck before
+returning further output. These are admission and output fences, not atomic
+revocation of an entire I/O operation. Already admitted OS side effects cannot
+be undone, and stopping CCCC access does not guarantee cancellation of cloud
+work.
+
+Transient callback delivery failures retry the same event identity with bounded
+exponential backoff (up to three attempts, waiting 2s then 4s). A confirmed
+handoff or exhausted attempt schedules no retry; HTTP 410 and 413 are permanent
+failures. Retrying transport MUST NOT replay an accepted business turn.
+
+Webhook acceptance is transport handoff, not task completion. Completion uses
+the existing exact turn ID/event-ID receipt and never advances the Mail cursor.
+After completion, the execution credential authorizes only an idempotent retry of
+that same completion; it cannot claim more work or keep using business tools.
+The daemon MUST match the requested turn to the captured credential's turn before
+receipt lookup or append, then enforce its exact ordered event IDs through the
+existing receipt/active-turn checks. A previous completion credential MUST NOT
+complete a newer turn, including when the caller supplies that newer turn's IDs.
+Stop, restart, reset and explicit unbinding MUST retire old execution authority
+even when the Actor generation and pending turn IDs remain unchanged. Uncertain
+wake/execution facts are retained; lifecycle transitions do not prove that
+cloud work stopped and MUST NOT silently replay it. These fences cannot undo
+actions already performed in the cloud.
+
+Start resumes the same paired session's continuous permission to claim new queued
+work; a late cloud invocation may therefore claim a new current turn. It MUST
+NOT recover an accepted unfinished turn's body or execution credential through
+the paired session. Explicit unbinding, rebinding or Actor generation replacement
+revokes the old pairing and subscription credential as well as its execution authority.
+
+The existing secret connector YAML owns the private Dots subscription, callback,
+signing secret, wake and execution state. Public binding/status results, Group
+state, ledgers and Group copies MUST NOT contain private credentials or callback
+payloads. Required private rollback snapshots remain internal to the existing
+in-memory saga and MUST NOT be returned through a public port.
+
+The private Web port uses the following daemon operations. Connection and
+subscription changes use the global write permit; claims and unfinished-turn
+resolution use the bound Group write permit. These operations are not Actor
+MCP tools. Only the authenticated work claim is forwarded with Actor authority;
+connection, network receipt and resolution operations require `by="user"`.
+
+| Operation | Inputs and result |
+| --- | --- |
+| `dots_events_status` | `group_id`, `actor_id`; safe subscription, delivery and canonical turn projection. Read-only; never subscribes, sends or claims work. |
+| `dots_events_connect` | User-authorized Actor with no unfinished turn and no previous local runtime still running; creates or reuses the one binding and returns its private subscription credential plus an expiring pairing code while unpaired. The Actor may be enabled; retrieving an already paired binding preserves its session, epoch, subscription and wake. |
+| `dots_events_disconnect` | Stopped Actor with no unfinished turn; retires that binding and its private subscription authority. |
+| `dots_events_subscribe` | Exact binding revision/epoch and subscription credential, verified callback URL/signing secret, subscription ID and optional `ttl_ms`; persists the subscription after the Web port's signed challenge. Null TTL remains valid until revoked; the Web protocol treats an omitted TTL as null (persistent) and returns the granted `refreshBefore`, which is null for a persistent subscription. |
+| `dots_events_unsubscribe` | Exact subscription identity and callback; retires that subscription's task authority. An older callback cannot unsubscribe a replacement. |
+| `dots_events_next_delivery` | Claims a bounded sending lease for pending inbox work; returns private callback data and one persisted event identity. It never accepts a business turn. |
+| `dots_events_delivery_record` | Exact connector, epoch, event and attempt; records HTTP handoff or a safe error. Bounded retries reuse the same event; HTTP 410/413 are not retried. |
+| `dots_work_claim` | Captured binding, epoch and current wake identity; accepts at most one existing canonical turn and returns its private execution `actor_token` only after persistence. Idle, duplicate or competing claims expose no business body or execution credential and do not recover another execution. |
+| `dots_work_control` | User `action="resolve"` with exact canonical `turn_id` and `event_ids`; reconciles an existing terminal receipt, or cancels unfinished work without replay. Retires old execution authority while preserving the Actor's enabled state; does not terminate ChatGPT cloud work. |
+
+`dots_events_status` exposes the same nullable `active_turn_elapsed_seconds`
+semantics as `grok_webhook_status`, using the matching Dots execution's stored
+claim time.
+
+After a notification fails before any turn is accepted, explicit Actor stop/start
+invalidates the old event and permits a fresh notification of still-pending
+inputs. After admission, stop/start preserves the unfinished turn and requires
+explicit resolution; it does not automatically replay its body. An expired or
+HTTP-410 subscription needs explicit reconnection. Initial connection and
+retrieving the same setup instructions do not require pausing the Actor. They
+do not restart it or replace pending event authority. Disconnecting still
+requires a stopped Actor and no unfinished turn. Expiry blocks new claims but
+does not revoke an already admitted execution; that turn may finish with its
+existing execution credential. Replacing or unsubscribing the native
+subscription retires its epoch and requires explicit resolution of any
+unfinished turn; refreshing the same subscription does not.

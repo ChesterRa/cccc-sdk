@@ -14,12 +14,15 @@ import type {
 
 export interface CCCC0434Ops {
   terminalSnapshot(options: TerminalSnapshotOptions): Promise<TerminalSnapshotResult>;
+  /** ChatGPT browser Actors only. */
   webModelDeliveryPreferencesGet(
     options: WebModelDeliveryPreferencesGetOptions,
   ): Promise<WebModelDeliveryPreferencesResult>;
+  /** ChatGPT browser Actors only. */
   webModelDeliveryPreferencesUpdate(
     options: WebModelDeliveryPreferencesUpdateOptions,
   ): Promise<WebModelDeliveryPreferencesResult>;
+  /** Recover a ChatGPT browser turn; Grok uses its own event path. */
   webModelRuntimeRecoverTurn(
     options: WebModelRuntimeRecoverTurnOptions,
   ): Promise<WebModelRuntimeRecoverTurnResult>;

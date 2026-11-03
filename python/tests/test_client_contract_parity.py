@@ -1260,24 +1260,15 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["args"]["assistant_id"], "voice_secretary")
 
         captured.clear()
-        client.assistant_settings_update(
-            group_id="g_1",
-            assistant_id="voice_secretary",
-            patch={"enabled": True},
-        )
-        self.assertEqual(captured[0]["op"], "assistant_settings_update")
-        self.assertEqual(captured[0]["args"]["patch"], {"enabled": True})
-
-        captured.clear()
-        client.assistant_status_update(
-            group_id="g_1",
-            assistant_id="voice_secretary",
-            lifecycle="working",
-            health={"ok": True},
-        )
-        self.assertEqual(captured[0]["op"], "assistant_status_update")
-        self.assertEqual(captured[0]["args"]["lifecycle"], "working")
-        self.assertEqual(captured[0]["args"]["health"], {"ok": True})
+        with self.assertRaises(IncompatibleDaemonError):
+            client.assistant_settings_update(
+                group_id="g_1", assistant_id="voice_secretary", patch={"enabled": True},
+            )
+        with self.assertRaises(IncompatibleDaemonError):
+            client.assistant_status_update(
+                group_id="g_1", assistant_id="voice_secretary", lifecycle="working",
+            )
+        self.assertEqual(captured, [])
 
     def test_daemon_core_ops(self) -> None:
         captured, client = self._capture({"observability": {}})

@@ -1,6 +1,6 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.41 alignment: Voice document library helpers, Grok Bot runtime configuration, and updated public contracts across Python, TypeScript and Rust. [0.4.41 migration](spec/SDK_0441_MIGRATION.md) · [Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
+0.4.47 alignment: exact message reads, Inbox summaries and current Voice/Grok guidance across Python, TypeScript and Rust. The core snapshot is pinned to the CCCC 0.4.47 release. [Migration](spec/SDK_0447_MIGRATION.md) · [Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -95,7 +95,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.41"
+cccc-sdk = "0.4.47"
 ```
 
 ```rust
@@ -119,7 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this batch is **0.4.41**. See `spec/core.json` for the reviewed core revision.
+  release number; this version targets **0.4.47**. `spec/core.json` records
+  the core release revision used for contract validation.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
 Compatibility is enforced by **contracts**, not by strict version string matching:

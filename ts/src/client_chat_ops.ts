@@ -2,6 +2,10 @@ import type {
   CCCSEvent,
   EventStreamItem,
   InboxOptions,
+  InboxSummaryOptions,
+  InboxSummaryResult,
+  MessageHistoryExactOptions,
+  MessageHistoryExactResult,
   MessageHistoryOptions,
   MessageDeliverOptions,
   ReplyOptions,
@@ -12,7 +16,7 @@ import type {
   SendOptions,
   SendResult,
 } from './types.js';
-import { DaemonAPIError } from './errors.js';
+import { DaemonAPIError, IncompatibleDaemonError } from './errors.js';
 import { isStreamEvent } from './types.js';
 
 type ClientCall = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -39,7 +43,9 @@ export interface ChatOps {
   sendAndWaitForReply(options: SendAndWaitOptions): Promise<CCCSEvent>;
   inboxPeek(options: InboxOptions): Promise<Record<string, unknown>>;
   inboxRead(options: InboxOptions): Promise<Record<string, unknown>>;
+  inboxSummary(options: InboxSummaryOptions): Promise<InboxSummaryResult>;
   messageHistory(options: MessageHistoryOptions): Promise<Record<string, unknown>>;
+  messageHistoryExact(options: MessageHistoryExactOptions): Promise<MessageHistoryExactResult>;
 }
 
 const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
@@ -228,6 +234,14 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     });
   },
 
+  async inboxSummary(options) {
+    return await this.call('inbox_summary', {
+      group_id: options.groupId,
+      cutoff: options.cutoff,
+      by: options.by ?? 'user',
+    }) as unknown as InboxSummaryResult;
+  },
+
   async messageHistory(options) {
     const args: Record<string, unknown> = {
       group_id: options.groupId,
@@ -239,6 +253,26 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
     if (options.query) args['query'] = options.query;
     if (options.beforeEventId) args['before_event_id'] = options.beforeEventId;
     return this.call('message_history', args);
+  },
+
+  async messageHistoryExact(options) {
+    const eventId = options.eventId.trim();
+    if (!eventId) throw new Error('eventId must not be empty');
+    const result = await this.call('message_history', {
+      group_id: options.groupId, actor_id: options.actorId,
+      event_id: eventId, by: options.by ?? 'user',
+    });
+    const messages = result['messages'];
+    const deliveryText = result['delivery_text'];
+    if (!Array.isArray(messages) || messages.length !== 1 ||
+        !messages[0] || typeof messages[0] !== 'object' || messages[0].id !== eventId ||
+        result['has_more'] !== false || !Object.prototype.hasOwnProperty.call(result, 'delivery_text') ||
+        (deliveryText !== null && typeof deliveryText !== 'string')) {
+      throw new IncompatibleDaemonError(
+        'daemon did not return an exact message history result; exact reads require CCCC 0.4.46 or later'
+      );
+    }
+    return result as unknown as MessageHistoryExactResult;
   },
 };
 

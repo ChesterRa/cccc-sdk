@@ -65,6 +65,18 @@ Actors are identities within a group. CCCS v1 standardizes only:
 - `actor_id`: stable string identifier
 - `role`: `"foreman"` or `"peer"` (optional; the collaboration semantics do not require a role)
 
+A user-owned native session MAY participate through ordinary Group Actors. Source discovery MUST NOT manufacture collaboration history. An administrator MAY explicitly admit a new native source to an existing Group as a new Actor; this MUST NOT silently replace an earlier identity, transfer its role, or inherit its pending work. In-flight native requests MUST remain bound to their captured source, Actor generation and native lifecycle revision; reusing a textual Actor ID MUST NOT transfer that authority. Transport acceptance, model execution and explicit read/reply receipts remain distinct; a receiver failure MUST NOT indefinitely block later messages or unrelated recipients. Native session ownership and local adapter operations are defined in the daemon IPC contract.
+
+Resuming the same admitted native conversation after its former host exits is
+distinct from admitting another conversation. At the receive-attachment boundary,
+the daemon MAY restore that conversation's existing Actor binding only with the
+exact conversation/configuration and exited-host evidence defined in the IPC
+contract. This MUST retain Actor generation, role and access, preserve Group
+pause/stop, and audit the changed source. It MUST NOT revive disabled integration,
+choose among conflicting memberships, or replay submitted or uncertain work.
+
+Copying or importing a Group MUST NOT implicitly activate its native memberships, even within the same local instance. Imported native Actors retain their source references and history with collaboration access disabled until an explicit user action; the source Group is unchanged. A native source reference is not a portable credential or a grant of live receiver authority.
+
 ## 4. Event Envelope (Normative)
 
 All events MUST use the envelope below. Field semantics are fixed.
@@ -127,8 +139,43 @@ When a send request omits recipients or supplies an empty list, the daemon MUST 
 - `@peers`: all visible peer actors
 - `@foreman`: foreman actor(s)
 - `@user`: the human user (UI recipient)
+- `@chet`: the instance-wide Chet service, subject to the ambiguity rule below
 
-Internal assistants such as Voice Secretary are not members of `@all`, `@peers`, or `@foreman`; they MUST be addressed by their explicit actor ID.
+Internal assistant Actors are not members of `@all`, `@peers`, or `@foreman`.
+The global Voice Secretary remains a service, not a chat recipient or Group
+Actor; confirmed Secretary handoffs use `by="user"` and retain the original
+Group/scope through normal peer delivery. Chet, the global Voice Analyst, is a
+service principal, not a Group Actor or a member of those broadcast selectors.
+An explicitly addressed `@chet` is stored as `svc:chet`. If a visible Group
+Actor's ID or title equals `chet`, ignoring ASCII case, the selector MUST fail
+as ambiguous rather than silently redirect that Actor's existing address. A
+bare Actor ID retains its existing meaning. A stored service identity is not,
+by itself, proof of a service-authored message under local-trust IPC (§5.4).
+
+For a local Chet-authored chat message, the host writes
+`data._cccc_chet_group_generation` with the current Group generation. This
+field is read-only to clients: message and raw-event write operations MUST
+reject a caller-supplied value. A local service identity is recognized only
+when `by` is `svc:chet`, the host field matches the current Group generation,
+and the event is present in that Group's ledger. Copies and imports retain
+their old field value, which does not attest the new Group's service identity.
+
+When a recipient replies to a host-verified Chet message without an explicit
+recipient, the daemon routes to the service identity as an internal target; it
+MUST NOT resolve the service principal as an Actor title. An explicit different
+recipient retains its ordinary routing. If an event claims that service author
+but cannot be verified in the current Group, the default reply MUST fail with
+an actionable error; it MUST NOT fall back to resolving the author as a name.
+Cross-instance service addressing is not implied by the local selector.
+
+Before Chet sends a reply that addresses the source Actor, the daemon MUST
+verify that the source event belongs to this Group generation and that the
+current Actor is the registration that sent it. If either cannot be
+established, the reply MUST be refused before waking a recipient or appending
+the reply, with guidance to ask the user to relay it. A previously accepted
+idempotent retry still returns its existing event. A reply explicitly addressed
+only to other recipients retains ordinary routing. Older Group ledgers without
+the Actor registration fact may not establish the source identity.
 
 Selector membership describes the logical audience, not permission to start a runtime.
 A user broadcast to `@all` or `@peers` MUST NOT re-enable disabled actors. Explicitly
@@ -145,11 +192,11 @@ Every new `chat.message` MUST address exactly one audience domain:
 - **Human**: the sole normalized recipient is `user` / `@user`.
 - **Agents**: every recipient is an actor ID or an actor selector
   (`@all`, `@peers`, or `@foreman`). Multiple agent recipients are allowed.
+- **Chet**: the sole normalized recipient is `svc:chet`.
 
-A recipient list that mixes the human user with any actor ID or actor selector
-MUST be rejected before the event is appended. Callers that need distinct human
-and agent actions MUST send separate messages so delivery and reply obligations
-remain independently attributable.
+A recipient list that mixes these domains MUST be rejected before the event is
+appended. Callers that need distinct actions MUST send separate messages so
+delivery and reply obligations remain independently attributable.
 
 **Multi-user note**
 - CCCS v1 assumes a single human principal per group, identified as `user`.
@@ -207,6 +254,10 @@ data: {
   attachments?: AttachmentRefV1[]
   refs?: ReferenceV1[]
 
+  // A choice put to the user, and the user's answer to it (see §6.4)
+  question?: ReplyQuestionV1
+  answer?: ReplyAnswerV1
+
   // Reserved for future threading
   thread?: string
 
@@ -226,8 +277,8 @@ data: {
 - `message_mode="mail"` persists the message in the recipient Inbox without
   immediately invoking, waking, steering, or writing to the recipient runtime.
 - `message_mode="mail"` is valid only for the agent audience domain. The human
-  user has no Mail Inbox in CCCS v1; callers MUST use `send` or `request_reply`
-  when addressing `user` / `@user`.
+  user and Chet do not have Mail Inboxes in CCCS v1; callers MUST use `send` or
+  `request_reply` when addressing either. A reply to Chet MUST use `send`.
 - A message with `reply_to` fulfills the addressed reply obligation regardless
   of whether that reply uses `message_mode="send"` or `message_mode="mail"`.
   Reply operations MUST NOT use `message_mode="request_reply"`; a reply cannot
@@ -310,7 +361,74 @@ A cancellation for an original absent after its delivery deadline may record
 `source_event_id:null, not_delivered:true`; it changes no obligation.
 See [CCCC_CONNECT_V1.md](CCCC_CONNECT_V1.md) for authority and recovery.
 
-### 6.4 `runtime.delivery`
+### 6.4 Questions to the user
+
+A `request_reply` message to the user alone MAY carry a structured `question`,
+so the user chooses an answer instead of composing one.
+
+```ts
+type ReplyQuestionV1 = {
+  v: 1
+  context?: string          // the sender's text; at most 4000 characters
+  prompt: string            // at most 500 characters
+  options?: {               // none (a free answer), or two to four
+    id: "A" | "B" | "C" | "D" // in this order
+    label: string           // one line, at most 80 characters
+    consequence?: string    // one line, at most 240 characters
+  }[]
+  recommended?: { option_id: string; reason: string } // reason: one line, at most 240
+}
+
+type ReplyAnswerV1 =
+  | { v: 1; option_id: string }
+  | { v: 1; text: string }  // at most 4000 characters; kept exactly as written
+```
+
+**Rules**
+- Limits count Unicode scalar values. A value over a limit is rejected, never
+  truncated.
+- The structure is authoritative and `text` is generated from it: context,
+  prompt, one line per option, the recommendation, and a closing line naming
+  the option ids. A client that reads only `text` therefore sees the complete
+  question. A reader MUST accept a stored question only when its structure is
+  valid and regenerating the text reproduces the stored `text`; otherwise it
+  shows the text and treats the question as unavailable. Written records,
+  imports and appended events are all read under this rule.
+- `question` is valid only on a new message with `message_mode="request_reply"`
+  addressed to `user` alone by a sender other than `user`, so that every
+  stored question is one the user's open requests include. Replies,
+  cross-group and Connect messages cannot carry one.
+- The recommendation is advice. A client MUST NOT preselect it or treat it as
+  the user's choice.
+- `answer` appears only on the user's reply to a question, written by the
+  daemon's answer operation, never accepted from a caller's message fields.
+  Its `text` is generated for the requester: `Selected <id>: <label>` for a
+  choice, the user's words prefixed with `Other: ` when the question offered
+  options, and the user's words alone when it did not.
+- The user's obligation follows §6.3: the first reply by the user or a
+  cancellation after the request closes it. `user` is the Group's shared human
+  audience; one person's answer closes the request for everyone with access to
+  the Group.
+- An answer is accepted only while the request is open, from the user, for an
+  offered option, and only when the ledger proves the requester is still the
+  same Actor registration: its latest `actor.add` precedes the request and
+  records the identity the Group holds now. A removed, re-added or unproven
+  requester is reported as such, never resolved to an Actor that shares its
+  ID. Requests relayed from another Group or instance are answered with an
+  ordinary reply.
+- Closing the request and recording the answer do not mean the requester has
+  received it; delivery is reported separately (§6.5). Answering never
+  resumes a paused or stopped Group or re-enables an Actor; the answer waits
+  for delivery until the user does.
+- Deciding whether a request is open requires every stored record of the
+  Group's ledger to read as a complete event. A record that does not (a damaged
+  line or a cut tail) could be the reply or cancellation that closed it, so
+  that Group's requests are reported as unknown and in-place answers are
+  refused until the ledger is repaired. The same holds when a request's id is
+  used by more than one record (§4) or a reply or cancellation is stored
+  before the request it names. Ordinary replies stay available.
+
+### 6.5 `runtime.delivery`
 
 Daemon-authored evidence that one source message was handed to one recipient
 runtime transport.
@@ -320,9 +438,10 @@ data: {
   actor_id: string
   source_event_id: string
   delivery_id: string
-  state: "claimed" | "accepted" | "failed" | "ambiguous"
+  state: "claimed" | "accepted" | "failed" | "ambiguous" | "withdrawn"
   transport: string
   reason?: string | null
+  retryable?: boolean
 }
 ```
 
@@ -331,7 +450,10 @@ data: {
 - `delivery_id` MUST be deterministic for one source event, actor generation,
   and recipient actor. A retry reuses that identity.
 - The daemon MUST append `claimed` before performing external runtime I/O and
-  then append exactly one observable result state for that attempt.
+  then append one initial observable result state for that attempt. A later
+  verified receipt MAY append a reconciliation observation, such as changing an
+  ambiguous handoff to accepted, without performing another submission. This
+  does not authorize automatic retry.
 - A concurrent claimant that observes `claimed` MUST treat the delivery as in
   progress; it MUST NOT reinterpret or retry the active attempt.
 - During daemon startup, a latest `claimed` state left by the previous daemon
@@ -340,13 +462,30 @@ data: {
   headless API, or browser submission boundary). It does not claim that the
   model read, understood, or acted on it.
 - `failed` means the adapter established that handoff did not occur.
+- For `transport="local_session"`, a failed attempt MAY carry `retryable=true`
+  only when the daemon established that it stopped before native submission
+  (for example, a paused worker or a full daemon queue). This work remains
+  pending for normal recovery. A native rejection or a legacy failed receipt
+  without that evidence MUST NOT automatically retry. This flag never permits
+  replay after `accepted`, `ambiguous` or `withdrawn`.
+- Eligible native pending work MUST remain recoverable beyond an in-memory
+  queue or startup query page. The delivery owner MUST continue bounded ledger
+  refill as capacity becomes available, without requiring another message,
+  manual Actor Start or a receive-status refresh for each Group. Refill MUST
+  preserve membership, Actor generation, source binding, pause/stop and terminal
+  receipt boundaries. Status/discovery reads MUST NOT initiate refill or scan
+  native history.
 - `ambiguous` means external side effects may have occurred but cannot be
   proven. Automatic retry MUST NOT follow `accepted` or `ambiguous`.
+- `withdrawn` means the source became obsolete before handoff, and the owner
+  established that no external submission occurred. It is terminal and MUST NOT
+  be automatically retried. A claim without its active projection is not proof
+  of non-submission; uncertain external I/O remains `ambiguous`.
 - A normal `mail` append creates no `runtime.delivery`. An explicit manual
   delivery of that existing message may create one without appending a second
   `chat.message`.
 
-### 6.5 `chat.reaction` (Optional)
+### 6.6 `chat.reaction` (Optional)
 
 ```ts
 data: {
@@ -509,6 +648,18 @@ To relay a message from group A into group B:
 - UIs SHOULD provide “Open source message” (jump-to) affordances.
 - If the source is unavailable due to permissions or retention, clients MUST show a clear “source unavailable” state (not silent failure).
 
+For replies over the local cross-group transport, each copy's `reply_to` MUST
+identify the parent in that copy's Group. The source audit record retains
+`dst_reply_to` for the destination parent, so a partially delivered reply can be
+retried without changing either thread or its destination Group. A conflicting
+retry MUST be rejected before any additional ledger write. Local cross-group
+attachments are copied into the destination Group's own blob store before
+either copy is recorded, so each copy's `path` resolves in its own Group; invalid
+attachments MUST be rejected before recording a reply or settling its
+obligation. The local reply fulfills the addressed
+Actor's existing reply obligation. The `reply` result exposes the caller's local
+event, not the destination copy.
+
 ### 9.2 Optional Send Record
 
 Implementations MAY also append an “outbound send record” in the source group (for auditability) by writing a local `chat.message` with:
@@ -591,6 +742,12 @@ To reduce implementation burden, CCCS v1 MAY be implemented in profiles:
 
 ### 13.2 Management Profile (optional)
 - `group.*`, `actor.*`
+
+CCCC emits `group.foreman_change` after removal of the current foreman, with
+`data.from` naming the removed Actor and `data.to` naming its successor or
+`null` when none remain. `by` retains the removal's principal. This is a
+management notification of the committed membership change, not an independent
+role assignment; consumers derive current roles from the Group's Actor list.
 
 ### 13.3 Context Profile (optional)
 - `context.sync` (implementation-defined ops)
