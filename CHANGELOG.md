@@ -22,6 +22,9 @@ This version targets the CCCC 0.4.47 release revision in `spec/core.json`.
   ChatGPT browser delivery.
 - Five removed Voice Secretary IPC helpers now raise a local migration error
   instead of sending an operation that current daemons reject.
+- The Python package now requires Python 3.10 or newer. Python 3.9 reached its
+  end of life in October 2025, and the Ubuntu 26.04 CI runners no longer provide
+  it. CI now tests Python 3.10 through 3.15.
 
 ## [0.4.41]
 
