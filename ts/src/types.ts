@@ -934,16 +934,10 @@ export interface CapabilityOverviewOptions {
 
 /** Capability search options */
 export interface CapabilitySearchOptions {
-  groupId?: string;
+  groupId: string;
   actorId?: string;
   by?: string;
   query?: string;
-  kind?: 'mcp_toolpack' | 'skill' | '';
-  sourceId?: string;
-  trustTier?: string;
-  qualificationStatus?: 'qualified' | 'unavailable' | 'blocked' | '';
-  includeExternal?: boolean;
-  limit?: number;
 }
 
 /** Capability enable/disable options */
@@ -1180,6 +1174,8 @@ export type AutomationNotifyPriority = 'low' | 'normal' | 'high' | 'urgent';
 export interface AutomationTriggerInterval {
   kind: 'interval';
   every_seconds: number;
+  /** Stop after this many notification firings; must be positive. */
+  max_runs?: number;
 }
 
 /** Automation trigger (cron) */
@@ -1187,6 +1183,8 @@ export interface AutomationTriggerCron {
   kind: 'cron';
   cron: string;
   timezone?: string;
+  /** Stop after this many notification firings; must be positive. */
+  max_runs?: number;
 }
 
 /** Automation trigger (one-time) */
@@ -1285,6 +1283,14 @@ export type AutomationManageAction =
   | AutomationManageDeleteRule
   | AutomationManageReplaceAllRules;
 
+/** Run a saved notification rule once without changing its schedule. */
+export interface GroupAutomationRunNowOptions {
+  groupId: string;
+  ruleId: string;
+  by?: string;
+  expectedVersion?: number;
+}
+
 /** Group automation update options */
 export interface GroupAutomationUpdateOptions {
   groupId: string;
@@ -1340,7 +1346,31 @@ export interface InboxSummaryResult {
 export interface MessageHistoryOptions extends InboxOptions {
   mode?: 'all' | MessageMode;
   query?: string;
+  /** Requires CCCC 0.4.50 or later; older daemons silently ignore this filter. */
+  sender?: string;
   beforeEventId?: string;
+}
+
+/** A team-review lead, not a measure of a member's value. */
+export interface GroupActivityCounts {
+  messages_sent: number;
+  messages_to_user: number;
+  /** Scheduled ledger events, not confirmed delivery or model turns. */
+  scheduled_notices: number;
+  last_message_at: string;
+}
+
+export interface GroupActivityOptions {
+  groupId: string;
+  days?: number;
+  by?: string;
+}
+
+export interface GroupActivityResult {
+  days: number;
+  since: string;
+  user: GroupActivityCounts;
+  members: Array<GroupActivityCounts & { actor_id: string; tasks_open: number }>;
 }
 
 export interface MessageHistoryExactOptions {
@@ -1639,133 +1669,6 @@ export interface WebModelRuntimeRecoverTurnResult {
 export interface CapabilityUseOptions extends CapabilityEnableOptions {
   toolName?: string;
   toolArguments?: Record<string, unknown>;
-}
-
-/** Local CCCC memory operation options. */
-export interface MemorySearchOptions {
-  groupId: string;
-  actorId?: string;
-  query: string;
-  limit?: number;
-  maxResults?: number;
-  vectorWeight?: number;
-  candidateMultiplier?: number;
-  minScore?: number;
-  tags?: string[];
-  target?: 'memory' | 'daily';
-}
-
-export interface MemoryWriteOptions {
-  groupId: string;
-  actorId?: string;
-  target: 'memory' | 'daily';
-  content: string;
-  tags?: string[];
-  sourceRefs?: string[];
-  idempotencyKey?: string;
-  dedupIntent?: 'new' | 'update' | 'supersede' | 'silent';
-  dedupQuery?: string;
-}
-
-export interface MemoryGetOptions {
-  groupId: string;
-  actorId?: string;
-  path?: string;
-  target?: 'memory' | 'daily';
-  date?: string;
-  offset?: number;
-  limit?: number;
-}
-
-export interface MemoryHealthOptions {
-  groupId: string;
-}
-
-export interface MemoryProfileGetOptions {
-  groupId: string;
-  actorId?: string;
-  userId?: string;
-  tags?: string[];
-}
-
-export interface MemoryRemeMessage {
-  role: string;
-  name?: string;
-  content: string;
-}
-
-export interface MemoryRemeLayoutGetOptions {
-  groupId: string;
-}
-
-export interface MemoryRemeIndexSyncOptions {
-  groupId: string;
-  mode?: 'scan' | 'rebuild';
-}
-
-/** Lower-level ReMe options retained for callers that need source controls. */
-export interface MemoryRemeSearchOptions {
-  groupId: string;
-  query: string;
-  maxResults?: number;
-  minScore?: number;
-  sources?: string[];
-  vectorWeight?: number;
-  candidateMultiplier?: number;
-}
-
-export interface MemoryRemeGetOptions {
-  groupId: string;
-  path: string;
-  offset?: number;
-  limit?: number;
-}
-
-export interface MemoryRemeContextCheckOptions {
-  groupId: string;
-  messages: MemoryRemeMessage[];
-  contextWindowTokens?: number;
-  reserveTokens?: number;
-  keepRecentTokens?: number;
-}
-
-export interface MemoryRemeCompactOptions {
-  groupId: string;
-  messagesToSummarize: MemoryRemeMessage[];
-  turnPrefixMessages?: MemoryRemeMessage[];
-  previousSummary?: string;
-  language?: string;
-  returnPrompt?: boolean;
-}
-
-export type MemoryRemeDedupIntent = 'new' | 'update' | 'supersede' | 'silent';
-
-export interface MemoryRemeDailyFlushOptions {
-  groupId: string;
-  messages: MemoryRemeMessage[];
-  date?: string;
-  version?: string;
-  language?: string;
-  returnPrompt?: boolean;
-  signalPack?: Record<string, unknown>;
-  signalPackTokenBudget?: number;
-  dedupIntent?: MemoryRemeDedupIntent;
-  dedupQuery?: string;
-}
-
-export interface MemoryRemeWriteOptions {
-  groupId: string;
-  target: 'memory' | 'daily';
-  content: string;
-  date?: string;
-  mode?: 'append' | 'replace';
-  idempotencyKey?: string;
-  actorId?: string;
-  sourceRefs?: string[];
-  tags?: string[];
-  supersedes?: string[];
-  dedupIntent?: MemoryRemeDedupIntent;
-  dedupQuery?: string;
 }
 
 export type ContextDetail = 'overview' | 'summary' | 'full';

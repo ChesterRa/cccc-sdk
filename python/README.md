@@ -14,7 +14,7 @@ It requires a running CCCC daemon. The SDK does **not** ship a daemon.
 
 This SDK follows daemon contracts rather than strict daemon version strings:
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
-- Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, capability discovery, and first-class local memory.
+- Newer workflow helpers cover `tracked_send`, Context Ops v3 task/agent state operations, and capability discovery.
 
 The current message contract is an intentional atomic cut. Upgrade the SDK and
 daemon together; old attention/ACK fields are not mapped or silently downgraded.
@@ -54,6 +54,10 @@ pip install -e .
 
 ## Usage
 
+`message_history(..., sender=...)` requires CCCC 0.4.50 or later; older daemons
+silently ignore the filter. `group_activity` reports review leads, not a measure
+of member value; scheduled notices are not confirmed deliveries or model turns.
+
 ```bash
 python - <<'PY'
 from cccc_sdk import CCCCClient
@@ -76,6 +80,17 @@ c.coordination_brief_update(group_id="g_xxx", objective="Ship SDK updates", by="
 c.task_move(group_id="g_xxx", task_id="t_xxx", status="done", by="user")
 c.agent_state_update(group_id="g_xxx", actor_id="peer-impl", focus="testing", by="peer-impl")
 ```
+
+Run a saved notification rule once without changing its schedule or run limit:
+
+```python
+c.group_automation_run_now(group_id="g_xxx", rule_id="standup", expected_version=7)
+```
+
+This creates real notifications and may wake members and use model credits.
+The returned Actor IDs identify notices written to the ledger, not confirmed
+deliveries. If the response is lost, the outcome may be unknown; do not
+silently retry.
 
 ## Examples (repo)
 
@@ -195,16 +210,6 @@ preview = c.capability_allowlist_validate(
 # Group Space / Notebook status
 space = c.group_space_status(group_id="g_xxx")
 
-# First-class group-local memory
-health = c.memory_health(group_id="g_xxx")
-hits = c.memory_search(
-    group_id="g_xxx",
-    query="recent decisions",
-    limit=5,
-    min_score=0.2,
-    target="memory",
-)
-
 # Context v3: add a compact shared decision or handoff
 c.context_sync(
     group_id="g_xxx",
@@ -212,11 +217,6 @@ c.context_sync(
     ops=[{"op": "coordination.note.add", "kind": "decision", "summary": "Use the simpler path"}],
 )
 ```
-
-The first-class helpers call `memory_search`, `memory_get`, `memory_write`,
-`memory_profile_get`, and `memory_health`. For raw ReMe result shapes or source
-selection, use the explicit `memory_reme_search` / `memory_reme_get` helpers.
-See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 If you need an op that does not have a dedicated helper yet, use `call()` / `call_raw()`.
 
@@ -257,9 +257,7 @@ Auto-discovered clients re-read `ccccd.addr.json` when connection
 establishment fails before any request bytes are sent. Explicit endpoints are
 never replaced.
 
-This alignment pass also corrects the exact ReMe, global Remote Access,
-group-scoped IM authorization, Voice model installation, group-copy, and chat
-wire fields. `capability_source_delete()` is deliberately source-scoped: the
+`capability_source_delete()` is deliberately source-scoped: the
 current daemon does not implement instance-scoped deletion and callers should
 not assume otherwise.
 
@@ -405,13 +403,15 @@ do not yet have a dedicated helper. Duplex browser/VNC/PTY attach operations
 remain outside this request/response client and require a separate streaming
 transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.
 
-## CCCC 0.4.47
+## CCCC compatibility
 
-All three SDK package versions target 0.4.47. `spec/core.json` pins the
-CCCC 0.4.47 release revision. See the
-[migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
+All three SDK package versions target CCCC 0.4.50. `spec/core.json` pins the
+reviewed core revision. See the
+[0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon
 version limitations. Matching version numbers do not replace capability checks.
+For removed Group memory helpers, see the
+[memory migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_LOCAL_MEMORY_API.md).
 
 Qualified Connect sends require a stable caller-owned retry key:
 

@@ -10,9 +10,10 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     discover_endpoint, ContextDetail, DaemonEndpoint, DaemonRequest, DaemonResponse, Error,
-    InboxSummaryResult, MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, Result,
-    TerminalHistoryOptions, TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions,
-    TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
+    GroupActivityResult, InboxSummaryResult, MessageHistoryMode, MessageHistoryOptions,
+    MessageMode, PingResult, ReplyMessageMode, Result, TerminalHistoryOptions,
+    TerminalHistoryResult, TerminalResizeResult, TerminalSinceOptions, TerminalSinceResult,
+    TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
     WebModelDeliveryPreferencesResult, WebModelRuntimeRecoverTurnResult,
 };
 
@@ -368,22 +369,88 @@ impl CCCCClient {
         before_event_id: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Map<String, Value>> {
+        self.message_history_with_options(
+            group_id,
+            actor_id,
+            by,
+            &MessageHistoryOptions {
+                mode: Some(mode),
+                query: query.map(str::to_owned),
+                sender: None,
+                before_event_id: before_event_id.map(str::to_owned),
+                limit,
+            },
+        )
+    }
+
+    /// Inspect history with optional filters, including the sender.
+    /// CCCC versions before 0.4.50 silently ignore the sender filter.
+    pub fn message_history_with_options(
+        &self,
+        group_id: &str,
+        actor_id: &str,
+        by: &str,
+        options: &MessageHistoryOptions,
+    ) -> Result<Map<String, Value>> {
         let mut args = object([
             ("group_id", json!(group_id)),
             ("actor_id", json!(actor_id)),
             ("by", json!(by)),
-            ("mode", json!(mode.as_str())),
         ]);
-        if let Some(query) = query.filter(|value| !value.is_empty()) {
+        if let Some(mode) = options.mode {
+            args.insert("mode".into(), json!(mode.as_str()));
+        }
+        if let Some(query) = options.query.as_deref().filter(|value| !value.is_empty()) {
             args.insert("query".into(), json!(query));
         }
-        if let Some(before_event_id) = before_event_id.filter(|value| !value.is_empty()) {
+        if let Some(sender) = options.sender.as_deref().filter(|value| !value.is_empty()) {
+            args.insert("sender".into(), json!(sender));
+        }
+        if let Some(before_event_id) = options
+            .before_event_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             args.insert("before_event_id".into(), json!(before_event_id));
         }
-        if let Some(limit) = limit {
+        if let Some(limit) = options.limit {
             args.insert("limit".into(), json!(limit));
         }
         self.call("message_history", args)
+    }
+
+    /// Read team-review leads; message counts include only caller-visible events.
+    pub fn group_activity(
+        &self,
+        group_id: &str,
+        by: &str,
+        days: Option<u32>,
+    ) -> Result<GroupActivityResult> {
+        let mut args = object([("group_id", json!(group_id)), ("by", json!(by))]);
+        if let Some(days) = days {
+            args.insert("days".into(), json!(days));
+        }
+        self.call_typed("group_activity", args)
+    }
+
+    /// Write real notifications now without changing the scheduled rule.
+    /// A lost response may mean they were written; do not silently retry.
+    pub fn group_automation_run_now(
+        &self,
+        group_id: &str,
+        rule_id: &str,
+        by: &str,
+        expected_version: Option<u64>,
+    ) -> Result<Map<String, Value>> {
+        let mut args = object([
+            ("group_id", json!(group_id)),
+            ("rule_id", json!(rule_id)),
+            ("by", json!(by)),
+        ]);
+        if let Some(version) = expected_version {
+            args.insert("expected_version".into(), json!(version));
+        }
+        self.call("group_automation_run_now", args)
     }
 
     /// Read one visible event and its rendered delivery text without consuming
@@ -703,6 +770,7 @@ fn operation_probe_is_safe(operation: &str) -> bool {
         operation,
         "groups"
             | "group_show"
+            | "group_activity"
             | "group_preamble_get"
             | "group_preamble_set"
             | "group_preamble_reset"
@@ -719,11 +787,6 @@ fn operation_probe_is_safe(operation: &str) -> bool {
             | "message_history"
             | "reply_request_cancel"
             | "send_cross_group"
-            | "memory_search"
-            | "memory_get"
-            | "memory_write"
-            | "memory_profile_get"
-            | "memory_health"
             | "actor_new_session"
             | "group_reset"
             | "group_copy_export_file"
@@ -1072,7 +1135,7 @@ mod tests {
         let (endpoint, server) = server_sequence(responses);
         let client = CCCCClient::new(endpoint);
         let result = client
-            .message_history_exact("g_1", "peer", "e_1", "foreman")
+            .message_history_exact("g_1", "peer", "e_1", "peer")
             .unwrap();
         assert_eq!(result["delivery_text"], Value::Null);
         for _ in 0..3 {
@@ -1094,8 +1157,66 @@ mod tests {
         assert_eq!(
             requests[0],
             json!({"v":1,"op":"message_history","args":{
-                "group_id":"g_1","actor_id":"peer","event_id":"e_1","by":"foreman"
+                "group_id":"g_1","actor_id":"peer","event_id":"e_1","by":"peer"
             }})
+        );
+    }
+
+    #[test]
+    fn group_automation_run_now_forwards_the_saved_rule_version() {
+        let (endpoint, server) = server_once("{\"v\":1,\"ok\":true,\"result\":{\"rule_id\":\"standup\",\"run_at\":\"now\",\"notified\":[\"lead\"]}}\n");
+        let result = CCCCClient::new(endpoint)
+            .group_automation_run_now("g_1", "standup", "lead", Some(7))
+            .expect("run");
+        assert_eq!(result["notified"], json!(["lead"]));
+        let request: Value =
+            serde_json::from_str(&server.join().expect("server")).expect("request");
+        assert_eq!(
+            request,
+            json!({"v":1,"op":"group_automation_run_now","args":{
+                "group_id":"g_1","rule_id":"standup","by":"lead","expected_version":7
+            }})
+        );
+    }
+
+    #[test]
+    fn team_review_filters_and_reminders_reach_the_caller() {
+        let responses = vec![
+            "{\"v\":1,\"ok\":true,\"result\":{\"messages\":[],\"has_more\":false}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"days\":14,\"since\":\"2026-11-01T00:00:00Z\",\"user\":{\"messages_sent\":2,\"messages_to_user\":0,\"scheduled_notices\":0,\"last_message_at\":\"\"},\"members\":[{\"actor_id\":\"peer\",\"tasks_open\":1,\"messages_sent\":3,\"messages_to_user\":1,\"scheduled_notices\":2,\"last_message_at\":\"\"}]}}\n",
+            "{\"v\":1,\"ok\":true,\"result\":{\"changes\":[],\"review_reminder\":\"Review the team\"}}\n",
+        ];
+        let (endpoint, server) = server_sequence(responses);
+        let client = CCCCClient::new(endpoint);
+        client
+            .message_history_with_options(
+                "g_1",
+                "foreman",
+                "foreman",
+                &MessageHistoryOptions {
+                    sender: Some("user".into()),
+                    limit: Some(50),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let activity = client.group_activity("g_1", "foreman", None).unwrap();
+        assert_eq!(activity.members[0].counts.scheduled_notices, 2);
+        assert_eq!(activity.members[0].tasks_open, 1);
+        let result = client.context_sync("g_1", "foreman", vec![]).unwrap();
+        assert_eq!(result["review_reminder"], "Review the team");
+        let requests: Vec<Value> = server
+            .join()
+            .unwrap()
+            .iter()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(requests[0]["args"]["sender"], "user");
+        assert_eq!(requests[0]["args"]["limit"], 50);
+        assert!(requests[0]["args"].get("mode").is_none());
+        assert_eq!(
+            requests[1],
+            json!({"v":1,"op":"group_activity","args":{"group_id":"g_1","by":"foreman"}})
         );
     }
 

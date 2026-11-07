@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 公式クライアント SDK
 
-0.4.47 更新：Python・TypeScript・Rust にメッセージの指定取得と Inbox の集計を追加し、Voice と Grok の説明を更新しました。コア契約は CCCC 0.4.47 のリリース版に固定しています。[移行ガイド（英語）](spec/SDK_0447_MIGRATION.md)。
+0.4.50 更新：Python・TypeScript・Rust に自動化通知の手動実行、Group の活動情報、メッセージ送信者の絞り込みを追加しました。本体の Group メモリ操作の廃止に伴い、Python と TypeScript の関連メソッドも削除しました。[メモリの移行ガイド（英語）](spec/SDK_LOCAL_MEMORY_API.md)。
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
@@ -32,7 +32,7 @@ SDK と CCCC Web が同じ `CCCC_HOME` を参照していれば、書き込み�
 - リアルタイム更新が必要な Web/IDE プラグイン（`events_stream`）
 - Working Group を監視して自動応答する bot/service
 - group / actors / shared context / capability ポリシー / Group Space をプログラムから管理する社内ツール
-- `tracked_send`、Context Ops v3 task/agent state、capability discovery、ローカル memory API を使う workflow 連携
+- `tracked_send`、Context Ops v3 task/agent state、capability discovery を使う workflow 連携
 
 言語別の詳細:
 - Python SDK: `python/README.md`
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.47"
+cccc-sdk = "0.4.50"
 ```
 
 Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
@@ -104,7 +104,7 @@ Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検�
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.47** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
+- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.50** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：

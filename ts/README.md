@@ -65,6 +65,9 @@ non-urgent reply; both modes fulfill the original reply request. The visible
 message emitted by `trackedSend(options)` remains Send. Generic ACK operations no longer exist; consume Inbox contents
 with `inboxRead(options)`. Inbox contains only Mail; inspect past direct or Mail
 traffic without changing the Mail cursor through `messageHistory(options)`.
+The optional `sender` filter requires CCCC 0.4.50 or later; older daemons
+silently ignore it. `groupActivity` reports review leads, not member value;
+scheduled notices do not prove delivery or a model turn.
 
 `suggestedUserMessage` is supported by `send(options)` and `reply(options)`.
 
@@ -96,35 +99,7 @@ await client.coordinationBriefUpdate({
 await client.taskMove({ groupId, taskId: 't_xxx', status: 'done' });
 await client.agentStateUpdate({ groupId, actorId: 'peer-impl', focus: 'testing' });
 await client.capabilitySearch({ groupId, query: 'docs' });
-await client.memoryHealth({ groupId });
-const profile = await client.memoryProfileGet({
-  groupId,
-  actorId: 'dingtalk-worker',
-  tags: ['dingtalk-profile', 'reply-style'],
-});
-const hits = await client.memorySearch({
-  groupId,
-  actorId: 'dingtalk-worker',
-  query: 'How should I reply to this message?',
-  limit: 5,
-  minScore: 0.2,
-  target: 'memory',
-});
-await client.memoryWrite({
-  groupId,
-  actorId: 'dingtalk-worker',
-  target: 'daily',
-  content: 'user: ...\nassistant: ...',
-  tags: ['dingtalk-auto-reply'],
-  sourceRefs: ['dingtalk:message:m1'],
-  idempotencyKey: 'dingtalk-reply:m1',
-});
 ```
-
-Local memory helpers use daemon `memory_*` ops and are intended for fast local
-CCCC memory access. They do not depend on Group Space / NotebookLM bindings.
-For raw ReMe result shapes or source selection, use `memoryRemeSearch` and
-`memoryRemeGet`. See `spec/SDK_LOCAL_MEMORY_API.md` in the repository root.
 
 ## Automation semantics
 
@@ -148,6 +123,17 @@ await client.groupAutomationManage({
   ],
 });
 ```
+
+Run a saved notification rule once without changing its schedule or run limit:
+
+```typescript
+await client.groupAutomationRunNow({ groupId, ruleId: 'standup', expectedVersion: 7 });
+```
+
+This creates real notifications and may wake members and use model credits.
+The returned Actor IDs identify notices written to the ledger, not confirmed
+deliveries. If the response is lost, the outcome may be unknown; do not
+silently retry.
 
 ## Actor Profiles (global reusable runtime presets)
 
@@ -250,9 +236,7 @@ Auto-discovered clients re-read `ccccd.addr.json` when connection
 establishment fails before any request bytes are sent. Explicit endpoints are
 never replaced.
 
-This alignment pass also corrects the exact ReMe, global Remote Access,
-group-scoped IM authorization, Voice model installation, group-copy, and chat
-wire fields. `capabilitySourceDelete()` is deliberately source-scoped: the
+`capabilitySourceDelete()` is deliberately source-scoped: the
 current daemon does not implement instance-scoped deletion and callers should
 not assume otherwise.
 
@@ -424,13 +408,15 @@ npm run build
 
 Apache-2.0
 
-## CCCC 0.4.47
+## CCCC compatibility
 
-All three SDK package versions target 0.4.47. `spec/core.json` pins the
-CCCC 0.4.47 release revision. See the
-[migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
+All three SDK package versions target CCCC 0.4.50. `spec/core.json` pins the
+reviewed core revision. See the
+[0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon
 version limitations. Matching version numbers do not replace capability checks.
+For removed Group memory helpers, see the
+[memory migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_LOCAL_MEMORY_API.md).
 
 Qualified Connect sends require a stable caller-owned retry key:
 

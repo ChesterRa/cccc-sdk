@@ -7,6 +7,8 @@ import type {
   MessageHistoryExactOptions,
   MessageHistoryExactResult,
   MessageHistoryOptions,
+  GroupActivityOptions,
+  GroupActivityResult,
   MessageDeliverOptions,
   ReplyOptions,
   ReplyRequestCancelOptions,
@@ -45,6 +47,7 @@ export interface ChatOps {
   inboxRead(options: InboxOptions): Promise<Record<string, unknown>>;
   inboxSummary(options: InboxSummaryOptions): Promise<InboxSummaryResult>;
   messageHistory(options: MessageHistoryOptions): Promise<Record<string, unknown>>;
+  groupActivity(options: GroupActivityOptions): Promise<GroupActivityResult>;
   messageHistoryExact(options: MessageHistoryExactOptions): Promise<MessageHistoryExactResult>;
 }
 
@@ -251,8 +254,15 @@ const chatOps: ChatOps & ThisType<ChatClient & ChatOps> = {
       limit: options.limit ?? 50,
     };
     if (options.query) args['query'] = options.query;
+    if (options.sender) args['sender'] = options.sender;
     if (options.beforeEventId) args['before_event_id'] = options.beforeEventId;
     return this.call('message_history', args);
+  },
+
+  async groupActivity(options) {
+    const args: Record<string, unknown> = { group_id: options.groupId, by: options.by ?? 'user' };
+    if (options.days !== undefined) args['days'] = options.days;
+    return await this.call('group_activity', args) as unknown as GroupActivityResult;
   },
 
   async messageHistoryExact(options) {

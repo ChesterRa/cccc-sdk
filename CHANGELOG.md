@@ -3,6 +3,24 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
+## [0.4.50]
+
+This version targets the CCCC 0.4.50 release revision in `spec/core.json`.
+
+- Remove the Python and TypeScript Group memory and ReMe helpers: CCCC 0.4.50
+  removes those operations. Existing Group memory files remain under
+  `CCCC_HOME/groups/<group_id>/state/memory/`; the daemon no longer searches them.
+  Keep shared team rules in the Group Context constraints when appropriate.
+- Remove capability search filters that the daemon did not apply. Search by
+  `query` remains available.
+- Add Group activity and the optional `message_history` sender filter in all
+  three languages. The filter requires CCCC 0.4.50 or later; older daemons
+  silently ignore it. Context sync results retain the optional review reminder.
+- Add the optional `max_runs` field to TypeScript interval and cron rule types.
+- Add a run-now helper for saved notification rules in all three languages.
+  It can wake recipients and use model credits, and does not change the rule's
+  schedule or run limit. An uncertain result is not retried automatically.
+
 ## [0.4.47]
 
 This version targets the CCCC 0.4.47 release revision in `spec/core.json`.

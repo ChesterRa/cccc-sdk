@@ -125,6 +125,43 @@ impl MessageHistoryMode {
     }
 }
 
+/// Filters for a non-consuming history read.
+#[derive(Clone, Debug, Default)]
+pub struct MessageHistoryOptions {
+    pub mode: Option<MessageHistoryMode>,
+    pub query: Option<String>,
+    /// Requires CCCC 0.4.50 or later; older daemons silently ignore this filter.
+    pub sender: Option<String>,
+    pub before_event_id: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// Team-review leads; counts do not measure a member's value.
+#[derive(Clone, Debug, Deserialize)]
+pub struct GroupActivityCounts {
+    pub messages_sent: u64,
+    pub messages_to_user: u64,
+    /// Scheduled ledger notices, not confirmed delivery or model turns.
+    pub scheduled_notices: u64,
+    pub last_message_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GroupActivityMember {
+    pub actor_id: String,
+    pub tasks_open: u64,
+    #[serde(flatten)]
+    pub counts: GroupActivityCounts,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GroupActivityResult {
+    pub days: u32,
+    pub since: String,
+    pub user: GroupActivityCounts,
+    pub members: Vec<GroupActivityMember>,
+}
+
 impl MessageMode {
     pub const fn as_str(self) -> &'static str {
         match self {

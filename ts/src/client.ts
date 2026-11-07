@@ -35,6 +35,7 @@ import type {
   CapabilityInstallTargetOptions,
   CapabilitySourceDeleteOptions,
   GroupAutomationUpdateOptions,
+  GroupAutomationRunNowOptions,
   GroupAutomationManageOptions,
   GroupAutomationResetBaselineOptions,
   ContextSyncOptions,
@@ -60,11 +61,6 @@ import type {
   ContextGetResult,
   ContextDetail,
   CapabilityUseOptions,
-  MemorySearchOptions,
-  MemoryGetOptions,
-  MemoryWriteOptions,
-  MemoryHealthOptions,
-  MemoryProfileGetOptions,
   TrackedSendOptions,
   TaskListOptions,
   HeadlessStatusOptions,
@@ -260,6 +256,7 @@ export class CCCCClient {
     const safeEmptyProbes = new Set([
       'groups',
       'group_show',
+      'group_activity',
       'group_preamble_get',
       'group_preamble_set',
       'group_preamble_reset',
@@ -276,11 +273,6 @@ export class CCCCClient {
       'message_history',
       'reply_request_cancel',
       'send_cross_group',
-      'memory_search',
-      'memory_get',
-      'memory_write',
-      'memory_profile_get',
-      'memory_health',
       'actor_new_session',
       'group_reset',
       'group_copy_export_file',
@@ -443,6 +435,17 @@ export class CCCCClient {
    */
   async groupAutomationState(groupId: string, by = 'user'): Promise<Record<string, unknown>> {
     return this.call('group_automation_state', { group_id: groupId, by });
+  }
+
+  /** Write real notifications now. A lost response may mean they were written; do not silently retry. */
+  async groupAutomationRunNow(options: GroupAutomationRunNowOptions): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      group_id: options.groupId,
+      rule_id: options.ruleId,
+      by: options.by ?? 'user',
+    };
+    if (options.expectedVersion !== undefined) args['expected_version'] = options.expectedVersion;
+    return this.call('group_automation_run_now', args);
   }
 
   /**
@@ -771,12 +774,6 @@ export class CCCCClient {
     };
     if (options.actorId) args['actor_id'] = options.actorId;
     if (options.query) args['query'] = options.query;
-    if (options.kind !== undefined) args['kind'] = options.kind;
-    if (options.sourceId) args['source_id'] = options.sourceId;
-    if (options.trustTier) args['trust_tier'] = options.trustTier;
-    if (options.qualificationStatus !== undefined) args['qualification_status'] = options.qualificationStatus;
-    if (options.includeExternal !== undefined) args['include_external'] = options.includeExternal;
-    if (options.limit !== undefined) args['limit'] = options.limit;
     return this.call('capability_search', args);
   }
 
@@ -931,62 +928,6 @@ export class CCCCClient {
       by: options.by,
       tool_name: options.toolName,
       arguments: options.toolArguments ?? {},
-    }));
-  }
-
-  async memorySearch(options: MemorySearchOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_search', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      query: options.query,
-      limit: options.limit,
-      max_results: options.maxResults,
-      vector_weight: options.vectorWeight,
-      candidate_multiplier: options.candidateMultiplier,
-      min_score: options.minScore,
-      tags: options.tags,
-      target: options.target,
-    }));
-  }
-
-  async memoryGet(options: MemoryGetOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_get', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      path: options.path,
-      target: options.target,
-      date: options.date,
-      offset: options.offset,
-      limit: options.limit,
-    }));
-  }
-
-  async memoryWrite(options: MemoryWriteOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_write', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      target: options.target,
-      content: options.content,
-      tags: options.tags,
-      source_refs: options.sourceRefs,
-      idempotency_key: options.idempotencyKey,
-      dedup_intent: options.dedupIntent,
-      dedup_query: options.dedupQuery,
-    }));
-  }
-
-  async memoryHealth(options: MemoryHealthOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_health', compactRecord({
-      group_id: options.groupId,
-    }));
-  }
-
-  async memoryProfileGet(options: MemoryProfileGetOptions): Promise<Record<string, unknown>> {
-    return this.call('memory_profile_get', compactRecord({
-      group_id: options.groupId,
-      actor_id: options.actorId,
-      user_id: options.userId,
-      tags: options.tags,
     }));
   }
 

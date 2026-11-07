@@ -262,10 +262,14 @@ class ChatOpsMixin:
         by: str = "user",
         mode: MessageHistoryMode = "all",
         query: str = "",
+        sender: str = "",
         before_event_id: str = "",
         limit: int = 50,
     ) -> Dict[str, Any]:
-        """Inspect actor-visible messages without consuming Mail."""
+        """Inspect actor-visible messages without consuming Mail.
+
+        ``sender`` requires CCCC 0.4.50 or later. Older daemons silently ignore it.
+        """
         args: Dict[str, Any] = {
             "group_id": str(group_id),
             "actor_id": str(actor_id),
@@ -275,9 +279,24 @@ class ChatOpsMixin:
         }
         if query:
             args["query"] = str(query)
+        if sender:
+            args["sender"] = str(sender)
         if before_event_id:
             args["before_event_id"] = str(before_event_id)
         return self.call("message_history", args)
+
+    def group_activity(
+        self, *, group_id: str, days: Optional[int] = None, by: str = "user"
+    ) -> Dict[str, Any]:
+        """Read team-review leads. Counts are not a measure of a member's value.
+
+        Messages are limited to those visible to the caller; scheduled notices
+        count ledger events, not confirmed delivery or model turns.
+        """
+        args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
+        if days is not None:
+            args["days"] = days
+        return self.call("group_activity", args)
 
     def message_history_exact(
         self, *, group_id: str, actor_id: str, event_id: str, by: str = "user"

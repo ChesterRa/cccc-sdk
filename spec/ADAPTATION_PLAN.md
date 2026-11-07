@@ -1,7 +1,7 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.47**, with its release revision recorded in [core.json](core.json).
-Python, TypeScript/npm and Rust packages all use **0.4.47**. Publication is a
+Target: CCCC **0.4.50**, with its release revision recorded in [core.json](core.json).
+Python, TypeScript/npm and Rust packages all use **0.4.50**. Publication is a
 separate explicit action; a source checkout or candidate artifact is not a
 registry release.
 
@@ -14,6 +14,10 @@ SDK-owned notes are not copied over by spec synchronization.
 
 ## Included alignment
 
+- Python, TypeScript and Rust expose manual runs of saved notification rules,
+  Group activity and an optional message sender filter. Older daemons silently
+  ignore the sender filter. Python and TypeScript no longer expose the removed
+  Group memory operations; see [memory migration](SDK_LOCAL_MEMORY_API.md).
 - 0.4.41 adds Voice document library read/update/delete helpers in all three
   languages. Empty root ordering and move destinations are preserved; the daemon
   owns validation, permissions, files, archive/restore and deletion tombstones.

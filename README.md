@@ -1,6 +1,11 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.47 alignment: exact message reads, Inbox summaries and current Voice/Grok guidance across Python, TypeScript and Rust. The core snapshot is pinned to the CCCC 0.4.47 release. [Migration](spec/SDK_0447_MIGRATION.md) · [Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
+0.4.50 alignment adds on-demand runs of saved automation reminders, Group
+activity and message sender filtering across Python, TypeScript and Rust. Python
+and TypeScript Group memory helpers are removed with the corresponding daemon
+operations.
+[Memory migration](spec/SDK_LOCAL_MEMORY_API.md) · [Scope](spec/ADAPTATION_PLAN.md) ·
+[Release procedure](RELEASING.md).
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -35,7 +40,7 @@ Typical use cases:
 - Reactive UI / IDE plugins that need real-time updates (`events_stream`)
 - Bots/services that watch groups and respond automatically
 - Internal tools that create/manage groups, actors, shared context, capability policy, and Group Space programmatically
-- Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, capability discovery, and first-class local memory
+- Workflow integrations that use `tracked_send`, Context Ops v3 task/agent state updates, and capability discovery
 
 For language-specific details:
 - Python SDK: `python/README.md`
@@ -95,7 +100,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.47"
+cccc-sdk = "0.4.50"
 ```
 
 ```rust
@@ -119,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this version targets **0.4.47**. `spec/core.json` records
+  release number; this version targets **0.4.50**. `spec/core.json` records
   the core release revision used for contract validation.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 
@@ -144,8 +149,6 @@ This repo keeps a mirror under `spec/`:
 ```
 
 The sync command intentionally replaces only the four mirrored standards.
-SDK-specific surfaces are documented separately, for example in
-`spec/SDK_LOCAL_MEMORY_API.md`.
 
 ---
 

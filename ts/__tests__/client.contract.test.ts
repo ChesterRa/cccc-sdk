@@ -24,6 +24,32 @@ async function makeClient(calls: CallCapture[]): Promise<CCCCClient> {
 }
 
 describe('client contract parity', () => {
+  it('runs a saved automation rule with the expected version', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    await client.groupAutomationRunNow({ groupId: 'g_1', ruleId: 'standup', by: 'lead', expectedVersion: 7 });
+    assert.deepEqual(calls, [{
+      op: 'group_automation_run_now',
+      args: { group_id: 'g_1', rule_id: 'standup', by: 'lead', expected_version: 7 },
+    }]);
+  });
+
+  it('forwards limits on interval and cron automation rules', async () => {
+    const calls: CallCapture[] = [];
+    const client = await makeClient(calls);
+    const ruleset = {
+      rules: [
+        { id: 'interval', trigger: { kind: 'interval' as const, every_seconds: 600, max_runs: 2 } },
+        { id: 'cron', trigger: { kind: 'cron' as const, cron: '0 9 * * *', max_runs: 3 } },
+      ],
+      snippets: {},
+    };
+
+    await client.groupAutomationUpdate({ groupId: 'g_1', ruleset });
+    assert.equal(calls[0]?.op, 'group_automation_update');
+    assert.deepEqual(calls[0]?.args?.['ruleset'], ruleset);
+  });
+
   it('sendFiles maps paths into one daemon operation', async () => {
     const calls: CallCapture[] = [];
     const client = await makeClient(calls);
@@ -812,9 +838,9 @@ describe('daemon core', () => {
     await client.observabilityGet();
     assert.equal(calls[0]?.op, 'observability_get');
 
-    await client.observabilityUpdate({ patch: { log_level: 'info' } });
+    await client.observabilityUpdate({ patch: { developer_mode: true } });
     assert.equal(calls[1]?.op, 'observability_update');
-    assert.deepEqual(calls[1]?.args?.['patch'], { log_level: 'info' });
+    assert.deepEqual(calls[1]?.args?.['patch'], { developer_mode: true });
 
     await client.brandingGet();
     assert.equal(calls[2]?.op, 'branding_get');

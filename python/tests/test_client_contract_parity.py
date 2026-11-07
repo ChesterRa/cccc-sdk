@@ -198,6 +198,17 @@ class TestClientContractParity(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.group_automation_manage(group_id="g_1", actions=[])
 
+    def test_group_automation_run_now_forwards_version_without_retry(self) -> None:
+        client = self._client()
+        with patch.object(client, "call", return_value={"notified": ["peer"]}) as call:
+            result = client.group_automation_run_now(
+                group_id="g_1", rule_id="standup", by="lead", expected_version=7
+            )
+        self.assertEqual(result["notified"], ["peer"])
+        call.assert_called_once_with("group_automation_run_now", {
+            "group_id": "g_1", "rule_id": "standup", "by": "lead", "expected_version": 7,
+        })
+
     def test_tracked_send_includes_task_metadata(self) -> None:
         captured: list[dict] = []
 
@@ -330,232 +341,28 @@ class TestClientContractParity(unittest.TestCase):
             [{"op": "agent_state.update", "actor_id": "peer-impl", "focus": "coding", "blockers": []}],
         )
 
-    def test_capability_and_memory_helpers_map_to_current_ops(self) -> None:
-        captured: list[dict] = []
-
-        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
-            captured.append(request)
-            return {"ok": True, "result": {}}
-
-        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
-            client = self._client()
-            client.capability_search(
-                query="docs",
-                group_id="g_1",
-                actor_id="foreman",
-                include_external=True,
-                trust_tier="local",
-                limit=5,
-            )
-            client.memory_search(
-                group_id="g_1",
-                actor_id="worker",
-                query="recent decisions",
-                limit=3,
-                max_results=7,
-                vector_weight=0.6,
-                candidate_multiplier=4.0,
-                min_score=0.2,
-                tags=["reply-style"],
-                target="memory",
-            )
-
+    def test_capability_search_and_use_map_to_current_ops(self) -> None:
+        captured, client = self._capture({})
+        client.capability_search(group_id="g_1", actor_id="foreman", query="docs")
+        client.capability_use(
+            group_id="g_1", actor_id="foreman", capability_id="cap.docs",
+            tool_name="docs_search", tool_arguments={"q": "docs"},
+            scope="session", by="foreman",
+        )
         self.assertEqual(captured[0]["op"], "capability_search")
-        self.assertEqual(
-            captured[0]["args"],
-            {
-                "query": "docs",
-                "group_id": "g_1",
-                "actor_id": "foreman",
-                "by": "user",
-                "include_external": True,
-                "trust_tier": "local",
-                "limit": 5,
-            },
-        )
-        self.assertEqual(captured[1]["op"], "memory_search")
-        self.assertEqual(
-            captured[1]["args"],
-            {
-                "group_id": "g_1",
-                "actor_id": "worker",
-                "query": "recent decisions",
-                "limit": 3,
-                "max_results": 7,
-                "vector_weight": 0.6,
-                "candidate_multiplier": 4.0,
-                "min_score": 0.2,
-                "tags": ["reply-style"],
-                "target": "memory",
-            },
-        )
-
-    def test_memory_get_and_capability_use_match_daemon_contract(self) -> None:
-        captured: list[dict] = []
-
-        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
-            captured.append(request)
-            return {"ok": True, "result": {}}
-
-        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
-            client = self._client()
-            client.memory_get(
-                group_id="g_1",
-                actor_id="worker",
-                path="state/memory/MEMORY.md",
-                offset=10,
-                limit=25,
-            )
-            client.capability_use(
-                group_id="g_1",
-                actor_id="foreman",
-                capability_id="cap.docs",
-                tool_name="docs_search",
-                tool_arguments={"q": "memory"},
-                scope="session",
-                by="foreman",
-            )
-
-        self.assertEqual(captured[0]["op"], "memory_get")
-        self.assertEqual(
-            captured[0]["args"],
-            {
-                "group_id": "g_1",
-                "actor_id": "worker",
-                "path": "state/memory/MEMORY.md",
-                "offset": 10,
-                "limit": 25,
-            },
-        )
+        self.assertEqual(captured[0]["args"], {
+            "group_id": "g_1", "actor_id": "foreman", "by": "user", "query": "docs",
+        })
         self.assertEqual(captured[1]["op"], "capability_enable")
-        self.assertEqual(
-            captured[1]["args"],
-            {
-                "capability_id": "cap.docs",
-                "group_id": "g_1",
-                "actor_id": "foreman",
-                "by": "foreman",
-                "scope": "session",
-                "enabled": True,
-                "cleanup": False,
-            },
-        )
+        self.assertEqual(captured[1]["args"], {
+            "capability_id": "cap.docs", "group_id": "g_1", "actor_id": "foreman",
+            "by": "foreman", "scope": "session", "enabled": True, "cleanup": False,
+        })
         self.assertEqual(captured[2]["op"], "capability_tool_call")
-        self.assertEqual(
-            captured[2]["args"],
-            {
-                "group_id": "g_1",
-                "actor_id": "foreman",
-                "by": "foreman",
-                "tool_name": "docs_search",
-                "arguments": {"q": "memory"},
-            },
-        )
-
-    def test_explicit_reme_helpers_preserve_low_level_controls(self) -> None:
-        captured: list[dict] = []
-
-        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
-            captured.append(request)
-            return {"ok": True, "result": {}}
-
-        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
-            client = self._client()
-            client.memory_reme_search(
-                group_id="g_1",
-                query="recent decisions",
-                max_results=3,
-                vector_weight=0.6,
-                candidate_multiplier=4.0,
-                min_score=0.2,
-                sources=["memory"],
-            )
-            client.memory_reme_get(
-                group_id="g_1",
-                path="state/memory/MEMORY.md",
-                offset=10,
-                limit=25,
-            )
-
-        self.assertEqual(captured[0]["op"], "memory_reme_search")
-        self.assertEqual(
-            captured[0]["args"],
-            {
-                "group_id": "g_1",
-                "query": "recent decisions",
-                "max_results": 3,
-                "vector_weight": 0.6,
-                "candidate_multiplier": 4.0,
-                "min_score": 0.2,
-                "sources": ["memory"],
-            },
-        )
-        self.assertEqual(captured[1]["op"], "memory_reme_get")
-        self.assertEqual(
-            captured[1]["args"],
-            {
-                "group_id": "g_1",
-                "path": "state/memory/MEMORY.md",
-                "offset": 10,
-                "limit": 25,
-            },
-        )
-
-    def test_memory_write_health_and_profile_get_match_daemon_contract(self) -> None:
-        captured: list[dict] = []
-
-        def fake_call_daemon(*, endpoint, request, timeout_s):  # type: ignore[no-untyped-def]
-            captured.append(request)
-            return {"ok": True, "result": {}}
-
-        with patch("cccc_sdk.client.call_daemon", side_effect=fake_call_daemon):
-            client = self._client()
-            client.memory_write(
-                group_id="g_1",
-                actor_id="worker",
-                target="daily",
-                content="user: hi\nassistant: hello",
-                tags=["dingtalk-auto-reply"],
-                source_refs=["message:m1"],
-                idempotency_key="reply:m1",
-                dedup_intent="update",
-                dedup_query="message m1",
-            )
-            client.memory_health(group_id="g_1")
-            client.memory_profile_get(
-                group_id="g_1",
-                actor_id="worker",
-                user_id="waterbang",
-                tags=["dingtalk-profile", "reply-style"],
-            )
-
-        self.assertEqual(captured[0]["op"], "memory_write")
-        self.assertEqual(
-            captured[0]["args"],
-            {
-                "group_id": "g_1",
-                "actor_id": "worker",
-                "target": "daily",
-                "content": "user: hi\nassistant: hello",
-                "tags": ["dingtalk-auto-reply"],
-                "source_refs": ["message:m1"],
-                "idempotency_key": "reply:m1",
-                "dedup_intent": "update",
-                "dedup_query": "message m1",
-            },
-        )
-        self.assertEqual(captured[1]["op"], "memory_health")
-        self.assertEqual(captured[1]["args"], {"group_id": "g_1"})
-        self.assertEqual(captured[2]["op"], "memory_profile_get")
-        self.assertEqual(
-            captured[2]["args"],
-            {
-                "group_id": "g_1",
-                "actor_id": "worker",
-                "user_id": "waterbang",
-                "tags": ["dingtalk-profile", "reply-style"],
-            },
-        )
+        self.assertEqual(captured[2]["args"], {
+            "group_id": "g_1", "actor_id": "foreman", "by": "foreman",
+            "tool_name": "docs_search", "arguments": {"q": "docs"},
+        })
 
     def test_capability_use_without_tool_returns_enable_result(self) -> None:
         captured: list[dict] = []
@@ -1276,9 +1083,9 @@ class TestClientContractParity(unittest.TestCase):
         self.assertEqual(captured[0]["op"], "observability_get")
 
         captured.clear()
-        client.observability_update(patch={"log_level": "info"})
+        client.observability_update(patch={"developer_mode": True})
         self.assertEqual(captured[0]["op"], "observability_update")
-        self.assertEqual(captured[0]["args"]["patch"], {"log_level": "info"})
+        self.assertEqual(captured[0]["args"]["patch"], {"developer_mode": True})
 
         captured.clear()
         client.branding_get()

@@ -2,6 +2,10 @@ import type { CCCCClient } from '../src/index.js';
 
 declare const client: CCCCClient;
 
+void client.groupAutomationRunNow({ groupId: 'g_1', ruleId: 'standup', expectedVersion: 7 });
+// @ts-expect-error Running a rule requires its ID.
+void client.groupAutomationRunNow({ groupId: 'g_1' });
+
 void client.assistantVoiceDocumentInstruction({
   groupId: 'g_1',
   documentPath: 'notes/meeting.md',
@@ -45,3 +49,22 @@ void client.messageHistoryExact({ groupId: 'g_1', actorId: 'peer', eventId: 'e_1
   const text: string | null = result.delivery_text;
   void [eventId, text];
 });
+void client.messageHistory({ groupId: 'g_1', actorId: 'foreman', sender: 'user' });
+void client.groupActivity({ groupId: 'g_1', by: 'foreman', days: 14 }).then(result => {
+  const notices: number = result.members[0].scheduled_notices;
+  void notices;
+});
+void client.groupAutomationUpdate({
+  groupId: 'g_1',
+  ruleset: {
+    rules: [
+      { id: 'interval', trigger: { kind: 'interval', every_seconds: 600, max_runs: 2 } },
+      { id: 'cron', trigger: { kind: 'cron', cron: '0 9 * * *', max_runs: 3 } },
+    ],
+    snippets: {},
+  },
+});
+// @ts-expect-error The daemon does not implement this capability search filter.
+void client.capabilitySearch({ groupId: 'g_1', kind: 'skill' });
+// @ts-expect-error The daemon requires a Group for capability search.
+void client.capabilitySearch({ query: 'docs' });

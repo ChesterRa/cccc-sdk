@@ -16,8 +16,9 @@ pub use connect::{ConnectCatalogOptions, ConnectSendOptions};
 pub use endpoint::{discover_endpoint, DaemonEndpoint};
 pub use error::{DaemonError, Error, Result};
 pub use protocol::{
-    ContextDetail, DaemonRequest, DaemonResponse, InboxSummaryActor, InboxSummaryResult,
-    MessageHistoryMode, MessageMode, PingResult, ReplyMessageMode, TerminalHistoryOptions,
+    ContextDetail, DaemonRequest, DaemonResponse, GroupActivityCounts, GroupActivityMember,
+    GroupActivityResult, InboxSummaryActor, InboxSummaryResult, MessageHistoryMode,
+    MessageHistoryOptions, MessageMode, PingResult, ReplyMessageMode, TerminalHistoryOptions,
     TerminalHistoryResult, TerminalResizeResult, TerminalSinceHistory, TerminalSinceOptions,
     TerminalSinceResult, TerminalSnapshotOptions, TerminalSnapshotResult, WebModelDeliveryMode,
     WebModelDeliveryPreference, WebModelDeliveryPreferencesResult, WebModelRecoveredTurn,

@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 官方客户端 SDK
 
-0.4.47 更新：Python、TypeScript、Rust 增加精确消息读取和收件箱摘要，并更新 Voice 与 Grok 的使用说明。核心契约快照已固定到 CCCC 0.4.47 发布版本。[迁移说明（英文）](spec/SDK_0447_MIGRATION.md)。
+0.4.50 更新：Python、TypeScript 和 Rust 增加手动运行自动化提醒、工作组活动统计和消息发送者筛选。随本体移除 Group 记忆操作，Python 和 TypeScript 的相关方法也已移除。[记忆迁移说明（英文）](spec/SDK_LOCAL_MEMORY_API.md)。
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
@@ -32,7 +32,7 @@ CCCC SDK 是一套用于 CCCC 平台的**客户端 SDK**。
 - 需要实时更新的 Web/IDE 插件（`events_stream`）
 - 监听工作组并自动响应的 bot/service
 - 以编程方式创建/管理 group、actors、共享 context、capability 策略与 Group Space 的内部工具
-- 使用 `tracked_send`、Context Ops v3 任务/agent state、capability discovery、本地 memory API 的工作流集成
+- 使用 `tracked_send`、Context Ops v3 任务/agent state 和 capability discovery 的工作流集成
 
 语言细分文档：
 - Python SDK：`python/README.md`
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.47"
+cccc-sdk = "0.4.50"
 ```
 
 Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
@@ -103,7 +103,7 @@ Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.47**。`spec/core.json` 记录用于契约验证的本体发布版本。
+- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.50**。`spec/core.json` 记录用于契约验证的本体发布版本。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

@@ -1,6 +1,6 @@
 {
   "name": "cccc-sdk",
-  "version": "0.4.47",
+  "version": "0.4.50",
   "description": "Client SDK for the CCCC daemon (IPC v1)",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,10 +35,10 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc -w",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.type-tests.json",
     "test": "node --import tsx --test __tests__/*.test.ts",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepack": "npm run clean && npm run build"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

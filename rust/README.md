@@ -4,13 +4,13 @@ Official blocking Rust client for the native CCCC Daemon IPC v1. SDK language
 does not constrain application architecture; Python and TypeScript clients use
 the same daemon contract.
 
-This version targets the CCCC 0.4.47 daemon contract.
+This version targets the CCCC 0.4.50 daemon contract.
 
 ## Install
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.47"
+cccc-sdk = "0.4.50"
 ```
 
 ## Quick start
@@ -62,6 +62,17 @@ let args: Map<String, _> = [("group_id".into(), json!("g_xxx"))]
 let preamble = client.call("group_preamble_get", args)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+`message_history_with_options` supports a sender filter with CCCC 0.4.50 or
+later; older daemons silently ignore it. `group_activity` reports review leads,
+not member value; scheduled notices do not prove delivery or a model turn.
+
+`group_automation_run_now("g_xxx", "standup", "user", Some(7))` runs a saved
+notification rule once without changing its schedule or run limit. It creates
+real notifications and may wake members and use model credits. The returned
+Actor IDs identify notices written to the ledger, not confirmed deliveries;
+an interrupted response can leave the outcome unknown and must not be silently
+retried.
 
 Terminal helpers return typed cursor payloads. `term_resize` uses the standard
 operation name and falls back to the compatibility

@@ -461,7 +461,9 @@ data: {
 - `accepted` means the runtime adapter accepted the payload (queue, PTY,
   headless API, or browser submission boundary). It does not claim that the
   model read, understood, or acted on it.
-- `failed` means the adapter established that handoff did not occur.
+- `failed` means the adapter established that handoff did not occur, or that
+  the runtime ran the turn and it failed after its retries. It does not prove
+  that the model never saw the input.
 - For `transport="local_session"`, a failed attempt MAY carry `retryable=true`
   only when the daemon established that it stopped before native submission
   (for example, a paused worker or a full daemon queue). This work remains
@@ -503,7 +505,7 @@ System notifications are separated from chat to avoid polluting conversations.
 
 ```ts
 data: {
-  kind: "nudge" | "keepalive" | "help_nudge" | "actor_idle" | "silence_check" | "automation" | "status_change" | "error" | "info" | string
+  kind: "nudge" | "automation" | "status_change" | "error" | "info" | string
   priority?: "low" | "normal" | "high" | "urgent"   // default "normal"
   title?: string
   message?: string
@@ -518,6 +520,8 @@ data: {
 - Clients MUST ignore unknown `data.kind` values within `system.notify` (open enum).
 - Implementations MAY enforce an allowlist of `data.kind` values, but should not assume clients understand new kinds.
 - External IM bridges MUST fail closed: a `system.notify` is eligible for IM delivery only when `im_visibility="public"`. Missing, invalid, or `internal` values stay inside CCCC. Actor-targeted notifications remain internal even if a malformed producer also marks them public.
+- Routing: CCCC's own `mail_notice` and `reply_notice` prompts go only to their `target_actor_id` and are not Inbox items. For every other notification, the sender (`by`) never receives its own notification. A non-empty `target_actor_id` addresses exactly that Actor, so a notification that targets its sender reaches no one rather than everyone. Implementations also read a non-empty `data.actor_id` as the target when `target_actor_id` is absent. Without a target, `to` lists Actor IDs or the selectors `@all`, `@peers` and `@foreman`; names and titles are not resolved as they are for `chat.message`. Internal Actors receive a notification only when `to` names them; other Actors receive it when `to` is empty (a broadcast) or selects them.
+- `by` is the producer. A port that acts for a caller MUST NOT copy the caller's identity into `data` (for example, an MCP tool's `actor_id`); producers address recipients only with `target_actor_id` or `to`.
 
 `system.notify` has no generic acknowledgement protocol. Domain workflows use
 their own durable lifecycle events, while reply obligations belong only to

@@ -122,6 +122,7 @@ class CCCCClient(
         safe_empty_probes = {
             "groups",
             "group_show",
+            "group_activity",
             "group_preamble_get",
             "group_preamble_set",
             "group_preamble_reset",
@@ -138,11 +139,6 @@ class CCCCClient(
             "message_history",
             "reply_request_cancel",
             "send_cross_group",
-            "memory_search",
-            "memory_get",
-            "memory_write",
-            "memory_profile_get",
-            "memory_health",
             "actor_new_session",
             "group_reset",
             "group_copy_export_file",
@@ -243,6 +239,23 @@ class CCCCClient(
 
     def group_automation_state(self, *, group_id: str, by: str = "user") -> Dict[str, Any]:
         return self.call("group_automation_state", {"group_id": str(group_id), "by": str(by)})
+
+    def group_automation_run_now(
+        self,
+        *,
+        group_id: str,
+        rule_id: str,
+        by: str = "user",
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Write real notifications now without changing the scheduled rule.
+
+        A lost response may mean the notifications were written; do not silently retry.
+        """
+        args: Dict[str, Any] = {"group_id": str(group_id), "rule_id": str(rule_id), "by": str(by)}
+        if expected_version is not None:
+            args["expected_version"] = int(expected_version)
+        return self.call("group_automation_run_now", args)
 
     def group_automation_update(
         self,
@@ -542,30 +555,12 @@ class CCCCClient(
         actor_id: str = "",
         by: str = "user",
         query: str = "",
-        kind: str = "",
-        source_id: str = "",
-        trust_tier: str = "",
-        qualification_status: str = "",
-        include_external: Optional[bool] = None,
-        limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         args: Dict[str, Any] = {"group_id": str(group_id), "by": str(by)}
         if actor_id:
             args["actor_id"] = str(actor_id)
         if query:
             args["query"] = str(query)
-        if kind:
-            args["kind"] = str(kind)
-        if source_id:
-            args["source_id"] = str(source_id)
-        if trust_tier:
-            args["trust_tier"] = str(trust_tier)
-        if qualification_status:
-            args["qualification_status"] = str(qualification_status)
-        if include_external is not None:
-            args["include_external"] = bool(include_external)
-        if limit is not None:
-            args["limit"] = int(limit)
         return self.call("capability_search", args)
 
     def capability_enable(
@@ -767,117 +762,6 @@ class CCCCClient(
             by=by,
             tool_name=tool_name,
             arguments=tool_arguments or {},
-        )
-
-    def memory_search(
-        self,
-        *,
-        group_id: str,
-        query: str,
-        actor_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        max_results: Optional[int] = None,
-        vector_weight: Optional[float] = None,
-        candidate_multiplier: Optional[float] = None,
-        min_score: Optional[float] = None,
-        tags: Optional[List[str]] = None,
-        target: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return self.call(
-            "memory_search",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "query": str(query),
-                    "limit": int(limit) if limit is not None else None,
-                    "max_results": int(max_results) if max_results is not None else None,
-                    "vector_weight": float(vector_weight) if vector_weight is not None else None,
-                    "candidate_multiplier": float(candidate_multiplier) if candidate_multiplier is not None else None,
-                    "min_score": float(min_score) if min_score is not None else None,
-                    "tags": [str(x) for x in tags] if tags is not None else None,
-                    "target": str(target) if target is not None else None,
-                }
-            ),
-        )
-
-    def memory_get(
-        self,
-        *,
-        group_id: str,
-        path: Optional[str] = None,
-        actor_id: Optional[str] = None,
-        target: Optional[str] = None,
-        date: Optional[str] = None,
-        offset: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        return self.call(
-            "memory_get",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "path": path,
-                    "target": str(target) if target is not None else None,
-                    "date": date,
-                    "offset": int(offset) if offset is not None else None,
-                    "limit": int(limit) if limit is not None else None,
-                }
-            ),
-        )
-
-    def memory_write(
-        self,
-        *,
-        group_id: str,
-        target: str,
-        content: str,
-        actor_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        source_refs: Optional[List[str]] = None,
-        idempotency_key: Optional[str] = None,
-        dedup_intent: Optional[str] = None,
-        dedup_query: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return self.call(
-            "memory_write",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "target": str(target),
-                    "content": str(content),
-                    "tags": [str(x) for x in tags] if tags is not None else None,
-                    "source_refs": [str(x) for x in source_refs] if source_refs is not None else None,
-                    "idempotency_key": idempotency_key,
-                    "dedup_intent": dedup_intent,
-                    "dedup_query": dedup_query,
-                }
-            ),
-        )
-
-    def memory_health(self, *, group_id: str) -> Dict[str, Any]:
-        return self.call("memory_health", {"group_id": str(group_id)})
-
-    def memory_profile_get(
-        self,
-        *,
-        group_id: str,
-        actor_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        return self.call(
-            "memory_profile_get",
-            _compact(
-                {
-                    "group_id": group_id,
-                    "actor_id": actor_id,
-                    "user_id": user_id,
-                    "tags": [str(x) for x in tags] if tags is not None else None,
-                }
-            ),
         )
 
     def context_get(self, *, group_id: str, detail: str = "full") -> Dict[str, Any]:

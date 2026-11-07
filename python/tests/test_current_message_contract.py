@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from cccc_sdk import CCCCClient, IncompatibleDaemonError
+from cccc_sdk import CCCCClient, DaemonAPIError, IncompatibleDaemonError
 from cccc_sdk.transport import DaemonEndpoint
 
 
@@ -15,10 +15,10 @@ class CurrentMessageContract(unittest.TestCase):
         expected = {"messages": [{"id": "e_1"}], "has_more": False, "delivery_text": None}
         with patch.object(self.client, "call", return_value=expected) as call:
             self.assertEqual(self.client.message_history_exact(
-                group_id="g_1", actor_id="peer", event_id="e_1", by="foreman",
+                group_id="g_1", actor_id="peer", event_id="e_1", by="peer",
             ), expected)
             call.assert_called_once_with("message_history", {
-                "group_id": "g_1", "actor_id": "peer", "event_id": "e_1", "by": "foreman",
+                "group_id": "g_1", "actor_id": "peer", "event_id": "e_1", "by": "peer",
             })
         for result in [
             {"messages": [{"id": "e_1"}], "has_more": False},
@@ -45,6 +45,24 @@ class CurrentMessageContract(unittest.TestCase):
         with patch.object(self.client, "call", return_value={}) as call:
             self.client.actor_add(group_id="g_1", actor_id="peer", model_label="Model A")
             self.assertEqual(call.call_args.args[1]["model_label"], "Model A")
+
+    def test_sender_activity_and_review_reminder_are_preserved(self):
+        activity = {"days": 14, "since": "2026-11-01T00:00:00Z", "user": {}, "members": []}
+        with patch.object(self.client, "call", return_value=activity) as call:
+            self.assertEqual(self.client.group_activity(group_id="g_1", by="foreman"), activity)
+            call.assert_called_once_with("group_activity", {"group_id": "g_1", "by": "foreman"})
+        with patch.object(self.client, "call", return_value={}) as call:
+            self.client.message_history(group_id="g_1", actor_id="foreman", sender="user")
+            self.assertEqual(call.call_args.args[1]["sender"], "user")
+            self.client.message_history(group_id="g_1", actor_id="foreman")
+            self.assertNotIn("sender", call.call_args.args[1])
+        reminder = {"changes": [], "review_reminder": "Review the team"}
+        with patch.object(self.client, "call", return_value=reminder):
+            self.assertEqual(self.client.context_sync(group_id="g_1", ops=[], by="foreman"), reminder)
+        denied = DaemonAPIError(code="invalid_args", message="permission denied: lead", details={})
+        with patch.object(self.client, "call", side_effect=denied):
+            with self.assertRaises(DaemonAPIError):
+                self.client.message_history_exact(group_id="g_1", actor_id="peer", event_id="e_1", by="foreman")
 
     def test_removed_voice_operations_fail_before_dispatch(self):
         calls = [
