@@ -95,6 +95,34 @@ export interface CCCSEvent {
 // Strongly-typed event data (B3)
 // ============================================================
 
+/** Valid stored question shape (CCCS §6.4); limits are enforced by the daemon. */
+export interface ReplyQuestionV1 {
+  v: 1;
+  context?: string;
+  prompt: string;
+  options?: {
+    id: 'A' | 'B' | 'C' | 'D';
+    label: string;
+    consequence?: string;
+  }[];
+  recommended?: { option_id: string; reason: string };
+}
+
+/** Original mutually exclusive choice or free-text answer. */
+export type ReplyAnswerV1 =
+  | { v: 1; option_id: string; text?: never; note?: never }
+  | { v: 1; text: string; option_id?: never; note?: never };
+
+/** Selected option plus a nonempty note, preserved exactly as written. */
+export interface ReplyAnswerV2 {
+  v: 2;
+  option_id: string;
+  note: string;
+  text?: never;
+}
+
+export type ReplyAnswer = ReplyAnswerV1 | ReplyAnswerV2;
+
 /** Data payload for `chat.message` events */
 export interface ChatMessageEventData {
   text: string;
@@ -128,6 +156,10 @@ export interface ChatMessageEventData {
   dst_message_mode?: MessageMode | null;
   refs?: unknown[];
   attachments?: unknown[];
+  /** Validate the stored shape and generated text per CCCS §6.4 before showing a choice UI. */
+  question?: ReplyQuestionV1;
+  /** Written only by the daemon's reply_request_answer operation. */
+  answer?: ReplyAnswer;
   thread?: string;
   stream_id?: string | null;
   pending_event_id?: string | null;

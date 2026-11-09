@@ -1,6 +1,6 @@
 {
-  "version": "0.4.50",
-  "revision": "fa04d0bc02f5c64f1e108817e606972fbe9f9972",
+  "version": "0.4.51",
+  "revision": "e81bbfc80e563f4fc2ad27f2b6bf4592e85ea88a",
   "standards": [
     "CCCS_V1.md",
     "CCCC_DAEMON_IPC_V1.md",

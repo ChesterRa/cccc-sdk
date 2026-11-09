@@ -1,7 +1,7 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.50**, with its release revision recorded in [core.json](core.json).
-Python, TypeScript/npm and Rust packages all use **0.4.50**. Publication is a
+Target: CCCC **0.4.51**, with its release revision recorded in [core.json](core.json).
+Python, TypeScript/npm and Rust packages all use **0.4.51**. Publication is a
 separate explicit action; a source checkout or candidate artifact is not a
 registry release.
 
@@ -14,6 +14,11 @@ SDK-owned notes are not copied over by spec synchronization.
 
 ## Included alignment
 
+- 0.4.51 adds TypeScript read types for structured questions and V1/V2 answers;
+  writing an answer uses generic `call` in all three languages, with exact notes
+  and caller-owned retry keys. See [migration examples](SDK_0451_MIGRATION.md).
+  Capability filtering, source URL redaction and DeepSeek settings remain owned
+  by the daemon. SDK messaging retains explicit modes; MCP defaults are separate.
 - Python, TypeScript and Rust expose manual runs of saved notification rules,
   Group activity and an optional message sender filter. Older daemons silently
   ignore the sender filter. Python and TypeScript no longer expose the removed
@@ -79,6 +84,31 @@ SDK-owned notes are not copied over by spec synchronization.
    registry publication or production service acceptance is implied by Linux tests.
 
 Rollback is repository-local; SDK maintenance never rewrites the user's CCCC_HOME.
+
+## Local 0.4.51 acceptance — 2026-11-09
+
+- Core pin: `e81bbfc80e563f4fc2ad27f2b6bf4592e85ea88a`; all four mirrored
+  standards match that release byte for byte. Three package manifests and both
+  lockfiles agree on 0.4.51.
+- Python 3.12: 89 tests, compile and Ruff checks. Node 24.19.0: 129 tests,
+  exported TypeScript type fixtures and package build. Rust 1.88.0 and the
+  1.74.0 minimum: 22 tests each; formatting and all-target Clippy pass.
+- Wheel/sdist, npm tarball and crate built, with license files present. The
+  initial Python build without isolation lacked `setuptools.build_meta`;
+  rebuilding with the declared isolated build requirements succeeded.
+- Fresh wheel/npm consumers and the extracted crate passed against the same
+  isolated local CCCC 0.4.51 package (SHA-256
+  `94ddab1c8126ab4986793ce2afd545b9f8930d12ae2bdc39a35f9a4b30e180cb`).
+  Each language exercised generic V1/V2 answers, exact note/receipt text,
+  same-key retries, a changed-note conflict and refusal after request closure.
+  The installed npm declarations also passed a separate consumer type check.
+- The installed Python package verified skill source privacy in import/dry-run,
+  overview, search and state, including an old catalog record kept unchanged on
+  disk. Historical search snapshots were excluded; explicitly imported records,
+  `sync_state` and the overview's unverified flag remained available.
+- All fixture Groups stayed paused. No providers or user services were started.
+  Hosted CI, Windows/macOS consumers, real providers and registry publication
+  are not covered by these local Linux checks.
 
 ## Local 0.4.41 acceptance — 2026-09-28
 

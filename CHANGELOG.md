@@ -3,6 +3,22 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
+## [0.4.51]
+
+This version targets the CCCC 0.4.51 release revision in `spec/core.json`.
+
+- Export TypeScript types for stored V1 questions, V1 answers and V2 answers
+  with a selected option and a note. Structured answers use the existing
+  generic call in all three languages; see [migration examples](spec/SDK_0451_MIGRATION.md).
+- Document capability search's exclusion of unverified historical SkillsMP
+  snapshots, the overview's `legacy_search_unverified` flag, and skill-source
+  URL privacy. The SDK passes these fields through; filtering and redaction
+  stay in the daemon.
+- Document DeepSeek private connection settings and the distinction between
+  missing and rejected credentials. Runtime configuration remains daemon-owned.
+- Keep SDK message modes explicit. MCP's new conditional defaults and its
+  `path` argument do not replace IPC `message_mode` and `paths`.
+
 ## [0.4.50]
 
 This version targets the CCCC 0.4.50 release revision in `spec/core.json`.
@@ -11,8 +27,10 @@ This version targets the CCCC 0.4.50 release revision in `spec/core.json`.
   removes those operations. Existing Group memory files remain under
   `CCCC_HOME/groups/<group_id>/state/memory/`; the daemon no longer searches them.
   Keep shared team rules in the Group Context constraints when appropriate.
-- Remove capability search filters that the daemon did not apply. Search by
-  `query` remains available.
+- Remove capability search filters that the daemon did not apply: `kind`,
+  `source_id`, `trust_tier`, `qualification_status`, `include_external` and
+  `limit` (camelCase in TypeScript). Search by `query` remains available.
+  TypeScript's `capabilitySearch` now requires `groupId`.
 - Add Group activity and the optional `message_history` sender filter in all
   three languages. The filter requires CCCC 0.4.50 or later; older daemons
   silently ignore it. Context sync results retain the optional review reminder.

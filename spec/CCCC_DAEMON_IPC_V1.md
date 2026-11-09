@@ -788,6 +788,11 @@ Result:
 #### `capability_overview`
 
 Return a global capability library snapshot for Settings/Policy views (no actor scope required).
+`legacy_search_unverified` identifies historical SkillsMP search snapshots whose
+contents have not been verified; their stored `qualification_status` is not evidence
+that their names and contents match. Existing bindings and direct access are unchanged.
+For skill records, an HTTP(S) `source_uri` is projected without userinfo, query or
+fragment, including for records saved before this rule. MCP toolpack sources are unchanged.
 
 Args:
 ```ts
@@ -812,6 +817,7 @@ Result:
     trust_tier?: string
     license?: string
     sync_state?: string
+    legacy_search_unverified: boolean // historical SkillsMP search snapshot, not an explicit import
     policy_level: "indexed" | "mounted" | "enabled" | "pinned"
     policy_visible: boolean
     blocked_global: boolean
@@ -859,8 +865,15 @@ Result:
 Search built-in capabilities and locally stored catalog records. Records removed for
 the requested Group are excluded. Search matches every whitespace-separated query
 term, case-insensitively, against the capability ID, name, description and tags.
-It does not query remote registries; previously stored remote records may still
-appear in results.
+It does not query remote registries. Historical SkillsMP search snapshots are also
+excluded when the stored source is `skillsmp_remote`, their tags contain `remote_search`,
+and `sync_state` is not `imported`. They can have mismatched content; this does
+not assert that every excluded record is wrong. This filter does not delete records,
+change bindings or prevent direct access by ID. MCP actors can still use
+`cccc_capability_use(capability_id=...)` to access a known record, subject to
+normal authorization; that call can enable it for the session. Explicitly imported
+records and other locally stored remote records can still appear in results.
+Skill `source_uri` values use the same redacted projection as `capability_overview`.
 
 Args:
 ```ts
@@ -889,6 +902,7 @@ Result:
     capsule_text: string
     source: string
     source_uri: string
+    sync_state?: string
     qualification_status: string
     enable_supported: boolean
   }>
@@ -1037,6 +1051,7 @@ Result:
 #### `capability_state`
 
 Read effective capability exposure and visible MCP tool names for caller scope.
+Skill `source_uri` values use the same redacted projection as `capability_overview`.
 
 Args:
 ```ts
@@ -1240,6 +1255,9 @@ before the actor restarts, because `cccc_capability_use` enables it when used.
 #### `capability_import`
 
 Import one normalized capability record prepared by the caller (agent-driven parsing), then optionally enable it.
+For skills, HTTP(S) `source_uri` and `source_record_id` values are returned and stored
+without userinfo, query or fragment, including in dry-run results. This does not change
+MCP toolpack installation metadata or rewrite existing catalog records.
 
 Notes:
 
@@ -1273,7 +1291,7 @@ Notes:
     existing records. `already_active` is pre-import state; `active_after_import` is the post-import runnable binding.
 13. If `readiness_preview.preview_status=active` or `active_after_import=true`, agents must not re-enable the same skill
     just to refresh its capsule text. Use `capability_state` to confirm it is active and `capability_search` by ID to
-    read the full registered text; `capsule_preview` is only a compact display summary.
+    read the full registered text of the imported record; `capsule_preview` is only a compact display summary.
 
 Args:
 ```ts
@@ -1488,6 +1506,9 @@ Install and enable either an existing capability id or one or more `SKILL.md` re
 path, a direct HTTP(S) URL, or a GitHub repository. GitHub repositories import a root `SKILL.md`
 and files matching `skills/*/SKILL.md` (up to 64 records). Imported records retain their source,
 qualification, capsule, and installation metadata.
+For a direct URL, the download uses the supplied URL. Saved skill source fields and the returned
+URL target omit userinfo, query and fragment; download errors do not include the URL. Existing
+records are not rewritten automatically.
 
 The native daemon commits catalog, binding, and actor slash-visibility state before appending one
 `capability.changed` event to the target Group ledger for the complete install batch. Semantically
@@ -4087,8 +4108,10 @@ Notes:
 - The `kimi` runtime in default mode targets the current Kimi Code native TUI. Native Actor startup and CLI setup MUST share MCP configuration at `KIMI_CODE_HOME/mcp.json` (defaulting to the user's `.kimi-code/mcp.json`), preserve unrelated servers, and reject malformed documents without overwriting them. A project `.kimi-code/mcp.json` entry for `cccc` takes precedence; a conflicting project entry MUST fail setup without modification, unless it is the user-level configuration file itself. CCCC MUST NOT infer the active client from legacy directories or invoke the removed `kimi mcp add` command. MCP setup MUST NOT write provider trust records. Native input-mode signals do not establish first-use initialization readiness; users must finish startup dialogs before PTY delivery. Kimi's explicit session arguments are preserved, but CCCC does not claim managed session-ID capture or automatic resume for the native TUI mode. Explicit ACP mode uses the separate controlled receipt and session MCP contract above.
 - A `deepseek` actor has no native terminal surface and MUST use CCCC's structured ACP surface. The daemon MUST install and resolve CCCC's pinned ACP composition from `CCCC_HOME/runtimes/deepseek/<release>` and MUST NOT modify the user's `DSH_HOME`, home-level npm project, or attached project.
 - The managed DeepSeek root manifest and lockfile MUST declare exactly `dsh-acp`, `dsh-mcp-client`, `dsh-acp-demo`, and `dsh-llm-deepseek` as direct dependencies. Every installed `@deepseek-ai/dsh*` package MUST remain on the release declared by `crates/cccc-contracts/src/deepseek.rs`; checking only direct package manifests is insufficient.
+- DeepSeek connection settings MUST use the existing Actor/Profile private environment: `DEEPSEEK_API_KEY` for the credential, `DEEPSEEK_BASE_URL` for the API base URL, and `DEEPSEEK_MODEL` for the provider model ID. Each launch MUST resolve its own trimmed model ID, falling back to `DEEPSEEK_DEFAULT_MODEL` for a missing or blank value. The shared managed ACP config MUST read that process-local model rather than writing an Actor's model into the shared file. Private values MUST remain write-only through the Web API; an unchanged blank field MUST NOT overwrite a saved value. Connection changes take effect on the next explicit launch/restart.
+- For a DeepSeek API base URL with a literal loopback host, the managed Node process MUST bypass the system proxy for that host, preserving its other effective `NO_PROXY` exclusions; non-loopback hosts retain the configured proxy behavior. Failed-turn provider diagnostics MUST replace occurrences of the private environment values actually passed to that process, including an inherited `DEEPSEEK_API_KEY`, before they enter the headless journal or delivery ledger. Changes to saved settings MUST NOT change which values are redacted for an already running process.
 - Each DeepSeek actor MUST set `CCCC_DEEPSEEK_SESSION_ROOT` to `groups/<group_id>/state/deepseek/<actor_id>/sessions` under the active `CCCC_HOME`. A provider turn MUST reach a successful terminal response before its source cursor advances. The shared bounded timeout is a silence window: it restarts after each validated ACP `session/update` is recorded and after each `session/request_permission` is answered and recorded, so the turn times out when neither is recorded within that window. Timeout cancellation MUST be durably projected as a failed turn, or the unconfirmed supervisor MUST be stopped. Output and failed-terminal idempotency keys MUST include the provider-attempt identity so a retry cannot be hidden by partial output from an earlier failed attempt; the successful terminal remains idempotent by source event. Crash recovery MUST query that durable per-source completion marker directly (or through its persistent index) and MUST NOT stop recognizing completed turns merely because the append-only headless event log crossed a size or line-count threshold. A permanent credential or context-window failure MUST persist a manual-restart gate before automatic delivery can run again. The gate MUST be bound to both the actor creation identity and the failed provider launch generation, MUST survive daemon restart, and MUST be cleared only after a lifecycle start/restart operation successfully initializes a replacement provider process; daemon restore and message-triggered auto-wake MUST NOT clear it. A late failure from a replaced generation MUST NOT close the replacement actor's gate.
-- The managed `dsh-llm-deepseek` profile MUST set `maxTokens` to the shared `DEEPSEEK_MAX_OUTPUT_TOKENS` contract value (currently 65,536), preserving input/tool headroom instead of inheriting the upstream 256k output reservation. Credential absence and provider context-window overflow are permanent for the current runtime session: both MUST be normalized to stable, secret-free failed-turn errors and MUST stop automatic retries until a lifecycle start/restart successfully initializes the actor again.
+- The managed `dsh-llm-deepseek` profile MUST set `maxTokens` to the shared `DEEPSEEK_MAX_OUTPUT_TOKENS` contract value (currently 65,536), preserving input/tool headroom instead of inheriting the upstream 256k output reservation. Credential absence, recognizable provider authentication rejection (including `Invalid token`, invalid API key, `Authentication Fails`, and a turn failure whose message is `Unauthorized`), and provider context-window overflow are permanent for the current runtime session: they MUST be normalized to stable, secret-free failed-turn errors and MUST stop automatic retries until a lifecycle start/restart successfully initializes the actor again. A rejected credential MUST use `credential_rejected`, distinct from the missing-key `credential_unavailable` error.
 
 #### Voice notification state (trusted local user)
 
@@ -4634,7 +4657,7 @@ Sources whose detected scopes share a `scope_key` but have different physical ro
 
 For a new conversation, the caller source MUST be the first Actor when supplied; otherwise, preserve the explicit source selection order. Duplicate source IDs represent one member. Existing Group role semantics therefore make the caller or first selection foreman. For a new human-created Group, the Web MAY let the user choose Foreman among selected sources; it MUST place that source first in the submitted `source_ids`, preserving the relative order of the remaining selections. The default-directory preview MUST follow that source. One selected source is automatic; joining an existing Group MUST NOT expose this as a role-change control. This does not add an independent role field or change native-initiated caller ordering. Direct reuse compares the canonical source set independently of order and MUST NOT reorder existing Actors or change their roles.
 
-`local_session_send` (Group write with `group_id`, global write otherwise): `{ source_ids?: string[], source_id?: string, group_id?: string, text: string, to?: string[], message_mode?: "send"|"request_reply"|"mail", client_id?: string, insight?: string }`. Without `group_id`, creates/reuses a direct conversation from the selected sources; a non-empty `to` MUST be rejected, and recipients MUST be the enabled Actors for the selected `source_ids`, not additional members of a reused Group. With `group_id`, a non-empty `source_ids` MUST be rejected and sending requires the caller source to be an enabled member; absent `source_id` means human `user`, and absent `to` retains ordinary `@all` semantics. A null or empty `to` or `source_ids` counts as absent, as CCCS does for an empty `to`, so a client that fills unused optional lists with `[]` keeps the addressing mode it chose. Uses ordinary messaging validation, ledger, delivery claims and receipts. Returns the normal send result plus `group_id`. Native MCP MUST supply the current source identity itself, require explicit Group IDs for ordinary Group tools, enforce membership, and apply normal peer-insight rules. Native `cccc_session send` and native-profile `cccc_message_send` default to Send; explicit Mail remains available. MCP `cccc_session send`, `cccc_message_send` and `cccc_message_reply` MUST expose `mode` and translate it to IPC `message_mode` at the MCP boundary. They MUST reject `message_mode` in MCP input, including duplicate or conflicting names, and invalid mode types/values before appending a message or creating a conversation; they MUST NOT silently replace the requested mode with a default. This port default MUST NOT change ordinary managed-Actor/IPC Mail defaults. Native Preamble and tool descriptions MUST agree and include the explicit Group ID for bootstrap and Group tools. Existing Group tools require valid live native lifecycle identity and enabled membership, not current receive readiness; a lost Monitor/queue MUST NOT by itself revoke read/reply/leave access. Explicitly disabled membership and ended native identity remain unauthorized for ordinary Group tools. Native MCP MUST capture `{ group_id, actor_id, actor_generation, source_id, session_revision }` from trusted lifecycle metadata and membership discovery, never tool arguments. The internal `_cccc_native_binding` snapshot MUST accompany Group operations and be revalidated under the daemon operation permit before execution. The current Actor must be enabled and match the captured source and generation; the live lifecycle record must match the captured revision. Local file/tool and bootstrap paths MUST preserve and revalidate the same snapshot. Source or Actor ID reuse MUST NOT transfer an in-flight request to a replacement membership. This metadata MUST NOT be persisted as message content.
+`local_session_send` (Group write with `group_id`, global write otherwise): `{ source_ids?: string[], source_id?: string, group_id?: string, text: string, to?: string[], message_mode?: "send"|"request_reply"|"mail", client_id?: string, insight?: string }`. Without `group_id`, creates/reuses a direct conversation from the selected sources; a non-empty `to` MUST be rejected, and recipients MUST be the enabled Actors for the selected `source_ids`, not additional members of a reused Group. With `group_id`, a non-empty `source_ids` MUST be rejected and sending requires the caller source to be an enabled member; absent `source_id` means human `user`, and absent `to` retains ordinary `@all` semantics. A null or empty `to` or `source_ids` counts as absent, as CCCS does for an empty `to`, so a client that fills unused optional lists with `[]` keeps the addressing mode it chose. Uses ordinary messaging validation, ledger, delivery claims and receipts. Returns the normal send result plus `group_id`. Native MCP MUST supply the current source identity itself, require explicit Group IDs for ordinary Group tools, enforce membership, and apply normal peer-insight rules. Native `cccc_session send`, and native-profile `cccc_message_send` and `cccc_file_send`, default to Send; explicit Mail remains available. MCP `cccc_session send`, `cccc_message_send` and `cccc_message_reply` MUST expose `mode` and translate it to IPC `message_mode` at the MCP boundary. They MUST reject `message_mode` in MCP input, including duplicate or conflicting names, and invalid mode types/values before appending a message or creating a conversation; they MUST NOT silently replace the requested mode with a default. These port defaults MUST NOT change IPC behavior or the ordinary managed-Actor Mail default for agent recipients, described with the MCP file surface. Native Preamble and tool descriptions MUST agree and include the explicit Group ID for bootstrap and Group tools. Existing Group tools require valid live native lifecycle identity and enabled membership, not current receive readiness; a lost Monitor/queue MUST NOT by itself revoke read/reply/leave access. Explicitly disabled membership and ended native identity remain unauthorized for ordinary Group tools. Native MCP MUST capture `{ group_id, actor_id, actor_generation, source_id, session_revision }` from trusted lifecycle metadata and membership discovery, never tool arguments. The internal `_cccc_native_binding` snapshot MUST accompany Group operations and be revalidated under the daemon operation permit before execution. The current Actor must be enabled and match the captured source and generation; the live lifecycle record must match the captured revision. Local file/tool and bootstrap paths MUST preserve and revalidate the same snapshot. Source or Actor ID reuse MUST NOT transfer an in-flight request to a replacement membership. This metadata MUST NOT be persisted as message content.
 
 `local_session_leave` (Group write): `{ source_id, group_id }` stops only that membership's CCCC access.
 
@@ -5271,7 +5294,15 @@ The MCP file surface separates read permission from message delivery:
 MUST reject `action="send"` without writing blobs, messages or delivery work.
 `cccc_file_send(path=..., ...)` sends through the existing `send_files` or
 `connect_send_files` operation and retains its audience, sender, peer-insight,
-path-scope and idempotency rules. Tool annotations describe the complete exposed
+path-scope and idempotency rules. When the caller omits `mode`,
+`cccc_message_send` and `cccc_file_send` use one default: `send` when a
+recipient is the user, who has no Inbox, or when the caller is a native
+session; `mail` otherwise. A `to` list with a member that is not a string is
+rejected before the default is chosen. The shared schema therefore declares no
+fixed `mode` default; the native profile declares `send`. An explicit
+`mode="mail"` for the user is still rejected, and an explicit mode is never
+replaced. `cccc_file_send` parses `mode` as `cccc_message_send` does and
+rejects `paths`, naming `path`, which takes a list. Tool annotations describe the complete exposed
 action set; a mixed read/write tool MUST NOT be labelled read-only.
 
 
@@ -5606,6 +5637,7 @@ Args:
   by?: "user"                  // any other caller is refused (permission_denied)
   client_id: string            // required; at most 200 characters
   answer: { v: 1; option_id: string } | { v: 1; text: string }
+        | { v: 2; option_id: string; note: string }
 }
 ```
 
@@ -5628,7 +5660,7 @@ Under the Group's write permit, in this order:
   answer or the request's closure.
 - A `client_id` already used by the user returns that earlier result when it
   was this answer: a `send` reply to the same request, addressed to the
-  requester alone, with the same answer (free text compared exactly). It does
+  requester alone, with the same answer (free text and notes compared exactly). It does
   so even after the request closed or the requester left. Any other message
   under that `client_id`, such as an ordinary reply to someone else or a Mail,
   fails with `idempotency_conflict`. A lookup that cannot complete fails with

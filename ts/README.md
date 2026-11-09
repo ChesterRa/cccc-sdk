@@ -18,6 +18,10 @@ Compatibility is determined by Daemon IPC v1 contracts and operation probing,
 not by strict package-version matching. The current message contract is an
 intentional atomic cut: upgrade SDK and daemon together.
 
+`ReplyQuestionV1`, `ReplyAnswerV1`, `ReplyAnswerV2` and `ReplyAnswer` describe
+stored message fields. Structured answers use `client.call('reply_request_answer', args)`;
+see the [examples and validation rules](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0451_MIGRATION.md).
+
 ## Quick start
 
 ```typescript
@@ -410,13 +414,16 @@ Apache-2.0
 
 ## CCCC compatibility
 
-All three SDK package versions target CCCC 0.4.50. `spec/core.json` pins the
+All three SDK package versions target CCCC 0.4.51. `spec/core.json` pins the
 reviewed core revision. See the
 [0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon
 version limitations. Matching version numbers do not replace capability checks.
 For removed Group memory helpers, see the
 [memory migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_LOCAL_MEMORY_API.md).
+If you upgrade directly from 0.4.47, `capabilitySearch` also drops the filters
+the daemon ignored and requires `groupId`; see
+[Upgrading directly from 0.4.47](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447).
 
 Qualified Connect sends require a stable caller-owned retry key:
 

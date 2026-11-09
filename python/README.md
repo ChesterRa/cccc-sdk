@@ -23,6 +23,11 @@ daemon together; old attention/ACK fields are not mapped or silently downgraded.
 next message for the human user. The daemon stores it as message metadata and
 never sends it automatically.
 
+Structured question answers, including V2 option-plus-note answers, use
+`call("reply_request_answer", ...)`. Preserve the note and reuse the same
+`client_id` if an outcome is uncertain. See the
+[three-language examples](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0451_MIGRATION.md).
+
 ## Daemon endpoint discovery
 
 The SDK connects to the daemon endpoint described by:
@@ -405,13 +410,16 @@ transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.
 
 ## CCCC compatibility
 
-All three SDK package versions target CCCC 0.4.50. `spec/core.json` pins the
+All three SDK package versions target CCCC 0.4.51. `spec/core.json` pins the
 reviewed core revision. See the
 [0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon
 version limitations. Matching version numbers do not replace capability checks.
 For removed Group memory helpers, see the
 [memory migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_LOCAL_MEMORY_API.md).
+If you upgrade directly from 0.4.47, `capability_search` also no longer accepts
+the filters the daemon ignored; see
+[Upgrading directly from 0.4.47](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447).
 
 Qualified Connect sends require a stable caller-owned retry key:
 

@@ -42,6 +42,40 @@ with tempfile.TemporaryDirectory(prefix='cccc-sdk-project-') as folder:
     else:
         raise AssertionError('unsafe operation falsely verified')
 
+    # Structured answers use generic IPC; the paused Group never starts a provider.
+    def ask():
+        return c.call('send', {
+            'group_id': g, 'by': 'fixture', 'to': ['user'],
+            'message_mode': 'request_reply', 'text': '',
+            'question': {'v': 1, 'prompt': 'Which route?', 'options': [
+                {'label': 'First'}, {'label': 'Second'}]},
+        })['event']['id']
+
+    note = '  中文 and a condition\n'
+    args = {'group_id': g, 'source_event_id': ask(), 'by': 'user',
+            'client_id': 'python-answer-note',
+            'answer': {'v': 2, 'option_id': 'B', 'note': note}}
+    answer = c.call('reply_request_answer', args)
+    assert answer['event']['data']['answer'] == args['answer']
+    assert answer['event']['data']['text'] == 'Selected B: Second\n\nNote: ' + note
+    assert c.call('reply_request_answer', args)['event']['id'] == answer['event']['id']
+    for changed, code in [
+        ({**args, 'answer': {**args['answer'], 'note': 'different'}}, 'idempotency_conflict'),
+        ({**args, 'client_id': 'python-closed'}, 'reply_request_closed'),
+    ]:
+        try:
+            c.call('reply_request_answer', changed)
+        except DaemonAPIError as error:
+            assert error.code == code, error.code
+        else:
+            raise AssertionError('invalid answer retry accepted')
+    for index, value in enumerate([{'v': 1, 'option_id': 'A'}, {'v': 1, 'text': '  Other\n'}]):
+        result = c.call('reply_request_answer', {
+            'group_id': g, 'source_event_id': ask(), 'by': 'user',
+            'client_id': f'python-v1-{index}', 'answer': value,
+        })
+        assert result['event']['data']['answer'] == value
+
     # Metadata changes retain Markdown paths; archive/restore differs from delete.
     document = 'notes/sdk.md'
     c.assistant_voice_document_save(group_id=g, document_path=document, content='# SDK fixture')
@@ -80,4 +114,4 @@ with tempfile.TemporaryDirectory(prefix='cccc-sdk-project-') as folder:
         actor = c.actor_add(group_id=g, actor_id=actor_id, runtime=runtime)['actor']
         assert actor['runtime'] == runtime and actor['runner'] == 'headless'
     assert c.group_show(group_id=g)['group']['state'] == 'paused'
-print('Installed Python artifact: messaging, files, conflicts, safe probes, Voice library lifecycle and Web Model configuration passed')
+print('Installed Python artifact: messaging, V1/V2 answers, files, conflicts, safe probes, Voice library lifecycle and Web Model configuration passed')

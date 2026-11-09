@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 公式クライアント SDK
 
-0.4.50 更新：Python・TypeScript・Rust に自動化通知の手動実行、Group の活動情報、メッセージ送信者の絞り込みを追加しました。本体の Group メモリ操作の廃止に伴い、Python と TypeScript の関連メソッドも削除しました。[メモリの移行ガイド（英語）](spec/SDK_LOCAL_MEMORY_API.md)。
+0.4.51 は補足説明付きの選択回答、利用できる機能の確認、スキルの取得元のプライバシーに対応します。TypeScript は質問と回答の型を公開し、3 言語とも構造化回答には既存の汎用呼び出しを使います。0.4.47 以来最初のリリースで、単独では公開していない 0.4.50 の対応も含みます。Python と TypeScript の Group メモリ関連メソッドを削除し、機能検索の効かなかった絞り込み引数も外しました。[0.4.47 からの更新（英語）](spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447)を参照してください。[0.4.51 移行ガイド（英語）](spec/SDK_0451_MIGRATION.md) · [メモリの移行ガイド（英語）](spec/SDK_LOCAL_MEMORY_API.md)。
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.50"
+cccc-sdk = "0.4.51"
 ```
 
 Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
@@ -104,7 +104,7 @@ Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検�
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.50** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
+- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.51** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：

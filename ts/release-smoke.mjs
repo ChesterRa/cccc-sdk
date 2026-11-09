@@ -47,6 +47,33 @@ try {
   await assert.rejects(client.assertCompatible({ requireOps: ['connect_direct_configure'] }),
     IncompatibleDaemonError);
 
+  const ask = async () => (await client.call('send', {
+    group_id: groupId, by: 'fixture', to: ['user'], message_mode: 'request_reply', text: '',
+    question: { v: 1, prompt: 'Which route?', options: [{ label: 'First' }, { label: 'Second' }] },
+  })).event.id;
+  const note = '  中文 and a condition\n';
+  const args = {
+    group_id: groupId, source_event_id: await ask(), by: 'user', client_id: 'npm-answer-note',
+    answer: { v: 2, option_id: 'B', note },
+  };
+  const answer = await client.call('reply_request_answer', args);
+  assert.deepEqual(answer.event.data.answer, args.answer);
+  assert.equal(answer.event.data.text, `Selected B: Second\n\nNote: ${note}`);
+  assert.equal((await client.call('reply_request_answer', args)).event.id, answer.event.id);
+  await assert.rejects(client.call('reply_request_answer', {
+    ...args, answer: { ...args.answer, note: 'different' },
+  }), error => error.code === 'idempotency_conflict');
+  await assert.rejects(client.call('reply_request_answer', {
+    ...args, client_id: 'npm-closed',
+  }), error => error.code === 'reply_request_closed');
+  for (const [index, value] of [{ v: 1, option_id: 'A' }, { v: 1, text: '  Other\n' }].entries()) {
+    const result = await client.call('reply_request_answer', {
+      group_id: groupId, source_event_id: await ask(), by: 'user',
+      client_id: `npm-v1-${index}`, answer: value,
+    });
+    assert.deepEqual(result.event.data.answer, value);
+  }
+
   // Reading an existing event proves the real NDJSON stream without a send race.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -98,7 +125,7 @@ try {
     assert.equal(actor.runner, 'headless');
   }
   assert.equal((await client.groupShow(groupId)).group.state, 'paused');
-  console.log('Installed npm artifact: messaging, conflicts, safe probes, stream, Voice library lifecycle and Web Model configuration passed');
+  console.log('Installed npm artifact: messaging, V1/V2 answers, conflicts, safe probes, stream, Voice library lifecycle and Web Model configuration passed');
 } finally {
   await fs.rm(project, { recursive: true, force: true });
 }

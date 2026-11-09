@@ -1,9 +1,13 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.50 alignment adds on-demand runs of saved automation reminders, Group
-activity and message sender filtering across Python, TypeScript and Rust. Python
-and TypeScript Group memory helpers are removed with the corresponding daemon
-operations.
+0.4.51 aligns structured replies with optional notes, capability discovery and
+skill-source privacy. TypeScript exports question and answer types; all three
+languages use the existing generic call for structured answers. It is the first
+release since 0.4.47 and also carries the unpublished 0.4.50 alignment, which
+removes the Python and TypeScript Group memory helpers and unused capability
+search filters; see
+[Upgrading from 0.4.47](spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447).
+[0.4.51 migration](spec/SDK_0451_MIGRATION.md) ·
 [Memory migration](spec/SDK_LOCAL_MEMORY_API.md) · [Scope](spec/ADAPTATION_PLAN.md) ·
 [Release procedure](RELEASING.md).
 
@@ -100,7 +104,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.50"
+cccc-sdk = "0.4.51"
 ```
 
 ```rust
@@ -124,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this version targets **0.4.50**. `spec/core.json` records
+  release number; this version targets **0.4.51**. `spec/core.json` records
   the core release revision used for contract validation.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 

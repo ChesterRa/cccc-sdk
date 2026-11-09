@@ -37,6 +37,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .awaiting_count,
         1
     );
+    let ask = || -> Result<String, Box<dyn std::error::Error>> {
+        let result = call(
+            "send",
+            json!({"group_id":group_id,"by":"fixture","to":["user"],
+                "message_mode":"request_reply","text":"",
+                "question":{"v":1,"prompt":"Which route?",
+                    "options":[{"label":"First"},{"label":"Second"}]}}),
+        )?;
+        Ok(result["event"]["id"].as_str().expect("request id").into())
+    };
+    let note = "  中文 and a condition\n";
+    let args = json!({"group_id":group_id,"source_event_id":ask()?,"by":"user",
+        "client_id":"rust-answer-note","answer":{"v":2,"option_id":"B","note":note}});
+    let answer = call("reply_request_answer", args.clone())?;
+    assert_eq!(answer["event"]["data"]["answer"], args["answer"]);
+    assert_eq!(
+        answer["event"]["data"]["text"],
+        format!("Selected B: Second\n\nNote: {note}")
+    );
+    assert_eq!(
+        call("reply_request_answer", args.clone())?["event"]["id"],
+        answer["event"]["id"]
+    );
+    for (changed, code) in [
+        {
+            let mut changed = args.clone();
+            changed["answer"]["note"] = json!("different");
+            (changed, "idempotency_conflict")
+        },
+        {
+            let mut changed = args.clone();
+            changed["client_id"] = json!("rust-closed");
+            (changed, "reply_request_closed")
+        },
+    ] {
+        match call("reply_request_answer", changed) {
+            Err(cccc_sdk::Error::Daemon(error)) => assert_eq!(error.code, code),
+            other => panic!("expected {code}, got {other:?}"),
+        }
+    }
+    for (index, value) in [
+        json!({"v":1,"option_id":"A"}),
+        json!({"v":1,"text":"  Other\n"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let result = call(
+            "reply_request_answer",
+            json!({"group_id":group_id,"source_event_id":ask()?,"by":"user",
+                "client_id":format!("rust-v1-{index}"),"answer":value}),
+        )?;
+        assert_eq!(result["event"]["data"]["answer"], value);
+    }
     let path = "notes/sdk.md";
     call(
         "assistant_voice_document_save",
@@ -147,6 +201,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let group: Map<String, Value> = client.group_show(group_id)?;
     assert_eq!(group["group"]["state"], "paused");
-    println!("Installed Rust artifact: Voice library lifecycle and Web Model configuration passed");
+    println!("Installed Rust artifact: V1/V2 answers, Voice library lifecycle and Web Model configuration passed");
     Ok(())
 }
