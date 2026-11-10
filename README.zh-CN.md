@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 官方客户端 SDK
 
-0.4.51 对齐带补充说明的选择题答复、能力发现和技能来源隐私。TypeScript 导出问题和答复类型；三种语言继续用通用调用提交结构化答复。这是 0.4.47 之后的第一个发布版，也包含没有单独发布的 0.4.50 对齐：Python 和 TypeScript 删除了 Group 记忆相关方法，能力搜索去掉了不生效的过滤参数，见[从 0.4.47 升级（英文）](spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447)。[0.4.51 迁移说明（英文）](spec/SDK_0451_MIGRATION.md) · [记忆迁移说明（英文）](spec/SDK_LOCAL_MEMORY_API.md)。
+0.4.54 为“保存的对话未恢复”补上 TypeScript 读取字段，并同步当前 daemon 契约。Python、TypeScript 和 Rust 保留成员结果中的开放字段；会话选择规则没有变。从 CCCC 0.4.53 起，通用消息写入调用须使用操作接受的参数。[0.4.54 迁移说明（英文）](spec/SDK_0454_MIGRATION.md) · [此前的迁移说明（英文）](spec/SDK_0451_MIGRATION.md) · [适配范围（英文）](spec/ADAPTATION_PLAN.md)。
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.51"
+cccc-sdk = "0.4.54"
 ```
 
 Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
@@ -103,7 +103,7 @@ Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.51**。`spec/core.json` 记录用于契约验证的本体发布版本。
+- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.54**。`spec/core.json` 记录用于契约验证的本体发布版本。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

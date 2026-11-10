@@ -4,17 +4,21 @@ Official blocking Rust client for the native CCCC Daemon IPC v1. SDK language
 does not constrain application architecture; Python and TypeScript clients use
 the same daemon contract.
 
-This version targets the CCCC 0.4.51 daemon contract.
+This version targets the CCCC 0.4.54 daemon contract.
 
 Structured answers use `client.call("reply_request_answer", args)` with JSON
 values, including V2 option-plus-note answers. See the
 [three-language examples](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0451_MIGRATION.md).
 
+CCCC 0.4.54 reports when a saved conversation was not resumed through two
+optional Actor fields. Message writes reject unknown arguments from CCCC
+0.4.53 onward. See the [0.4.54 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0454_MIGRATION.md).
+
 ## Install
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.51"
+cccc-sdk = "0.4.54"
 ```
 
 ## Quick start

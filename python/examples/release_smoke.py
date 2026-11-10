@@ -17,6 +17,18 @@ with tempfile.TemporaryDirectory(prefix='cccc-sdk-project-') as folder:
     actor = c.actor_add(group_id=g, actor_id='fixture', runtime='custom',
                         command=[sys.executable, '-c', 'pass'], model_label='SDK fixture model')['actor']
     assert actor['model_label'] == 'SDK fixture model'
+    listed = next(row for row in c.actor_list(g)['actors'] if row['id'] == 'fixture')
+    assert listed['runtime_session_replaced_at'] is None
+    assert listed['runtime_session_replaced_reasons'] is None
+    try:
+        c.call('send', {'group_id': g, 'by': 'user', 'to': ['fixture'],
+                        'message_mode': 'mail', 'text': 'must not be sent',
+                        'scope_key': 'unsupported-sdk-argument'})
+    except DaemonAPIError as error:
+        assert error.code == 'unknown_arguments'
+        assert error.details == {'unknown': ['scope_key'], 'new_side_effects': False}
+    else:
+        raise AssertionError('unknown message argument accepted')
     event = c.send(group_id=g, text='release mail', message_mode='mail', to=['fixture'])['event']
     c.assert_compatible(require_ops=['inbox_summary'])
     summary = c.inbox_summary(group_id=g, cutoff='2020-01-01T00:00:00Z')

@@ -19,6 +19,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({"group_id":group_id,"actor_id":"fixture","runtime":"custom",
                "command":[std::env::current_exe()?.to_string_lossy()]}),
     )?;
+    let listed = call("actor_list", json!({"group_id":group_id}))?;
+    let fixture = listed["actors"]
+        .as_array()
+        .expect("actor list")
+        .iter()
+        .find(|row| row["id"] == "fixture")
+        .expect("fixture actor");
+    assert_eq!(
+        fixture.get("runtime_session_replaced_at"),
+        Some(&Value::Null)
+    );
+    assert_eq!(
+        fixture.get("runtime_session_replaced_reasons"),
+        Some(&Value::Null)
+    );
+    match call(
+        "send",
+        json!({"group_id":group_id,"by":"user","to":["fixture"],
+            "message_mode":"mail","text":"must not be sent",
+            "scope_key":"unsupported-sdk-argument"}),
+    ) {
+        Err(cccc_sdk::Error::Daemon(error)) => {
+            assert_eq!(error.code, "unknown_arguments");
+            assert_eq!(
+                error.details,
+                json!({"unknown":["scope_key"],"new_side_effects":false})
+            );
+        }
+        other => panic!("expected unknown_arguments, got {other:?}"),
+    }
     let event = call(
         "send",
         json!({"group_id":group_id,"text":"release mail","message_mode":"mail",

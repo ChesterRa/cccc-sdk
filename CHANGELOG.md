@@ -3,6 +3,22 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
+## [0.4.54]
+
+This version targets the CCCC 0.4.54 revision in `spec/core.json`.
+
+- Add optional nullable `runtime_session_replaced_at` and
+  `runtime_session_replaced_reasons` fields to TypeScript's exported `ActorInfo`.
+  Reasons remain an open string array. Generic result handling and the
+  `actorList` method's return type are unchanged.
+- Mirror the current daemon IPC contract, including saved-conversation
+  replacement records, 0.4.52 memory diagnostics and 0.4.53 message-write
+  validation and provenance boundaries. Context reads now omit working-state
+  entries for removed members. The SDK adds no recovery helper or automatic
+  retry and does not change conversation selection.
+- Document `unknown_arguments` for generic message writes and the existing
+  `client_id` replay rules. See the [migration guide](spec/SDK_0454_MIGRATION.md).
+
 ## [0.4.51]
 
 This version targets the CCCC 0.4.51 release revision in `spec/core.json`.

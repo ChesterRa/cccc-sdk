@@ -31,6 +31,17 @@ try {
     modelLabel: 'SDK fixture model',
   });
   assert.equal(fixture.model_label, 'SDK fixture model');
+  const listed = (await client.actorList(groupId)).actors.find(row => row.id === 'fixture');
+  assert.equal(listed.runtime_session_replaced_at, null);
+  assert.equal(listed.runtime_session_replaced_reasons, null);
+  await assert.rejects(client.call('send', {
+    group_id: groupId, by: 'user', to: ['fixture'], message_mode: 'mail',
+    text: 'must not be sent', scope_key: 'unsupported-sdk-argument',
+  }), error => {
+    assert.equal(error.code, 'unknown_arguments');
+    assert.deepEqual(error.details, { unknown: ['scope_key'], new_side_effects: false });
+    return true;
+  });
   const { event } = await client.send({ groupId, text: 'release mail', mode: 'mail', to: ['fixture'] });
   const summary = await client.inboxSummary({ groupId, cutoff: '2020-01-01T00:00:00Z' });
   assert.equal(summary.actors.find(row => row.actor_id === 'fixture').awaiting_count, 1);

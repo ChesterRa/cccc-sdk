@@ -2,6 +2,10 @@
 
 TypeScript/Node.js client for the CCCC daemon (IPC v1).
 
+CCCC 0.4.54 reports when a saved conversation was not resumed through two
+optional Actor fields. Message writes reject unknown arguments from CCCC
+0.4.53 onward. See the [0.4.54 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0454_MIGRATION.md).
+
 ## Relationship to CCCC core
 
 - CCCC core repository: https://github.com/ChesterRa/cccc
@@ -414,7 +418,7 @@ Apache-2.0
 
 ## CCCC compatibility
 
-All three SDK package versions target CCCC 0.4.51. `spec/core.json` pins the
+All three SDK package versions target CCCC 0.4.54. `spec/core.json` pins the
 reviewed core revision. See the
 [0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon

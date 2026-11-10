@@ -1,15 +1,12 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.51 aligns structured replies with optional notes, capability discovery and
-skill-source privacy. TypeScript exports question and answer types; all three
-languages use the existing generic call for structured answers. It is the first
-release since 0.4.47 and also carries the unpublished 0.4.50 alignment, which
-removes the Python and TypeScript Group memory helpers and unused capability
-search filters; see
-[Upgrading from 0.4.47](spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447).
-[0.4.51 migration](spec/SDK_0451_MIGRATION.md) ·
-[Memory migration](spec/SDK_LOCAL_MEMORY_API.md) · [Scope](spec/ADAPTATION_PLAN.md) ·
-[Release procedure](RELEASING.md).
+0.4.54 adds TypeScript fields for a saved conversation that was not resumed
+and mirrors the daemon's current contracts. Python, TypeScript and Rust keep
+the daemon's open Actor result fields; conversation selection is unchanged.
+Generic message writes must use accepted arguments from CCCC 0.4.53 onward.
+[0.4.54 migration](spec/SDK_0454_MIGRATION.md) ·
+[Earlier migrations](spec/SDK_0451_MIGRATION.md) ·
+[Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
 
 **English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -104,7 +101,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.51"
+cccc-sdk = "0.4.54"
 ```
 
 ```rust
@@ -128,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this version targets **0.4.51**. `spec/core.json` records
+  release number; this version targets **0.4.54**. `spec/core.json` records
   the core release revision used for contract validation.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 

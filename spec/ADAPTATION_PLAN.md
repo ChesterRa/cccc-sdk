@@ -1,7 +1,7 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.51**, with its release revision recorded in [core.json](core.json).
-Python, TypeScript/npm and Rust packages all use **0.4.51**. Publication is a
+Target: CCCC **0.4.54**, with its release revision recorded in [core.json](core.json).
+Python, TypeScript/npm and Rust packages all use **0.4.54**. Publication is a
 separate explicit action; a source checkout or candidate artifact is not a
 registry release.
 
@@ -14,6 +14,11 @@ SDK-owned notes are not copied over by spec synchronization.
 
 ## Included alignment
 
+- 0.4.54 adds optional nullable TypeScript Actor fields for a saved conversation
+  that was not resumed. Reason strings remain open; all three clients preserve
+  the daemon's fields. It does not change conversation selection or add resume
+  helpers. The mirrors also include 0.4.52 diagnostics and 0.4.53 message-write
+  argument/provenance checks. See [migration guidance](SDK_0454_MIGRATION.md).
 - 0.4.51 adds TypeScript read types for structured questions and V1/V2 answers;
   writing an answer uses generic `call` in all three languages, with exact notes
   and caller-owned retry keys. See [migration examples](SDK_0451_MIGRATION.md).
@@ -84,6 +89,31 @@ SDK-owned notes are not copied over by spec synchronization.
    registry publication or production service acceptance is implied by Linux tests.
 
 Rollback is repository-local; SDK maintenance never rewrites the user's CCCC_HOME.
+
+## Local 0.4.54 acceptance — 2026-11-11
+
+- Core pin: `66e26c85ce0871ee5241e4ce01793f0b4a0f0f8c`; the four mirrored
+  standards match that revision byte for byte. Python, npm and Rust manifests
+  and lockfiles agree with `spec/core.json` on 0.4.54.
+- Python 3.12: 89 tests, compile and Ruff checks. Node 24.19.0: 129 tests,
+  exported TypeScript type fixtures and package build. Rust 1.88.0 and the
+  1.74.0 minimum: 22 tests each; formatting and all-target Clippy pass.
+- Built and inspected the wheel/sdist, npm tarball and Rust crate, including
+  their metadata and licenses. Installed the wheel and npm tarball in clean
+  consumers, checked the installed TypeScript declarations, and built the
+  Rust example against the extracted crate with its own target.
+- All three installed-artifact smoke programs passed against the same
+  SHA-checked CCCC 0.4.54 Linux package, in separate temporary homes with
+  paused fixture Groups and no real provider. Each checks the two nullable
+  Actor fields and the exact `unknown_arguments` details without adding Mail;
+  existing messaging, structured-answer and configuration assertions also pass.
+- Tested core binary SHA-256:
+  `f617efcae0617c5ac4e1fedfa24c4680e450ad78cf01d5f0a3181c992b70fff6`.
+  It came from `cccc-v0.4.54+66e26c85-x86_64-unknown-linux-gnu.tar.gz`, archive
+  SHA-256 `b93ab4b50c10e992cb97be4f59214e64c9974032c960efc86975596d46d34015`.
+- Final mirror, coordinated-version and diff checks pass. This is local Linux
+  acceptance of candidate artifacts, not hosted CI, real-provider recovery,
+  Windows/macOS or registry publication.
 
 ## Local 0.4.51 acceptance — 2026-11-09
 

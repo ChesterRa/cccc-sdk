@@ -1578,6 +1578,10 @@ export interface ActorInfo {
   runtime?: string;
   submit?: string;
   unread_count?: number;
+  /** When CCCC recorded that a saved conversation was not resumed; not provider creation time. */
+  runtime_session_replaced_at?: string | null;
+  /** Open reason list; unknown values must not prevent reading the Actor. */
+  runtime_session_replaced_reasons?: string[] | null;
   updated_at?: string;
   created_at?: string;
 }
