@@ -5,6 +5,10 @@ The Python, TypeScript and Rust packages target the CCCC revision in
 alignment adds TypeScript read fields and mirrors the contracts introduced
 since 0.4.51; it does not change conversation selection or add resume helpers.
 
+The 0.4.50 and 0.4.51 SDK packages were not published. When upgrading from
+0.4.47, first review [Upgrading directly from 0.4.47](SDK_0451_MIGRATION.md#upgrading-directly-from-0447)
+for the removed helpers and arguments also covered by this version.
+
 ## Reading that a saved conversation was not resumed
 
 The `actor_list` result can include these fields on each Actor:

@@ -6,11 +6,11 @@ not a new transport protocol.
 
 ## Upgrading directly from 0.4.47
 
-0.4.50 was not published, so 0.4.51 is the first release after 0.4.47 and
-includes both alignments. Callers using the removed Python or TypeScript
-helpers or arguments below must update those calls. Existing Rust typed helper
-signatures are unchanged; generic calls to the retired daemon memory operations
-must be migrated in any language.
+The 0.4.50 and 0.4.51 alignments were not published as SDK packages.
+SDK 0.4.54 includes both. When upgrading from 0.4.47, update calls to the
+removed Python or TypeScript helpers and arguments listed below. Existing Rust
+typed helper signatures are unchanged; generic calls to the retired daemon
+memory operations must be migrated in any language.
 
 - The Group memory and ReMe helpers are removed, because CCCC 0.4.50 removed
   those operations. See the [memory migration guide](SDK_LOCAL_MEMORY_API.md).

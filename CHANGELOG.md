@@ -7,6 +7,10 @@ Equal versions do not imply identical helper coverage; all three use IPC v1.
 
 This version targets the CCCC 0.4.54 revision in `spec/core.json`.
 
+The 0.4.50 and 0.4.51 alignments were not published as SDK packages.
+Upgrading from 0.4.47 also requires the [earlier migration steps](spec/SDK_0451_MIGRATION.md#upgrading-directly-from-0447)
+for removed helpers and arguments.
+
 - Add optional nullable `runtime_session_replaced_at` and
   `runtime_session_replaced_reasons` fields to TypeScript's exported `ActorInfo`.
   Reasons remain an open string array. Generic result handling and the
