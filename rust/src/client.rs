@@ -782,6 +782,15 @@ fn operation_probe_is_safe(operation: &str) -> bool {
             | "inbox_read"
             | "inbox_summary"
             | "context_get"
+            | "backlog_get"
+            | "backlog_use"
+            | "backlog_create"
+            | "backlog_exclude"
+            | "backlog_add"
+            | "backlog_edit"
+            | "backlog_move"
+            | "backlog_close"
+            | "backlog_promote"
             | "context_sync"
             | "message_deliver"
             | "message_history"
@@ -1388,6 +1397,42 @@ mod tests {
             })
             .collect();
         assert_eq!(operations, vec!["ping", "term_resize", "terminal_resize"]);
+    }
+
+    #[test]
+    fn compatibility_checks_backlog_with_empty_arguments() {
+        let operations = vec![
+            "backlog_get",
+            "backlog_use",
+            "backlog_create",
+            "backlog_exclude",
+            "backlog_add",
+            "backlog_edit",
+            "backlog_move",
+            "backlog_close",
+            "backlog_promote",
+        ];
+        let mut responses = vec!["{\"v\":1,\"ok\":true,\"result\":{\"version\":\"test\",\"implementation\":\"rust\",\"ipc_v\":1,\"capabilities\":{}}}\n"];
+        responses.extend(vec!["{\"v\":1,\"ok\":false,\"error\":{\"code\":\"invalid_args\",\"message\":\"group_id required\",\"details\":{}}}\n"; operations.len()]);
+        let (endpoint, server) = server_sequence(responses);
+        let requirements = CompatibilityRequirements {
+            operations: operations.clone(),
+            ..Default::default()
+        };
+        CCCCClient::new(endpoint)
+            .assert_compatible(&requirements)
+            .expect("recognized backlog operations");
+        let requests = server.join().expect("server");
+        let actual: Vec<Value> = requests
+            .into_iter()
+            .skip(1)
+            .map(|request| serde_json::from_str(&request).expect("request"))
+            .collect();
+        assert_eq!(actual.len(), operations.len());
+        for (request, op) in actual.iter().zip(operations) {
+            assert_eq!(request["op"], op);
+            assert_eq!(request["args"], json!({}));
+        }
     }
 
     #[test]

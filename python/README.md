@@ -2,9 +2,10 @@
 
 This package is the **Python client SDK** for CCCC daemon (Daemon IPC v1).
 
-CCCC 0.4.54 reports when a saved conversation was not resumed through two
-optional Actor fields. Message writes reject unknown arguments from CCCC
-0.4.53 onward. See the [0.4.54 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0454_MIGRATION.md).
+0.4.55 adds Backlog sources to task helpers and aligns with the daemon's
+Backlog, task and delivery contracts. Coordination-note helpers are removed;
+callers must migrate. See the [0.4.55 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0455_MIGRATION.md),
+including direct upgrades from 0.4.47. The SDK adds no automatic retry.
 
 ## Relationship to CCCC core
 
@@ -153,12 +154,6 @@ projection cost. `task_list` supports exact batches, filters, atomic status
 pages, and pagination. Legacy `group_space_sync` is read-only status; use
 explicit ingest/source operations for mutations.
 
-Add a coordination note to shared context:
-
-```bash
-python examples/context_add_note.py --group g_xxx --kind decision --content "Promote this path"
-```
-
 Cross-group send:
 
 ```bash
@@ -219,11 +214,11 @@ preview = c.capability_allowlist_validate(
 # Group Space / Notebook status
 space = c.group_space_status(group_id="g_xxx")
 
-# Context v3: add a compact shared decision or handoff
-c.context_sync(
+# Context v3: update the shared collaboration brief
+c.coordination_brief_update(
     group_id="g_xxx",
     by="user",
-    ops=[{"op": "coordination.note.add", "kind": "decision", "summary": "Use the simpler path"}],
+    current_focus="Review the release candidate",
 )
 ```
 
@@ -414,7 +409,7 @@ transport contract. See `spec/ADAPTATION_PLAN.md` for the exact boundary.
 
 ## CCCC compatibility
 
-All three SDK package versions target CCCC 0.4.54. `spec/core.json` pins the
+All three SDK package versions target CCCC 0.4.55. `spec/core.json` pins the
 reviewed core revision. See the
 [0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon

@@ -40,7 +40,6 @@ import type {
   GroupAutomationResetBaselineOptions,
   ContextSyncOptions,
   CoordinationBriefUpdateOptions,
-  CoordinationNoteAddOptions,
   TaskCreateOptions,
   TaskUpdateOptions,
   TaskMoveOptions,
@@ -268,6 +267,15 @@ export class CCCCClient {
       'inbox_read',
       'inbox_summary',
       'context_get',
+      'backlog_get',
+      'backlog_use',
+      'backlog_create',
+      'backlog_exclude',
+      'backlog_add',
+      'backlog_edit',
+      'backlog_move',
+      'backlog_close',
+      'backlog_promote',
       'context_sync',
       'message_deliver',
       'message_history',
@@ -975,15 +983,6 @@ export class CCCCClient {
     }), options.by, options.dryRun);
   }
 
-  async coordinationNoteAdd(options: CoordinationNoteAddOptions): Promise<Record<string, unknown>> {
-    return this.contextOp(options.groupId, compactRecord({
-      op: 'coordination.note.add',
-      kind: options.kind,
-      summary: options.summary,
-      task_id: options.taskId,
-    }), options.by, options.dryRun);
-  }
-
   async taskCreate(options: TaskCreateOptions): Promise<Record<string, unknown>> {
     return this.contextOp(options.groupId, compactRecord({
       op: 'task.create',
@@ -999,6 +998,7 @@ export class CCCCClient {
       task_type: options.taskType,
       notes: options.notes,
       checklist: options.checklist,
+      source: options.source,
     }), options.by, options.dryRun);
   }
 
@@ -1016,6 +1016,7 @@ export class CCCCClient {
       handoff_to: options.handoffTo,
       notes: options.notes,
       checklist: options.checklist,
+      source: options.source,
     }), options.by, options.dryRun);
   }
 

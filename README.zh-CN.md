@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 官方客户端 SDK
 
-0.4.54 为“保存的对话未恢复”补上 TypeScript 读取字段，并同步当前 daemon 契约。Python、TypeScript 和 Rust 保留成员结果中的开放字段；会话选择规则没有变。从 CCCC 0.4.53 起，通用消息写入调用须使用操作接受的参数。[0.4.54 迁移说明（英文）](spec/SDK_0454_MIGRATION.md) · [此前的迁移说明（英文）](spec/SDK_0451_MIGRATION.md) · [适配范围（英文）](spec/ADAPTATION_PLAN.md)。
+0.4.55 为 Python 和 TypeScript 任务方法加入 Backlog 来源，并让三种客户端对齐 daemon 的 Backlog、任务、投递和上下文契约。协作记录的方法和记录列表字段随 daemon 功能一起移除；使用它们的调用方需要迁移，此前保存的记录仍留在 daemon 的上下文文件里。SDK 不增加自动恢复或重试。[0.4.55 迁移说明（英文）](spec/SDK_0455_MIGRATION.md) · [此前的迁移说明（英文）](spec/SDK_0451_MIGRATION.md) · [适配范围（英文）](spec/ADAPTATION_PLAN.md)。
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.54"
+cccc-sdk = "0.4.55"
 ```
 
 Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提供通用
@@ -103,7 +103,7 @@ Rust 客户端会自动发现 `CCCC_HOME` 下的 Unix Socket/TCP daemon，并提
 ## 版本策略与兼容性
 
 SDK 发布跟随 daemon 合约，而不是硬匹配 daemon 版本号：
-- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.54**。`spec/core.json` 记录用于契约验证的本体发布版本。
+- Python、TypeScript/npm 和 Rust SDK 统一使用对应本体的版本号；本版面向 **0.4.55**。`spec/core.json` 记录用于契约验证的本体发布版本。
 - 运行时兼容请用 `assert_compatible(...)` 指定所需 capability/op。
 
 我们保证兼容性的手段是“契约/能力”，而不是字符串版本号硬匹配：

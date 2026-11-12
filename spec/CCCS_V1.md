@@ -479,6 +479,11 @@ data: {
   pending for normal recovery. A native rejection or a legacy failed receipt
   without that evidence MUST NOT automatically retry. This flag never permits
   replay after `accepted`, `ambiguous` or `withdrawn`.
+- A daemon-managed runtime that retries a failed turn on its own MAY record the
+  final failure with `retryable=false` once that bounded retry budget is spent.
+  Automatic delivery MUST NOT start that delivery again, including after an
+  Actor or daemon restart; an explicit delivery request MAY still retry it. A
+  failed record without the flag keeps its existing recovery.
 - Eligible native pending work MUST remain recoverable beyond an in-memory
   queue or startup query page. The delivery owner MUST continue bounded ledger
   refill as capacity becomes available, without requiring another message,
@@ -764,6 +769,11 @@ role assignment; consumers derive current roles from the Group's Actor list.
 
 ### 13.3 Context Profile (optional)
 - `context.sync` (implementation-defined ops)
+
+Repository-backlog operations may use this event with a `backlog` file snapshot
+reference and `backlog.*` changes. They do not invent a Context version or embed
+the Markdown content; see the daemon IPC backlog contract. A Context-only refresh
+does not reload this external file.
 
 ## 14. Examples
 

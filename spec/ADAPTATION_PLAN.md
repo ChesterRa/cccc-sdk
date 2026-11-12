@@ -1,7 +1,7 @@
 # CCCC SDK adaptation boundary
 
-Target: CCCC **0.4.54**, with its release revision recorded in [core.json](core.json).
-Python, TypeScript/npm and Rust packages all use **0.4.54**. Publication is a
+Target: CCCC **0.4.55**, with its release revision recorded in [core.json](core.json).
+Python, TypeScript/npm and Rust packages all use **0.4.55**. Publication is a
 separate explicit action; a source checkout or candidate artifact is not a
 registry release.
 
@@ -11,6 +11,22 @@ CCCC owns the native daemon, shared state and authorization. These are three
 independent IPC v1 client libraries, not additional daemons. The four mirrored
 standards (CCCS, daemon IPC, context operations and Connect) are authoritative.
 SDK-owned notes are not copied over by spec synchronization.
+
+## 0.4.55 alignment
+
+Python `coordination_note_add`, TypeScript `coordinationNoteAdd` and its
+options type, the obsolete note-list result fields, and the note-writing
+example are removed with the daemon feature. Generic `context_sync` still
+passes operations through; the retired operation is rejected by the daemon.
+Stored old notes are retained in context files. The shared brief remains
+available through its existing update helper.
+
+Exact history reads pass through the daemon's conditional rule preamble;
+the SDK adds no frequency tracking. Python and TypeScript task helpers accept
+a Backlog source; generic calls expose the Backlog operations in all three
+languages. The daemon owns file hashes, permissions and delivery retry policy.
+See [migration guidance](SDK_0455_MIGRATION.md). The acceptance records below
+describe their named historical versions rather than the current candidate.
 
 ## Included alignment
 

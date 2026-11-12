@@ -1,6 +1,6 @@
 # CCCC SDK — CCCC 公式クライアント SDK
 
-0.4.54 は、保存された会話を再開しなかった場合の TypeScript 読み取りフィールドを追加し、現在の daemon 契約に同期します。Python・TypeScript・Rust はメンバーの結果に含まれる追加フィールドを保持します。会話の選択方法は変わりません。CCCC 0.4.53 以降、汎用のメッセージ書き込みには操作が受け付ける引数を使ってください。[0.4.54 移行ガイド（英語）](spec/SDK_0454_MIGRATION.md) · [以前の移行ガイド（英語）](spec/SDK_0451_MIGRATION.md) · [対応範囲（英語）](spec/ADAPTATION_PLAN.md)。
+0.4.55 は Python と TypeScript のタスクメソッドにバックログの参照元を追加し、3 言語のクライアントを daemon のバックログ、タスク、配信、コンテキスト契約に合わせます。連携メモのメソッドとメモ一覧フィールドは daemon 側の機能とともに削除されます。利用している呼び出し元には移行が必要ですが、保存済みのメモは daemon のコンテキストファイルに残ります。SDK は自動復旧や再試行を追加しません。[0.4.55 移行ガイド（英語）](spec/SDK_0455_MIGRATION.md) · [以前の移行ガイド（英語）](spec/SDK_0451_MIGRATION.md) · [対応範囲（英語）](spec/ADAPTATION_PLAN.md)。
 
 [English](README.md) | [中文](README.zh-CN.md) | **日本語**
 
@@ -92,7 +92,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.54"
+cccc-sdk = "0.4.55"
 ```
 
 Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検出し、
@@ -104,7 +104,7 @@ Rust クライアントは `CCCC_HOME` の Unix Socket/TCP daemon を自動検�
 ## バージョニングと互換性
 
 SDK リリースは daemon のバージョン文字列ではなく contract に追従します：
-- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.54** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
+- Python・TypeScript/npm・Rust SDK は対応する CCCC 本体と同じバージョンを使います。この版は **0.4.55** 向けです。`spec/core.json` は契約検証に使う本体のリリース版を記録しています。
 - 実行時互換性は `assert_compatible(...)` で必要な capability/op を指定して確認します。
 
 互換性は “契約/能力” で保証し、バージョン文字列の厳密一致には依存しません：

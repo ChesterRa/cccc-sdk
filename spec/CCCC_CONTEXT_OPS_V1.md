@@ -14,7 +14,7 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** ar
 ## 1. Overview
 
 `context_sync` applies a batch of small operations to a group's context v3 storage:
-- `coordination` = shared control plane (`brief`, recent notes)
+- `coordination` = shared control plane (`brief`)
 - `tasks` = shared dispatch truth
 - `agent_states` = per-actor short-term working memory
 - `meta` = restricted projection-support metadata
@@ -102,23 +102,9 @@ Notes:
 - Partial patch: only provided fields are updated. A provided `constraints` replaces the whole list.
 - Daemon sets `updated_by` and `updated_at` automatically.
 
-#### `coordination.note.add`
-
-```ts
-{
-  op: "coordination.note.add"
-  kind: "decision" | "handoff"
-  summary: string
-  task_id?: string | null
-}
-```
-
-Permission: any actor.
-
-Notes:
-- Used for compact recent decisions / handoffs.
-- Daemon keeps only the newest bounded slice in context.
-- This operation does not implicitly copy the note into daily or stable memory.
+Coordination notes (`coordination.note.add`, stored as `recent_decisions` and
+`recent_handoffs`) were removed; the op is rejected as unknown. Notes an older
+context file already holds stay in that file unchanged and are never returned.
 
 ### 3.2 Tasks
 
@@ -148,6 +134,36 @@ type TaskType =
   | "standard"
   | "optimization"
 ```
+
+Task source references are optional metadata:
+
+```ts
+type BacklogSource = { scope_key: string; path: string; entry_id: string }
+```
+
+`path` MUST be a normalized workspace-relative path without traversal. `entry_id`
+MUST contain exactly 12 lowercase hexadecimal characters. `scope_key` MUST be
+nonempty. Other source fields are rejected. A source reference does not grant
+file access, read the file, or write backlog content. The referenced file or
+entry may later disappear; clients MUST show a missing source rather than
+silently matching another entry by title.
+
+`ever_executed` is daemon-owned, monotonic execution history. Entering `active`
+or `done` through create, move, or restore records it; clients cannot set or
+clear it. Returning to `planned` does not make executed work deletable. Older
+records which had already returned to planned before this marker existed have
+no reconstructible execution history; no history is invented for them.
+
+Reads of tasks with a nonempty `blocked_by` include read-only `open_blocked_by`:
+the stored `blocked_by` subset whose referenced tasks are not completed.
+A dependency is completed only in `done`, or `archived` with `archived_from=done`.
+Archiving unfinished work, or an archive without a known prior status, does not
+release its dependents. Missing references remain unresolved. This is computed
+from the full task snapshot before filtering or
+paging; completing a dependency does not rewrite the dependent task or its
+revision, and reopening it makes it block again. Explicit `waiting_on=actor` or
+`external` remains blocked independently. Clients MUST edit `blocked_by`, not
+this projection; `task.create` and `task.update` ignore `open_blocked_by` input.
 
 Every task read exposes a daemon-owned unsigned `rev`. Existing task files with
 no stored revision read as `rev: 0` without being rewritten; new tasks start at
@@ -191,6 +207,7 @@ that bypass its storage lock and metadata.
   task_type?: TaskType
   notes?: string
   checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
+  source?: BacklogSource | null
   client_request_id?: string
   parent_ref?: string
   blocked_by_refs?: string[]
@@ -201,6 +218,8 @@ Permission: any actor.
 
 Rules:
 - `title` is required.
+- `source` is optional. A null source has no association; non-null references are
+  validated as described above. This operation never changes the source file.
 - The daemon assigns the next unused `T<number>` ID. Clients MUST use the assigned
   ID from authoritative task reads, or from the operation's change entry
   (`task_id`, see §6), rather than infer it from the current task count.
@@ -241,12 +260,16 @@ Rules:
   task_type?: TaskType
   notes?: string
   checklist?: Array<{ id?: string; text: string; status?: ChecklistStatus }>
+  source?: BacklogSource | null
 }
 ```
 
 Permission: assignee / handoff target / foreman / user. A peer MAY also claim a
 planned or active task that has neither an assignee nor a handoff target by
 setting `assignee` to itself in this update.
+
+Omitted `source` preserves the existing association; null removes it. Setting a
+source follows the same task authorization and revision guard as other fields.
 
 Rules:
 - Partial patch: omitted editable fields stay unchanged, and each provided field replaces its stored value whole. `notes` is not appended to, and `checklist` is not merged item by item.
@@ -436,6 +459,6 @@ Curated trigger allowlist:
 |------|------------|
 | `user` | All ops |
 | `foreman` | All ops except changing another actor's `agent_state` |
-| `peer` | `coordination.note.add`, `task.create`, `task.update` (own assigned / handed-off), `task.move` (own assigned / handed-off), `task.restore` (own assigned / handed-off), `task.delete` (own assigned / handed-off), `agent_state.update` (self), `agent_state.clear` (self) |
+| `peer` | `task.create`, `task.update` (own assigned / handed-off), `task.move` (own assigned / handed-off), `task.restore` (own assigned / handed-off), `task.delete` (own assigned / handed-off), `agent_state.update` (self), `agent_state.clear` (self) |
 
 Permission checks use `context_sync.args.by`.

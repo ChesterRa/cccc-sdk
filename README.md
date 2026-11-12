@@ -1,10 +1,11 @@
 # CCCC SDK — Official Client SDKs for CCCC
 
-0.4.54 adds TypeScript fields for a saved conversation that was not resumed
-and mirrors the daemon's current contracts. Python, TypeScript and Rust keep
-the daemon's open Actor result fields; conversation selection is unchanged.
-Generic message writes must use accepted arguments from CCCC 0.4.53 onward.
-[0.4.54 migration](spec/SDK_0454_MIGRATION.md) ·
+0.4.55 adds Backlog sources to Python and TypeScript task helpers and aligns
+all three clients with the daemon's Backlog, task, delivery and context contracts.
+The coordination-note helpers and note-list fields are removed with the daemon
+feature. This is a breaking change for their callers; stored old notes remain
+in the daemon's context file. The SDK adds no automatic recovery or retry.
+[0.4.55 migration](spec/SDK_0455_MIGRATION.md) ·
 [Earlier migrations](spec/SDK_0451_MIGRATION.md) ·
 [Scope](spec/ADAPTATION_PLAN.md) · [Release procedure](RELEASING.md).
 
@@ -101,7 +102,7 @@ python python/examples/send.py --group g_xxx --text "FYI" --mode mail
 
 ```toml
 [dependencies]
-cccc-sdk = "0.4.54"
+cccc-sdk = "0.4.55"
 ```
 
 ```rust
@@ -125,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 SDK releases follow daemon contracts, not strict daemon version strings:
 - Python, TypeScript/npm and Rust SDK releases all match the supported CCCC
-  release number; this version targets **0.4.54**. `spec/core.json` records
+  release number; this version targets **0.4.55**. `spec/core.json` records
   the core release revision used for contract validation.
 - Use `assert_compatible(...)` with required capabilities/ops for runtime gating.
 

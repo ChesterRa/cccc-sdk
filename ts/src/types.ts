@@ -1457,11 +1457,11 @@ export interface CoordinationBriefUpdateOptions extends ContextWrapperOptions {
   projectBriefStale?: boolean;
 }
 
-/** Add a compact coordination note. */
-export interface CoordinationNoteAddOptions extends ContextWrapperOptions {
-  kind: 'decision' | 'handoff';
-  summary: string;
-  taskId?: string | null;
+/** A reference into a workspace Markdown file; it does not grant file access. */
+export interface BacklogSource {
+  scope_key: string;
+  path: string;
+  entry_id: string;
 }
 
 /** Create/update/move/restore task options for Context Ops v3. */
@@ -1477,6 +1477,7 @@ export interface TaskCreateOptions extends ContextWrapperOptions {
   handoffTo?: string | null;
   taskType?: 'free' | 'standard' | 'optimization';
   notes?: string;
+  source?: BacklogSource | null;
   checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
 }
 
@@ -1491,6 +1492,7 @@ export interface TaskUpdateOptions extends ContextWrapperOptions {
   waitingOn?: 'none' | 'user' | 'actor' | 'external';
   handoffTo?: string | null;
   notes?: string;
+  source?: BacklogSource | null;
   checklist?: Array<{ id?: string; text: string; status?: 'pending' | 'in_progress' | 'done' }>;
 }
 
@@ -1724,8 +1726,6 @@ export interface ContextGetResult {
       updated_at: string;
     };
     tasks?: Array<Record<string, unknown>>;
-    recent_decisions?: Array<Record<string, unknown>>;
-    recent_handoffs?: Array<Record<string, unknown>>;
   };
   agent_states: Array<Record<string, unknown>>;
   actors_runtime?: Array<Record<string, unknown>>;

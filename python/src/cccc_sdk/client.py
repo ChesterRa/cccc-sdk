@@ -134,6 +134,15 @@ class CCCCClient(
             "inbox_read",
             "inbox_summary",
             "context_get",
+            "backlog_get",
+            "backlog_use",
+            "backlog_create",
+            "backlog_exclude",
+            "backlog_add",
+            "backlog_edit",
+            "backlog_move",
+            "backlog_close",
+            "backlog_promote",
             "context_sync",
             "message_deliver",
             "message_history",
@@ -811,19 +820,6 @@ class CCCCClient(
         )
         return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
 
-    def coordination_note_add(
-        self,
-        *,
-        group_id: str,
-        kind: str,
-        summary: str,
-        by: str = "system",
-        task_id: Optional[str] = None,
-        dry_run: bool = False,
-    ) -> Dict[str, Any]:
-        op = _compact({"op": "coordination.note.add", "kind": str(kind), "summary": str(summary), "task_id": task_id})
-        return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
-
     def task_create(
         self,
         *,
@@ -842,6 +838,7 @@ class CCCCClient(
         task_type: Optional[str] = None,
         notes: Optional[str] = None,
         checklist: Optional[List[Dict[str, Any]]] = None,
+        source: Any = ...,
     ) -> Dict[str, Any]:
         op = _compact(
             {
@@ -860,6 +857,8 @@ class CCCCClient(
                 "checklist": [dict(x) for x in checklist] if checklist is not None else None,
             }
         )
+        if source is not Ellipsis:
+            op["source"] = source
         return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
 
     def task_update(
@@ -879,6 +878,7 @@ class CCCCClient(
         handoff_to: Optional[str] = None,
         notes: Optional[str] = None,
         checklist: Optional[List[Dict[str, Any]]] = None,
+        source: Any = ...,
     ) -> Dict[str, Any]:
         op = _compact(
             {
@@ -896,6 +896,8 @@ class CCCCClient(
                 "checklist": [dict(x) for x in checklist] if checklist is not None else None,
             }
         )
+        if source is not Ellipsis:
+            op["source"] = source
         return self._context_op(group_id=group_id, by=by, dry_run=dry_run, op=op)
 
     def task_move(

@@ -2,9 +2,11 @@
 
 TypeScript/Node.js client for the CCCC daemon (IPC v1).
 
-CCCC 0.4.54 reports when a saved conversation was not resumed through two
-optional Actor fields. Message writes reject unknown arguments from CCCC
-0.4.53 onward. See the [0.4.54 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0454_MIGRATION.md).
+0.4.55 adds Backlog sources to task helpers and aligns with the daemon's
+Backlog, task and delivery contracts. Coordination-note helpers and note-list
+result fields are removed; callers must migrate. See the
+[0.4.55 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0455_MIGRATION.md),
+including direct upgrades from 0.4.47. The SDK adds no automatic retry.
 
 ## Relationship to CCCC core
 
@@ -196,12 +198,10 @@ const space = await client.groupSpaceStatus({
   groupId,
 });
 
-await client.contextSync({
+await client.coordinationBriefUpdate({
   groupId,
   by: 'user',
-  ops: [
-    { op: 'coordination.note.add', kind: 'decision', summary: 'Use the simpler path' },
-  ],
+  currentFocus: 'Review the release candidate',
 });
 ```
 
@@ -418,7 +418,7 @@ Apache-2.0
 
 ## CCCC compatibility
 
-All three SDK package versions target CCCC 0.4.54. `spec/core.json` pins the
+All three SDK package versions target CCCC 0.4.55. `spec/core.json` pins the
 reviewed core revision. See the
 [0.4.47 migration guide](https://github.com/ChesterRa/cccc-sdk/blob/main/spec/SDK_0447_MIGRATION.md)
 for exact message reads, Inbox summaries, removed Voice operations and daemon

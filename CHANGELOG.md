@@ -3,6 +3,53 @@
 The Python, npm and Rust packages share the supported CCCC release number.
 Equal versions do not imply identical helper coverage; all three use IPC v1.
 
+## Unreleased
+
+## [0.4.55]
+
+This version aligns with the CCCC 0.4.55 contracts. See the
+[migration guide](spec/SDK_0455_MIGRATION.md) for removed helpers and direct
+upgrades from 0.4.47. The reviewed core revision is recorded in `spec/core.json`.
+
+- Remove Python `coordination_note_add`, TypeScript `coordinationNoteAdd` and
+  `CoordinationNoteAddOptions`, and TypeScript `ContextGetResult`'s `recent_decisions` and
+  `recent_handoffs` fields. The daemon no longer supports `coordination.note.add` or
+  returns coordination notes. Generic context operations remain available,
+  but callers must remove that retired operation; it fails as unknown rather
+  than being redirected. Old stored notes stay in the daemon's context file.
+  Examples now use the retained coordination-brief update helper. This is a
+  breaking change for callers of the removed helpers or result fields.
+- Exact native message reads follow the daemon's conditional Group-rule
+  preamble: a member's later own reads may return just the receiving-context
+  header and message. SDK helpers pass through `delivery_text` unchanged and
+  add no rule cache or delivery acknowledgment.
+
+- Python and TypeScript task create/update helpers accept a workspace backlog
+  `source`. Omitting it preserves the association on update; explicit null clears
+  it. TypeScript exports `BacklogSource`. These fields require the corresponding
+  daemon implementation; they do not negotiate support with older daemons.
+- Repository-backlog operations use generic `call` / `call_raw` (`callRaw` in
+  TypeScript) in all three SDKs.
+  Their scope, file hash, partial-write and retry rules remain daemon-owned.
+- Compatibility checks recognize the backlog operations through audited empty
+  requests. Every such request requires a Group before it can read or write;
+  probing support does not create a backlog or run work.
+
+- Task reads preserve the daemon's read-only `open_blocked_by` projection of
+  unresolved dependencies. The stored `blocked_by` relationship is unchanged;
+  missing dependencies remain unresolved. A running headless process without an
+  authoritative turn observation reports `unknown`, with no invented idle time.
+- Mirror safe connector creation and explicit credential rotation, and the Dots
+  completed-wake diagnostics. These results use the existing generic JSON calls;
+  no SDK polling, recovery policy or retry is added.
+- Mirror failed-delivery receipts with explicit `retryable: false`: automatic
+  dispatch leaves an exhausted retry budget closed, while an explicit
+  `message_deliver` request may retry it. Receipts without the flag keep their
+  existing daemon recovery behavior; the SDK adds no retry policy.
+- Connect sends reject unknown top-level arguments before acceptance and file
+  handling. Generic calls use the canonical `client_id` and qualified destination;
+  internal reply references remain owned by the daemon.
+
 ## [0.4.54]
 
 This version targets the CCCC 0.4.54 revision in `spec/core.json`.
